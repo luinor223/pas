@@ -1,4 +1,4 @@
-# PAS — Business Document Management System
+# PAS - Business Document Management System
 
 A centralized system for managing the **lifecycle of business documents** at Company ABC, a logistics provider offering port operations, transportation, warehousing, and cargo handling services.
 
