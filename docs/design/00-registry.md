@@ -37,7 +37,7 @@ English enum values are canonical (schema CHECKs, events, API). Figma badge text
 
 **CONTRACT / ADDENDUM** (requirement state machine + D14 deviations a/b/e):
 `DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, SIGNING, SIGNED, ACTIVE, EXPIRED, REJECTED, REVISION_REQUESTED, CANCELLED`
-— display: `ACTIVE` ⇢ "Effective".
+— display: 1:1 with enum names.
 
 **PRICE_LIST** (per version, not per list):
 `DRAFT, SUBMITTED, APPROVED, EFFECTIVE, SUPERSEDED, EXPIRED, REJECTED`
@@ -45,14 +45,14 @@ English enum values are canonical (schema CHECKs, events, API). Figma badge text
 
 **PAYMENT_STATEMENT** (+ `CANCELLED` per D14c):
 `DRAFT, CALCULATED, RECONCILED, SUBMITTED, APPROVED, SIGNING, SIGNED, ISSUED, REJECTED, REVISION, CANCELLED`
-— display: `SUBMITTED` ⇢ "Under Review", `ISSUED` ⇢ "Effective".
+— display: `SUBMITTED` ⇢ "Under Review".
 
 **SIGNING_SESSION:** `PENDING_SEND, SIGNING, SIGNED, FAILED, CANCELLED` — display: `PENDING_SEND` ⇢ "Pending send".
 
 **WORKFLOW_INSTANCE:** `IN_PROGRESS, APPROVED, REJECTED, REVISION_REQUESTED, CANCELLED`.
 **WORKFLOW_STEP:** `PENDING, ACTIVE, APPROVED, REJECTED, REVISION_REQUESTED, SKIPPED, CANCELLED` (`SKIPPED` only by unmet step condition at instance creation — not a human skip, APR-02 intact).
 **OPERATION_PERIOD:** `OPEN, LOCKED`.
-**CUSTOMER:** `ACTIVE, SUSPENDED` — ⚠ Figma customer list reuses document badges (Draft/Effective/…); requirement 4.1 wins: customers only activate/suspend.
+**CUSTOMER:** `ACTIVE, SUSPENDED` (4.1: customers only activate/suspend) — display: 1:1 with enum names (`Badge/Active` / `Badge/Suspended`).
 **USER:** `ACTIVE, DISABLED`.
 **PRIORITY (workflow instance):** `LOW, NORMAL, HIGH, URGENT` (Figma approvals inbox).
 
@@ -195,3 +195,4 @@ Status badge (label mapping §3) · workflow progress stepper (doc detail right 
 - 2026-07-24 — seeded from design-plan.md §4–5 + Figma field harvest (16 screens). Affected artifacts: none yet.
 - 2026-07-24 — Phase 2 drafting delta: `document.expiring` payload +`owner_user_id`; `operations.period_locked` payload +`recipient_role`; recipient-resolution note; API matrix +notification→identity. Affected artifacts: db-notification.md (already consistent).
 - 2026-07-24 — Phase 2 critic round 1 fixes: event payloads +`requested_by`/`document_no`/`signer_name` (notification addressing); dropped `esign.session_started` event (no consumer need); workflow cancel endpoint (§5); pricing effective-lookup params + precedence + historical semantics (§5); predecessor-truncation footnote ³ (PRC-03×PRC-04); submit/cancel wiring footnote ¹; addendum-effect footnote ²; statement deviations footnote ⁴ (D14f); signing-session max-attempts→FAILED; JWT claims + business-key exceptions (§6); CUS numbering (§2). Affected artifacts: all db-* (verified in round 2).
+- 2026-07-24 — Figma corrected to match the requirement on the status-vocabulary and e-sign-as-step discrepancies this registry had recorded (plan §1.4): contract `ACTIVE` now displays "Active" (not "Effective"); payment statement `ISSUED` now displays "Issued" (not "Effective"); customer list now uses `Badge/Active`/`Badge/Suspended` directly (not document badges); Administration's workflow builder no longer renders e-signature as a numbered approval step (now a separate "Post-approval action" block). §3 display-label notes updated accordingly. Affected artifacts: db-contract.md, db-billing.md, db-workflow.md (updated in the same pass).

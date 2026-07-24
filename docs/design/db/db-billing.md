@@ -27,7 +27,7 @@ Schema `billing`, owned by billing-service — the integration hub. Diagram: [db
 
 ## Figma adoptions / discrepancies
 - Adopted: PMT numbering, period display, reconciliation panel semantics, metadata card (current step/assignee come from workflow sync query, not stored here), "Add line" ⇒ MANUAL source, Adjustments tab.
-- Discrepancy: badge "Effective" = enum `ISSUED`; "Under Review" = `SUBMITTED` (registry §3).
+- Discrepancy: badge "Under Review" = enum `SUBMITTED` (registry §3).
 
 ## Constraints & indexes (not shown in the diagram)
 - UNIQUE: `payment_statement.statement_no`, `statement_line (statement_id, line_no)`.

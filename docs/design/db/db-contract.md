@@ -3,7 +3,7 @@
 Schema `contract`, owned by contract-service (customers + contracts + addenda merged — same owner dept, strong data affinity; plan §3). Diagram: [db-contract.drawio](db-contract.drawio).
 
 ## Key decisions
-- **Customer status is `ACTIVE|SUSPENDED` only** (4.1 "tạm ngưng"). ⚠ Figma customer list reuses document badges (Draft/Effective/Under Review/Expired) — requirement wins; registry §3 records the discrepancy.
+- **Customer status is `ACTIVE|SUSPENDED` only** (4.1 "tạm ngưng"), displayed 1:1 via `Badge/Active`/`Badge/Suspended` (registry §3).
 - **`customer_contact` child table**: Figma has a "Contacts" tab + primary-contact card; covers 4.1 "thông tin liên hệ" without stuffing columns into `customer`.
 - **Contract commercial fields from Figma** (all displayed on Contract Detail): `service_group`, `currency`, `auto_renewal`, `billing_cycle`, `vat_rate` (feeds statement tax, PAY snapshot source), `penalty_terms`, `service_clause`. Each is one plain column — adopted per plan precedence rule.
 - **Editing guard**: `version int` optimistic lock; CTR-01 (edit only in DRAFT / REVISION_REQUESTED) is an app-level state check against registry §9 — a DB CHECK can't see the transition.
@@ -30,7 +30,7 @@ Schema `contract`, owned by contract-service (customers + contracts + addenda me
 
 ## Figma adoptions / discrepancies
 - Adopted: `short_name`, `segment`, representative position, contacts tab, commercial term fields, owner display (= `created_by`), record-metadata card fields (created/updated/version).
-- Discrepancies: customer status badges (above); "Outstanding balance / avg payment delay" cards are computed displays from billing data — **no receivables schema** (plan 4.5 exclusion).
+- Discrepancy: "Outstanding balance / avg payment delay" cards are computed displays from billing data — **no receivables schema** (plan 4.5 exclusion).
 
 ## Constraints & indexes (not shown in the diagram)
 - UNIQUE: `customer.code`, `contract.contract_no`, `addendum.addendum_no`.

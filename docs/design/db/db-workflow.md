@@ -32,7 +32,7 @@ Schema `workflow`, owned by workflow-service — the configurable approval engin
 
 ## Figma adoptions / discrepancies
 - Adopted: step names, SLA, condition, priority, inbox tabs (Assigned to me / Submitted by me / Team queue / Completed — all queries over these tables).
-- Discrepancies: "E-signature" as builder step (mapped to config, above); drag-reorder = `step_order` updates on a **new** definition version.
+- Discrepancy: drag-reorder = `step_order` updates on a **new** definition version.
 
 ## Constraints & indexes (not shown in the diagram)
 - Partial UNIQUE: `workflow_definition (document_type_id) WHERE is_active`; `workflow_instance (document_type_code, document_id) WHERE status = 'IN_PROGRESS'` (D4).
