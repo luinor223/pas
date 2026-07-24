@@ -17,3 +17,7 @@ Schema `notification`, owned by notification-service — pure event consumer (4.
 | 4.9 async from other services | RabbitMQ consumer; no sync coupling to producers |
 | 4.9 view + mark read | list endpoint + `read_at` |
 | APR-07 notification failure ≠ business failure | outbox at producers + redelivery + `processed_event` dedup |
+
+## Constraints & indexes (not shown in the diagram)
+- INDEX `(recipient_user_id, read_at)` — inbox list + unread count.
+- `category` CHECK vs registry §8 values; `title`/`body` are write-time snapshots.

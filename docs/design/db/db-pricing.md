@@ -28,3 +28,9 @@ Schema `pricing`, owned by pricing-service. Diagram: [db-pricing.drawio](db-pric
 ## Figma adoptions / discrepancies
 - Adopted: PRC numbering, per-row version display (`v1..v4`), items count (computed), customer+service-group listing, catalog seeds (Container lift on/off · TEU; Storage beyond free time · day; Lashing & securing · TEU; Reefer monitoring · day; Documentation handling · set; Weighing (VGM) · TEU).
 - Discrepancy: badge "Under Review" = enum `SUBMITTED` (registry §3 label mapping).
+
+## Constraints & indexes (not shown in the diagram)
+- UNIQUE: `service_item.code`, `price_list.price_list_no`, `price_list_version (price_list_id, version_no)`, `price_line (version_id, service_item_id)`.
+- CHECK: ≥1 scope field on `price_list` (PRC-01); `valid_from <= valid_to` (PRC-02); `price_line.unit_price >= 0`; statuses vs registry §3.
+- EXCLUDE USING gist `(scope_key WITH =, daterange(valid_from, valid_to, '[]') WITH &&) WHERE status IN ('APPROVED','EFFECTIVE')` — PRC-03, needs `btree_gist`.
+- `price_list` scope columns frozen once a version exists (scope_key desync guard).

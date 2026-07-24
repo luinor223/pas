@@ -31,3 +31,10 @@ Schema `contract`, owned by contract-service (customers + contracts + addenda me
 ## Figma adoptions / discrepancies
 - Adopted: `short_name`, `segment`, representative position, contacts tab, commercial term fields, owner display (= `created_by`), record-metadata card fields (created/updated/version).
 - Discrepancies: customer status badges (above); "Outstanding balance / avg payment delay" cards are computed displays from billing data — **no receivables schema** (plan 4.5 exclusion).
+
+## Constraints & indexes (not shown in the diagram)
+- UNIQUE: `customer.code`, `contract.contract_no`, `addendum.addendum_no`.
+- CHECK: `contract.valid_from <= valid_to` (CTR-02); `contract.status` / `addendum.status` / `customer.status` vs registry §3 enums; `attachment.owner_type IN ('CONTRACT','ADDENDUM')`.
+- `attachment` is polymorphic (`owner_type` + `owner_id`, no FK) — one upload UI, two owner kinds.
+- Optimistic locking: `contract.version`, `addendum.version` (CTR-01 edit races).
+- Nullable by design: `short_name`, `segment`, `representative_position`, `description`, `penalty_terms`, `service_clause`, `new_valid_to`, `payment_term_override`, `last_*` timestamps.

@@ -24,3 +24,8 @@ Departments `SALES, LEGAL, ACCOUNTING, OPERATIONS, BOARD, IT`; roles `SALES_OFFI
 ## Figma adoptions / discrepancies
 - Adopted: `last_login_at`, user `status` badge (Active/Disabled), department + role columns.
 - None contradicting requirements.
+
+## Constraints & indexes (not shown in the diagram)
+- UNIQUE: `department.code`, `app_user.username`, `app_user.email`, `role.code`, `permission.code`.
+- Composite PKs: `user_role (user_id, role_id)`, `role_permission (role_id, permission_id)`.
+- `app_user.status` CHECK vs registry §3 USER enum; std cols per registry §6.

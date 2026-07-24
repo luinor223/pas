@@ -23,3 +23,10 @@ Schema `esign`, owned by esign-service — thin adapter to the external mock pro
 
 ## Figma adoptions
 `session_no` (SIG-seq), provider column, attempts, signer columns, tab counts (Active/Completed/Failed/Cancelled = status queries).
+
+## Constraints & indexes (not shown in the diagram)
+- UNIQUE: `signing_session.session_no`.
+- Partial UNIQUE: `signing_session (document_type_code, document_id) WHERE status IN ('PENDING_SEND','SIGNING')` — one active session per document.
+- `signing_callback_log.session_id` is nullable (unknown `provider_ref` callbacks are still logged); log carries its own `provider_ref`.
+- Optimistic locking: `signing_session.version` (callback races); status CHECK vs registry §3.
+- Snapshots (D7): `document_no`, `customer_name`, `requested_by_name`.

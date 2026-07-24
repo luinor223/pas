@@ -33,3 +33,10 @@ Schema `workflow`, owned by workflow-service — the configurable approval engin
 ## Figma adoptions / discrepancies
 - Adopted: step names, SLA, condition, priority, inbox tabs (Assigned to me / Submitted by me / Team queue / Completed — all queries over these tables).
 - Discrepancies: "E-signature" as builder step (mapped to config, above); drag-reorder = `step_order` updates on a **new** definition version.
+
+## Constraints & indexes (not shown in the diagram)
+- Partial UNIQUE: `workflow_definition (document_type_id) WHERE is_active`; `workflow_instance (document_type_code, document_id) WHERE status = 'IN_PROGRESS'` (D4).
+- UNIQUE: `workflow_definition (document_type_id, version_no)`, `workflow_step_definition (definition_id, step_order)`, `workflow_step_instance (instance_id, step_order)`, `document_type_config.code`.
+- CHECK: `workflow_action.action = 'APPROVE' OR (comment IS NOT NULL AND comment <> '')` (APR-03); statuses/priority vs registry §3.
+- Optimistic locking: `workflow_step_instance.version` (D5).
+- Snapshots (D7): instance `document_no`, `customer_name`, `document_value`, `requested_by_name`; step `name`, `approver_role`, `sla_hours`; `step_assignee.user_name`.

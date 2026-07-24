@@ -28,3 +28,10 @@ Schema `billing`, owned by billing-service — the integration hub. Diagram: [db
 ## Figma adoptions / discrepancies
 - Adopted: PMT numbering, period display, reconciliation panel semantics, metadata card (current step/assignee come from workflow sync query, not stored here), "Add line" ⇒ MANUAL source, Adjustments tab.
 - Discrepancy: badge "Effective" = enum `ISSUED`; "Under Review" = `SUBMITTED` (registry §3).
+
+## Constraints & indexes (not shown in the diagram)
+- UNIQUE: `payment_statement.statement_no`, `statement_line (statement_id, line_no)`.
+- CHECK: `total_amount >= 0` (PAY-04); `statement_line.source IN ('CALCULATED','MANUAL')`; statuses vs registry §3.
+- Self-FK: `adjusts_statement_id → payment_statement` (PAY-05 adjustments).
+- Optimistic locking: `payment_statement.version` (controlled edits, 4.6).
+- Snapshots (D7/PAY-03): `contract_no`, `customer_name`, `period_start/end`, `price_list_no` + `price_list_version_no`, `payment_term`, `vat_rate`; line `service_name`, `unit`, `unit_price`; `statement_line_volume.record_no`/`quantity`.

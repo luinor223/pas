@@ -20,3 +20,8 @@ Schema `operations`, owned by operations-service. Diagram: [db-operations.drawio
 ## Figma adoptions / discrepancies
 - Adopted: `record_no` (VOL-YYYY-seq), recorded-by display (= `created_by`), period filter, Open/Locked badges, unit/service examples.
 - Discrepancy: Figma list has no contract column — see decision above (detail view will show it).
+
+## Constraints & indexes (not shown in the diagram)
+- UNIQUE: `operation_period.period_code`, `volume_record.record_no`.
+- CHECK: `volume_record.quantity >= 0`; `operation_period.status IN ('OPEN','LOCKED')`.
+- Snapshots (D7): `customer_name`, `service_name`, `unit` — render lists without cross-service joins.
