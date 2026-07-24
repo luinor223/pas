@@ -22,7 +22,7 @@ Schema `billing`, owned by billing-service — the integration hub. Diagram: [db
 | PAY-02 | volumes only from LOCKED period; `statement_line_volume` trace |
 | PAY-03 | snapshot columns (above) |
 | PAY-04 | `CHECK total_amount >= 0` + required-lines app check at submit |
-| PAY-05 | immutability after APPROVED/SIGNED (app + §9); `adjusts_statement_id`; controlled cancel D14c, gated by `statement.cancel_approved` (JWT `permissions[]`, registry §6) |
+| PAY-05 | immutability after APPROVED/SIGNED (app + §9); `adjusts_statement_id`; controlled cancel D14c, gated by `statement:cancel_approved` (registry §6/§10) |
 | PAY-06 | send-e-sign transition only from APPROVED (§9) |
 | PAY-07 | SIGNING → REVISION on failed/cancelled callback (§9) |
 | 4.6 list of services, unit price, qty, amounts, tax, total | `statement_line` + statement totals |
