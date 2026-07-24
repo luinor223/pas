@@ -5,7 +5,7 @@ Schema `operations`, owned by operations-service. Diagram: [db-operations.drawio
 ## Key decisions
 - **Global monthly period** (`period_code 'YYYY-MM'`), one lock for all customers/contracts (plan 2.4 default). Simplest model satisfying 4.5; per-customer locking has no requirement backing.
 - **Lock = confirmation (PAY-02)**: a volume record has **no per-record status** — the period's `LOCKED` state is the "đã xác nhận/đối soát" signal billing checks. One mechanism instead of two.
-- **No unlock transition** (registry §9). Post-lock edits: permission `volume.edit_locked` + mandatory audit entry (4.5 "quyền đặc biệt"). Deliberately not schema-enforced — the service checks period status + permission.
+- **No unlock transition** (registry §9). Post-lock edits: permission `volume.edit_locked` + mandatory audit entry (4.5 "quyền đặc biệt"). Deliberately not schema-enforced — the service checks period status + permission (read from the caller's JWT `permissions[]` claim, registry §6 — no sync call to identity).
 - **`contract_id` required** on `volume_record` even though the Figma list omits the column: statements are per contract (PAY-01), so volume→contract mapping must be unambiguous at entry time, not inferred later. `customer_name`/`service_name`/`unit` snapshots make the Figma list renderable without cross-service joins (D7).
 - **Events**: emits `operations.period_locked` (direct publish — informational "statements can now be generated" notification, Figma; a lost one costs nothing). Consumes nothing → no processed_event.
 

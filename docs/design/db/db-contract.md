@@ -22,7 +22,7 @@ Schema `contract`, owned by contract-service (customers + contracts + addenda me
 | CTR-03 | no DRAFT→APPROVED transition in registry §9; flips only via `workflow.completed` |
 | CTR-04 | REJECTED→DRAFT only via explicit `revise` action (audit-logged) |
 | CTR-05 | scheduler flips APPROVED/SIGNED→ACTIVE at `valid_from` (D14d) |
-| CTR-06 | no DELETE endpoint for ACTIVE; controlled cancel needs `contract.cancel_active` (D14a) |
+| CTR-06 | no DELETE endpoint for ACTIVE; controlled cancel needs `contract.cancel_active` (JWT `permissions[]`, registry §6; D14a) |
 | CTR-07 | terms changes on APPROVED/ACTIVE → `addendum` row, contract row untouched |
 | 4.1 lookup by customer | `customer_id` FK here; price lists/statements queried cross-service by `customer_id` |
 | 4.2 attachments, renewal, cancel | `attachment`, `addendum(TERM_EXTENSION)`, cancel transitions |

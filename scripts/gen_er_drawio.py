@@ -85,7 +85,14 @@ SPECS = {
                 ("FK", "department_id uuid", "department"),
                 ("", "status text", None),
                 ("", "last_login_at timestamptz", None),
-            ] + STD_COLS),
+                ("", "created_at timestamptz", None),
+                # Only identity-service has app_user in-schema with audit/actor columns —
+                # everywhere else created_by/updated_by/actor_id are opaque cross-schema
+                # uuids (D7/D12, no FK). Here they're genuinely local: real FK to app_user.
+                ("FK", "created_by uuid", "app_user"),
+                ("", "updated_at timestamptz", None),
+                ("FK", "updated_by uuid", "app_user"),
+            ]),
             ("role", 40, 320, [
                 ("PK", "id uuid", None),
                 ("", "code text", None),
@@ -104,7 +111,25 @@ SPECS = {
                 ("PK,FK", "role_id uuid", "role"),
                 ("PK,FK", "permission_id uuid", "permission"),
             ]),
-            (AUDIT_LOG[0], 760, 140, AUDIT_LOG[1]),
+            ("audit_log", 760, 140, [
+                ("PK", "id uuid", None),
+                ("", "entity_type text", None),
+                ("", "entity_id uuid", None),
+                ("", "entity_no text", None),
+                ("", "action text", None),
+                # In every other service audit_log.actor_id is an opaque cross-schema
+                # uuid (it names an identity.app_user, D7/D12, no FK). Identity is the
+                # one schema where actor_id points at a table it actually owns.
+                ("FK", "actor_id uuid", "app_user"),
+                ("", "actor_name text", None),
+                ("", "actor_department text", None),
+                ("", "before_status text", None),
+                ("", "after_status text", None),
+                ("", "changes jsonb", None),
+                ("", "note text", None),
+                ("", "ip_address text", None),
+                ("", "created_at timestamptz", None),
+            ]),
         ],
         "ghosts": [],
     },

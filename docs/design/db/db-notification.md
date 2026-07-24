@@ -4,7 +4,7 @@ Schema `notification`, owned by notification-service — pure event consumer (4.
 
 ## Key decisions
 - **One table + dedup**: `notification` (per recipient) + `processed_event` (idempotent consumption, D6). Nothing else — notifications are not business documents, so no audit_log, no outbox, no versioning.
-- **Recipient resolution** per event type: assignee/requester user ids come straight from event payloads (`assignee_ids`, `requested_by`, `owner_user_id`); role-addressed events (`operations.period_locked` → ACCOUNTANTs) resolve via identity `GET /internal/users?role=` (§5 matrix). One event → N notification rows.
+- **Recipient resolution** per event type: assignee/requester user ids come straight from event payloads (`assignee_ids`, `requested_by`, `owner_user_id`); role-addressed events (`operations.period_locked` → ACCOUNTANTs) resolve via identity `GET /internal/users?role=` (§5 matrix; `status='ACTIVE'` users only, so disabled accounts are never sent a notification). One event → N notification rows.
 - **`category`** (`APPROVAL | ESIGN | EXPIRY | SYSTEM`) drives the Figma tab filters; `event_id` traces each row to its source event.
 - **Read state**: `read_at` timestamp (null = unread); "Mark all as read" = bulk UPDATE. Unread badge = `COUNT WHERE read_at IS NULL`.
 - **Figma "Preferences" button is out of scope**: per-user notification preferences have no requirement backing (4.9 lists fixed triggers) — recorded as a deliberate drop; revisit only if the team wants it.
