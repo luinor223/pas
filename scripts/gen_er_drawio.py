@@ -42,7 +42,9 @@ OUTBOX = ("outbox", [
     ("", "aggregate_id uuid", None),
     ("", "payload jsonb", None),
     ("", "created_at timestamptz", None),
+    ("", "claimed_at timestamptz", None),
     ("", "published_at timestamptz", None),
+    ("", "cancelled_at timestamptz", None),
     ("", "retry_count int", None),
 ])
 
@@ -306,16 +308,15 @@ SPECS = {
                 ("", "name text", None),
                 ("", "approver_role text", None),
                 ("", "sla_hours int", None),
-                ("", "condition_expr text", None),
             ]),
             ("workflow_instance", 400, 140, [
                 ("PK", "id uuid", None),
                 ("FK", "definition_id uuid", "workflow_definition"),
+                ("", "idempotency_key uuid", None),
                 ("", "document_type_code text", None),
                 ("", "document_id uuid", None),
                 ("", "document_no text", None),
                 ("", "customer_name text", None),
-                ("", "document_value numeric(18,2)", None),
                 ("", "priority text", None),
                 ("", "status text", None),
                 ("", "current_step_order int", None),
