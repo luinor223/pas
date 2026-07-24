@@ -35,31 +35,31 @@ STD_COLS = [
     ("", "updated_by uuid", None),
 ]
 
-AUDIT_LOG = ("audit_log", [
-    ("PK", "id uuid", None),
-    ("", "entity_type text", None),
-    ("", "entity_id uuid", None),
-    ("", "entity_no text", None),
-    ("", "action text", None),
-    ("", "actor_id uuid", None),
-    ("", "actor_name text", None),
-    ("", "actor_department text", None),
-    ("", "before_status text", None),
-    ("", "after_status text", None),
-    ("", "changes jsonb", None),
-    ("", "note text", None),
-    ("", "ip_address text", None),
-    ("", "created_at timestamptz", None),
-])
-
 OUTBOX = ("outbox", [
     ("PK", "id uuid", None),
     ("", "event_type text", None),
+    ("", "aggregate_type text", None),
+    ("", "aggregate_id uuid", None),
     ("", "payload jsonb", None),
     ("", "created_at timestamptz", None),
     ("", "published_at timestamptz", None),
     ("", "retry_count int", None),
 ])
+
+def status_history(x, y, owner_rows):
+    """Append-only transition log (D17). Domain data, not audit: business rules may
+    read it synchronously. One per owning schema; INSERT+SELECT only."""
+    return ("status_history", x, y, [("PK", "id uuid", None)] + owner_rows + [
+        ("", "from_status text", None),
+        ("", "to_status text", None),
+        ("", "trigger_kind text", None),
+        ("", "trigger_ref uuid", None),
+        ("", "actor_id uuid", None),
+        ("", "actor_name text", None),
+        ("", "note text", None),
+        ("", "occurred_at timestamptz", None),
+    ])
+
 
 PROCESSED = ("processed_event", [
     ("PK", "event_id uuid", None),
@@ -111,25 +111,7 @@ SPECS = {
                 ("PK,FK", "role_id uuid", "role"),
                 ("PK,FK", "permission_id uuid", "permission"),
             ]),
-            ("audit_log", 760, 140, [
-                ("PK", "id uuid", None),
-                ("", "entity_type text", None),
-                ("", "entity_id uuid", None),
-                ("", "entity_no text", None),
-                ("", "action text", None),
-                # In every other service audit_log.actor_id is an opaque cross-schema
-                # uuid (it names an identity.app_user, D7/D12, no FK). Identity is the
-                # one schema where actor_id points at a table it actually owns.
-                ("FK", "actor_id uuid", "app_user"),
-                ("", "actor_name text", None),
-                ("", "actor_department text", None),
-                ("", "before_status text", None),
-                ("", "after_status text", None),
-                ("", "changes jsonb", None),
-                ("", "note text", None),
-                ("", "ip_address text", None),
-                ("", "created_at timestamptz", None),
-            ]),
+            (OUTBOX[0], 760, 140, OUTBOX[1]),
         ],
         "ghosts": [],
     },
@@ -202,7 +184,10 @@ SPECS = {
                 ("", "uploaded_at timestamptz", None),
             ]),
             (PROCESSED[0], 40, 920, PROCESSED[1]),
-            (AUDIT_LOG[0], 1120, 140, AUDIT_LOG[1]),
+            (OUTBOX[0], 1120, 140, OUTBOX[1]),
+            # polymorphic over CONTRACT|ADDENDUM (same pattern as `attachment`)
+            status_history(1120, 480, [("", "entity_type text", None),
+                                       ("", "entity_id uuid", None)]),
         ],
         "ghosts": [],
     },
@@ -247,12 +232,13 @@ SPECS = {
                 ("", "currency text", None),
             ]),
             (PROCESSED[0], 40, 400, PROCESSED[1]),
-            (AUDIT_LOG[0], 1120, 380, AUDIT_LOG[1]),
+            (OUTBOX[0], 1120, 380, OUTBOX[1]),
+            status_history(1120, 700, [("FK", "version_id uuid", "price_list_version")]),
         ],
         "ghosts": [
             ("contract.customer", 400, 600),
             ("contract.contract", 660, 600),
-            ("contract.addendum", 760, 480),
+            ("contract.addendum", 400, 700),
         ],
     },
 
@@ -283,7 +269,7 @@ SPECS = {
                 ("", "quantity numeric(18,3)", None),
                 ("", "note text", None),
             ] + STD_COLS),
-            (AUDIT_LOG[0], 760, 140, AUDIT_LOG[1]),
+            (OUTBOX[0], 760, 140, OUTBOX[1]),
         ],
         "ghosts": [
             ("contract.contract", 400, 680),
@@ -368,8 +354,7 @@ SPECS = {
                 ("", "comment text", None),
                 ("", "created_at timestamptz", None),
             ]),
-            (OUTBOX[0], 760, 140, OUTBOX[1]),
-            (AUDIT_LOG[0], 1120, 140, AUDIT_LOG[1]),
+            (OUTBOX[0], 1120, 140, OUTBOX[1]),
         ],
         "ghosts": [("identity.app_user", 1120, 640)],
     },
@@ -426,7 +411,8 @@ SPECS = {
                 ("", "quantity numeric(18,3)", None),
             ]),
             (PROCESSED[0], 400, 800, PROCESSED[1]),
-            (AUDIT_LOG[0], 760, 140, AUDIT_LOG[1]),
+            (OUTBOX[0], 400, 940, OUTBOX[1]),
+            status_history(760, 1000, [("FK", "statement_id uuid", "payment_statement")]),
         ],
         "ghosts": [
             ("contract.contract", 760, 620),
@@ -472,7 +458,7 @@ SPECS = {
                 ("", "raw_payload jsonb", None),
             ]),
             (OUTBOX[0], 400, 400, OUTBOX[1]),
-            (AUDIT_LOG[0], 760, 140, AUDIT_LOG[1]),
+            status_history(760, 140, [("FK", "session_id uuid", "signing_session")]),
         ],
         "ghosts": [("owner document", 400, 680)],
     },
@@ -497,6 +483,32 @@ SPECS = {
             (PROCESSED[0], 400, 140, PROCESSED[1]),
         ],
         "ghosts": [("identity.app_user", 400, 300)],
+    },
+
+    "audit": {
+        "colors": ("#cfe8e4", "#2f9e8f"),
+        "caption": "audit-service · schema `audit` · read model, not system of record · constraints & conventions: db-audit.md, registry §6",
+        "tables": [
+            ("audit_record", 40, 140, [
+                ("PK", "id uuid", None),
+                ("", "source_service text", None),
+                ("", "entity_type text", None),
+                ("", "entity_id uuid", None),
+                ("", "entity_no text", None),
+                ("", "action text", None),
+                ("", "actor_id uuid", "identity.app_user"),
+                ("", "actor_name text", None),
+                ("", "actor_department text", None),
+                ("", "before_status text", None),
+                ("", "after_status text", None),
+                ("", "changes jsonb", None),
+                ("", "note text", None),
+                ("", "ip_address text", None),
+                ("", "occurred_at timestamptz", None),
+                ("", "received_at timestamptz", None),
+            ]),
+        ],
+        "ghosts": [("identity.app_user", 400, 140)],
     },
 }
 
@@ -572,7 +584,7 @@ def build(service, spec):
 
     for name, x, y, rows in spec["tables"]:
         f, s = (fill, stroke)
-        if name in ("audit_log", "outbox", "processed_event"):
+        if name in ("outbox", "processed_event"):
             f, s = NEUTRAL
         cells += table_cells(sid(service, name), name, x, y, rows, f, s)
     for gname, gx, gy in spec.get("ghosts", []):

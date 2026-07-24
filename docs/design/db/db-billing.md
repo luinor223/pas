@@ -11,7 +11,9 @@ Schema `billing`, owned by billing-service — the integration hub. Diagram: [db
 - **`source: CALCULATED|MANUAL`** per line (4.6 "chỉnh sửa có kiểm soát"; Figma "Manual adjustments: None"): manual additions/edits are visible and audit-logged; `version` on the statement guards concurrent controlled edits.
 - **Adjustments (PAY-05)**: a *new* statement with `adjusts_statement_id` → the original; original stays immutable after APPROVED/SIGNED. `CHECK total_amount >= 0` applies to adjustments too (PAY-04 wording is absolute); a correction that would net negative is modeled as cancel (D14c) + re-issue.
 - **`due_date`** (Figma metadata card): computed at issue from `payment_term` (e.g. Net 30) and stored — display data, not a receivables module (plan 4.5 exclusion).
-- **Status flips**: consumes `workflow.completed` + `esign.session_completed` (processed_event). **No outbox** — billing emits nothing; notifications about statements ride workflow/esign events (§4).
+- **Status flips**: consumes `workflow.completed` + `esign.session_completed` (processed_event). Billing emits no *business* events — notifications about statements ride workflow/esign events (§4).
+- **`status_history` (D17)**: append-only, per statement, written in the same transaction as each flip. The statement has the longest chain in the system (DRAFT → CALCULATED → RECONCILED → SUBMITTED → APPROVED → SIGNING → SIGNED → ISSUED, plus the REJECTED/REVISION rework loops of D14f), so "how many times did this go back for revision" is a real question — and it is answerable here rather than from audit-service, which a rule may not read.
+- **`outbox` for audit (D15)**: calculate, controlled edit, reconcile, submit, publish, cancel and adjustment creation are written as `audit.recorded` to `outbox` in the same transaction. PAY-05 (no direct edit after Approved/Signed) is enforced by status checks, but *defended* by this trace.
 
 ## Rule / requirement mapping
 | Rule | Design element |

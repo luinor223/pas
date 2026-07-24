@@ -1,24 +1,31 @@
 # PAS Design Registry
 
-> The living contract between design artifacts. Every artifact uses these names **verbatim**. Changes here require a change note listing affected finished artifacts. Governed by [design-plan.md](../design-plan.md); decisions cited as D1–D14 live there.
+> The living contract between design artifacts. Every artifact uses these names **verbatim**. Changes here require a change note listing affected finished artifacts. Governed by [design-plan.md](../design-plan.md); decisions cited as D1–D17 live there.
 
 ## 1. Services
 
-| Service | DB schema | Dev port | Owns |
-|---|---|---|---|
-| api-gateway | — (stateless; Redis for rate limit) | 8000 | routing, JWT validation, rate limiting, request logs |
-| identity-service | `identity` | 8001 | users, departments, roles, permissions; JWT issue; token blacklist (Redis) |
-| contract-service | `contract` | 8002 | customers, contacts, contracts, addenda, attachments |
-| pricing-service | `pricing` | 8003 | service catalog, price lists, versions, price lines |
-| operations-service | `operations` | 8004 | operation periods, volume records |
-| billing-service | `billing` | 8005 | payment statements, statement lines, line↔volume links |
-| workflow-service | `workflow` | 8006 | document type config, workflow definitions/instances/steps/actions |
-| esign-service | `esign` | 8007 | signing sessions, callback log |
-| notification-service | `notification` | 8008 | notifications, processed events |
-| esign-mock-provider | — (in-memory) | 9001 | external mock; accepts sign request, delayed webhook callback |
-| web-frontend | — | 3000 | single app, role-based menus |
+| Service | DB schema | REST port | gRPC port | Owns |
+|---|---|---|---|---|
+| api-gateway | - | 8000 | - | routing, JWT validation, rate limiting, request logs |
+| identity-service | `identity` | 8001 | 50051 | users, departments, roles, permissions; JWT issue; token blacklist (Redis) |
+| contract-service | `contract` | 8002 | 50052 | customers, contacts, contracts, addenda, attachments |
+| pricing-service | `pricing` | 8003 | 50053 | service catalog, price lists, versions, price lines |
+| operations-service | `operations` | 8004 | 50054 | operation periods, volume records |
+| billing-service | `billing` | 8005 | 50055 | payment statements, statement lines, line↔volume links |
+| workflow-service | `workflow` | 8006 | 50056 | document type config, workflow definitions/instances/steps/actions |
+| esign-service | `esign` | 8007 | 50057 | signing sessions, callback log |
+| notification-service | `notification` | 8008 | - | notifications, processed events (consumes only; no internal callers) |
+| audit-service | `audit` | 8009 | 50059 | the audit trail (4.10) — sole store; read model, no domain logic |
+| esign-mock-provider | - | 9001 | - | external mock; accepts sign request, delayed webhook callback |
+| web-frontend | - | 3000 | - | single app, role-based menus |
 
 One PostgreSQL instance in dev, schema per service, **no cross-schema queries** (D12).
+
+**Dual protocol stack (D16).** Every service exposes two surfaces:
+- **REST/JSON on its 80xx port** — user-facing endpoints, reached only through the gateway; documented with OpenAPI/Swagger (req §6). Also the transport for inbound webhooks.
+- **gRPC on its 505x port** — service-to-service only, never routed by the gateway, never reachable from outside the compose/cluster network.
+
+The old `/internal/**` REST path convention is retired: internal calls are gRPC methods, so there is no internal HTTP route left to accidentally expose.
 
 ## 2. Document types
 
@@ -70,45 +77,83 @@ Envelope (all events): `{event_id: uuid, event_type, occurred_at, actor_id, acto
 | `esign.session_completed` | esign | yes | owner service (contract/billing status flip), notification | `session_id, result: SIGNED\|FAILED\|CANCELLED, error?, document_no, requested_by, signer_name` |
 | `document.expiring` | contract, pricing (schedulers) | no — self-heals next run (D9) | notification | `document_no, expires_on, days_left, owner_user_id` |
 | `operations.period_locked` | operations | no — informational only | notification | `period_code, locked_by_name, recipient_role: 'ACCOUNTANT'` |
+| `audit.recorded` | identity, contract, pricing, operations, billing, workflow, esign | **yes — always** (D15) | audit | full audit row: `source_service, entity_type, entity_id, entity_no, action, actor_id, actor_name, actor_department, before_status, after_status, changes, note, ip_address, occurred_at` |
 
 Consumers are idempotent via a `processed_event` table (D6). **Recipient resolution:** events carry recipient user ids where the producer knows them (`assignee_ids`, `requested_by`, `owner_user_id`); role-addressed events carry `recipient_role`, which notification-service resolves via identity (§5).
 
 ## 5. Sync API dependency matrix
 
-All service-to-service calls (frontend→gateway→service omitted). Paths indicative; finalized in OpenAPI later.
+All service-to-service calls are **gRPC** (D16); frontend→gateway→service REST is omitted. Signatures indicative; finalized in the `.proto` files.
 
-| Caller → Callee | Endpoint | Purpose |
+| Caller → Callee | gRPC method | Purpose |
 |---|---|---|
-| billing → contract | `GET /internal/contracts/{id}` | validity, vat_rate, payment_term, customer snapshot (PAY-01) |
-| billing → pricing | `GET /internal/price-lists/effective?contract_id&customer_id&service_group&date` | effective version + lines for snapshot (PAY-01/03). Resolution precedence: CONTRACT-scoped > CUSTOMER+GROUP > CUSTOMER. `date` = the statement's `period_end`; lookup is **historical** — includes SUPERSEDED/EXPIRED versions whose validity contains `date` |
-| billing → operations | `GET /internal/volumes?contract_id&period_code` | volumes + period lock state (PAY-02) |
-| workflow → identity | `GET /internal/users?role={role_code}` | resolve step role → assignees for every non-SKIPPED step, in one pass at instance creation (APR-01); returns `status='ACTIVE'` users only |
-| esign → contract | `GET /internal/contracts/{id}/signing-payload` (also addenda) | document render for provider (D10) |
-| esign → billing | `GET /internal/payment-statements/{id}/signing-payload` | document render for provider (D10) |
-| owner services → workflow | `POST /internal/workflow-instances` (idempotent, D4) | start approval on submit |
-| owner services → workflow | `GET /internal/workflow-instances/by-document/{type}/{id}` | progress display ("ai đang giữ hồ sơ") |
-| owner services → workflow | `POST /internal/workflow-instances/{id}/cancel` | cancel in-flight approval when the document is cancelled (retried on failure, APR-07 spirit) |
-| approver (via gateway) → workflow | `POST /workflow-steps/{step_instance_id}/actions` | approve/reject/request-revision (D5, APR-01..03) |
-| owner services → esign | `POST /internal/signing-sessions` | manual send-for-signing (D10) |
-| notification → identity | `GET /internal/users?role={role_code}` | resolve `recipient_role`-addressed events to users (§4); returns `status='ACTIVE'` users only |
-| esign-mock-provider → esign | `POST /callbacks/esign` (webhook) | async sign result (APR-06) |
+| billing → contract | `ContractInternal.GetContract(id)` | validity, vat_rate, payment_term, customer snapshot (PAY-01) |
+| billing → pricing | `PricingInternal.GetEffectivePriceList(contract_id, customer_id, service_group, date)` | effective version + lines for snapshot (PAY-01/03). Resolution precedence: CONTRACT-scoped > CUSTOMER+GROUP > CUSTOMER. `date` = the statement's `period_end`; lookup is **historical** — includes SUPERSEDED/EXPIRED versions whose validity contains `date` |
+| billing → operations | `OperationsInternal.ListVolumes(contract_id, period_code)` | volumes + period lock state (PAY-02) |
+| workflow → identity | `IdentityInternal.ListUsersByRole(role_code)` | resolve step role → assignees for every non-SKIPPED step, in one pass at instance creation (APR-01); returns `status='ACTIVE'` users only |
+| esign → contract | `ContractInternal.GetSigningPayload(document_type, id)` (contract + addendum) | document render for provider (D10) |
+| esign → billing | `BillingInternal.GetSigningPayload(id)` | document render for provider (D10) |
+| owner services → workflow | `WorkflowInternal.StartInstance(document_type, document_id, …, idempotency_key)` | start approval on submit (idempotent, D4) |
+| owner services → workflow | `WorkflowInternal.GetInstanceByDocument(document_type, document_id)` | progress display ("ai đang giữ hồ sơ") |
+| owner services → workflow | `WorkflowInternal.CancelInstance(instance_id)` | cancel in-flight approval when the document is cancelled; `FAILED_PRECONDITION` if a step was already actioned (retried on `UNAVAILABLE`, APR-07 spirit) |
+| owner services → esign | `EsignInternal.CreateSigningSession(document_type, document_id, …)` | manual send-for-signing (D10) |
+| notification → identity | `IdentityInternal.ListUsersByRole(role_code)` | resolve `recipient_role`-addressed events to users (§4); returns `status='ACTIVE'` users only |
+| owner services → audit | `AuditInternal.ListRecords(entity_type, entity_id, page)` | the **non-status** half of the History tab (field edits, actions without a status change). The status timeline reads local `status_history` (D17) — no call |
+
+**REST, not gRPC:**
+
+| Caller → Callee | Endpoint | Why |
+|---|---|---|
+| approver (via gateway) → workflow | `POST /workflow-steps/{step_instance_id}/actions` | **not an exception** — user traffic, so REST by the D16 rule. Listed here only because the approval action is easy to mistake for a service call (D5, APR-01..03) |
+| esign-mock-provider → esign | `POST /callbacks/esign` (webhook) | **the one exception** — machine-to-machine, but the caller is outside the system boundary and gets a callback URL, not a `.proto` (APR-06) |
+
+### 5.1 gRPC conventions (D16)
+
+- **Package / naming:** `pas.<service>.v1`; one internal service per callee, named `<Service>Internal`. Methods are verbs (`GetContract`, `ListVolumes`, `StartInstance`); request/response messages are `<Method>Request` / `<Method>Response` — never bare domain messages, so fields can be added without breaking callers.
+- **Proto ownership:** `.proto` files live with the **callee** and are published to a shared `proto/` module that callers depend on. Contract-first: the proto changes before either side does.
+- **Status-code mapping** (replaces the previous HTTP codes):
+  `NOT_FOUND` (unknown id) · `INVALID_ARGUMENT` (validation) · `FAILED_PRECONDITION` (state-machine violation, e.g. cancel after a step was actioned — was 409) · `ABORTED` (optimistic-lock loss, D5 — was 409) · `PERMISSION_DENIED` (D11 layer 2) · `UNAVAILABLE` (callee down — the **only** retryable status).
+- **Idempotency (D4):** `idempotency_key` is an explicit field on mutating request messages, not a header. Retrying `StartInstance` with the same key returns the existing instance.
+- **Deadlines:** every call sets one (default 2s reads / 5s writes). A caller without a deadline is a bug — an unbounded internal call can stall a user request behind it.
+- **Failure = the document is unaffected.** Callers must not leave partial state when a callee is `UNAVAILABLE`; retry with backoff, or fail the whole transaction (APR-07).
+- **gRPC is never exposed publicly.** The gateway routes REST only; the `505x` ports are unreachable from outside the network. The public surface stays REST/JSON, which is what OpenAPI (§6) documents.
 
 ## 6. Common column & table conventions
 
 - `id UUID PK DEFAULT gen_random_uuid()`; `created_at timestamptz NOT NULL DEFAULT now()`; `created_by uuid` (+ `created_by_name text` where displayed); `updated_at`, `updated_by`; `version int NOT NULL DEFAULT 0` **only** where a race is real (D5 targets).
 - Status columns: `text` + `CHECK` against §3 enums.
 - Cross-service references: opaque `uuid` (+ business-number/name snapshot columns where the UI or history needs them, D7). Never a real FK across schemas. **Two business-key exceptions** (stable, human-legible codes): `pricing.service_item.code` (referenced as `service_code` by operations/billing) and `operations.operation_period.period_code` (referenced by billing).
-- **JWT claims** (issued by identity, checked at gateway D11): `sub` (user id), `username`, `full_name`, `department`, `roles[]` (§7 codes), `permissions[]` (§10 codes, computed by identity at issuance via `role_permission`), `jti` (Redis blacklist key), `exp`. Services checking a named permission (`volume.edit_locked`, `contract.cancel_active`, `statement.cancel_approved`, `workflow.configure`, `user.manage`, `audit.view_all`) read this claim directly — no sync call to identity; a permission grant/revoke takes effect at the user's next token issuance, same as role changes.
-- **audit_log** (one per service schema, written in-transaction):
-  `id, entity_type text, entity_id uuid, entity_no text, action text (snake_case verb: submit_for_approval, approve_step, lock_volume_period, …), actor_id uuid NULL (NULL = system), actor_name text, actor_department text, before_status text, after_status text, changes jsonb, note text, ip_address text, created_at` (fields per Figma Audit Log screen).
-- **outbox** (only in event-emitting services with `Outbox? = yes`):
-  `id, event_type text, payload jsonb, created_at, published_at timestamptz NULL, retry_count int DEFAULT 0`.
+- **JWT claims** (issued by identity, checked at gateway D11): `sub` (user id), `username`, `full_name`, `department`, `roles[]` (§7 codes), `jti` (Redis blacklist key), `exp`.
+  **Permissions are not a claim** — services resolve `roles[] → permissions[]` from a Redis-cached map refreshed from identity. A `permissions[]` claim would go stale until re-login; a per-request identity call would sit on the hot path.
+- **status_history** (D17) — in the four schemas owning a state machine (`contract`, `pricing`, `billing`, `esign`). **Append-only, INSERT+SELECT only**, one row written in the **same transaction** as every status column change, so the column is a cache of the newest row and the two are cross-checkable:
+  `id uuid PK, <owner ref>, from_status, to_status, trigger_kind, trigger_ref uuid NULL, actor_id uuid NULL, actor_name, note, occurred_at timestamptz`.
+  Owner ref: `entity_type`+`entity_id` in `contract` (polymorphic CONTRACT|ADDENDUM, as `attachment`); a real FK elsewhere. `trigger_kind ∈ U|W|E|S` (§9); `trigger_ref` = workflow instance id (W), event id (E), null otherwise.
+  **Domain data, not audit** — the only history a business rule may read, and the source of the detail-screen status timeline.
+- **Audit is centralized (D15).** No per-service `audit_log`. Auditable actions write an `audit.recorded` row to the service's `outbox` in the same transaction; audit-service is the sole store, and serves the non-status part of the History tab (eventually consistent). Payload (per Figma Audit Log screen):
+  `source_service, entity_type, entity_id uuid, entity_no, action (snake_case verb: submit_for_approval, approve_step, …), actor_id uuid NULL (NULL = system), actor_name, actor_department, before_status, after_status, changes jsonb, note, ip_address, occurred_at`.
+- **outbox** (every service that emits any event — all but notification):
+  `id uuid PK (= envelope event_id), event_type, aggregate_type, aggregate_id uuid, payload jsonb, created_at, published_at timestamptz NULL, retry_count int DEFAULT 0`.
+  `aggregate_type`/`aggregate_id` = routing/ordering key (Debezium convention): same document ⇒ commit order, one partition. **One `outbox` per service, never one per event type** — the event name is the `event_type` column. Relay: poll `WHERE published_at IS NULL ORDER BY created_at`, publish, stamp, increment `retry_count` on failure. **At-least-once** — consumers dedup via `processed_event` or a natural PK.
 - **processed_event** (only in consumers): `event_id uuid PK, processed_at`.
 
 ## 7. Roles, departments, default workflow chains
 
 **Departments:** `SALES, LEGAL, ACCOUNTING, OPERATIONS, BOARD, IT`.
 **Roles** (from Figma admin screen): `SALES_OFFICER, SALES_MANAGER, LEGAL_REVIEWER, ACCOUNTANT, OPS_OFFICER, DIRECTOR, SYSTEM_ADMIN`.
+
+**Role → permission bundles** (seed; admin-editable at runtime — §2 gives Quản trị hệ thống "phân quyền"). `notification:read` is held by every role and omitted from the table.
+
+| Role | Permissions |
+|---|---|
+| `SALES_OFFICER` | `customer:read/write`, `contract:read/write`, `addendum:read/write`, `pricelist:read/write`, `volume:read`, `statement:read`, `esign:send` |
+| `SALES_MANAGER` | everything in `SALES_OFFICER` + `approval:act`, `contract:cancel_active` |
+| `LEGAL_REVIEWER` | `customer:read`, `contract:read`, `addendum:read`, `pricelist:read`, `approval:act` |
+| `ACCOUNTANT` | `customer:read`, `contract:read`, `pricelist:read`, `volume:read`, `statement:read/write`, `esign:send`, `approval:act` |
+| `OPS_OFFICER` | `contract:read`, `volume:read/write/lock_period` |
+| `DIRECTOR` | all `*:read` + `approval:act` |
+| `SYSTEM_ADMIN` | all `*:read` + `user:manage`, `workflow:configure`, `doctype:configure`, `audit:view_all` |
+
+**In no bundle by default:** `volume:edit_locked` (4.5 *"quyền đặc biệt"*) and `statement:cancel_approved` (PAY-05). Both are granted deliberately, per user, and every use is traced. A permission nobody holds until someone decides otherwise is the point — if it sat in the owning role's bundle it would be indistinguishable from `write` and wouldn't deserve its own code.
 
 **Default workflow definitions** (seed data; admin-configurable — 4.7; step names from Figma):
 
@@ -129,6 +174,8 @@ Status badge (label mapping §3) · workflow progress stepper (doc detail right 
 
 `(from → to)` with trigger; trigger kinds: **U**=user action, **W**=`workflow.completed` outcome (D3), **E**=`esign.session_completed` (D10), **S**=scheduler (D14d).
 
+**Every transition in the tables below writes one `status_history` row in the same transaction as the status column update** (D17), carrying `trigger_kind` = the letter in the Trigger column. A status change with no history row is a bug; the two are reconcilable by construction.
+
 **CONTRACT / ADDENDUM**
 | From | Trigger | To |
 |---|---|---|
@@ -145,8 +192,8 @@ Status badge (label mapping §3) · workflow progress stepper (doc detail right 
 | ACTIVE | S end date² | EXPIRED |
 | ACTIVE | U controlled cancel (CTR-06, D14a) | CANCELLED |
 
-¹ SUBMITTED → UNDER_REVIEW is event-driven: the owner service consumes `workflow.instance_started` (§4) and flips the status. SUBMITTED therefore rests until the event is consumed, keeping the requirement's `Submitted → cancel` edge real: cancel while SUBMITTED/UNDER_REVIEW-with-no-actions calls `POST /internal/workflow-instances/{id}/cancel` (§5), which succeeds only while no step has been actioned (409 otherwise), then the owner sets CANCELLED.
-² Addendum specifics: when an addendum flips ACTIVE (at its `effective_from`), contract-service applies its effects to the parent row **in the same transaction** (system action, audit-logged — not a CTR-07 violation, it applies an *approved* addendum): `TERM_EXTENSION` ⇒ `contract.valid_to = new_valid_to`; `PAYMENT_TERMS` ⇒ `contract.payment_term = payment_term_override`. `GET /internal/contracts/{id}` always returns these stored effective values (what billing snapshots). Addenda have no own end date — they share the parent contract's expiry.
+¹ SUBMITTED → UNDER_REVIEW is event-driven: the owner service consumes `workflow.instance_started` (§4) and flips the status. SUBMITTED therefore rests until the event is consumed, keeping the requirement's `Submitted → cancel` edge real: cancel while SUBMITTED/UNDER_REVIEW-with-no-actions calls `WorkflowInternal.CancelInstance` (§5), which succeeds only while no step has been actioned (`FAILED_PRECONDITION` otherwise), then the owner sets CANCELLED.
+² Addendum specifics: when an addendum flips ACTIVE (at its `effective_from`), contract-service applies its effects to the parent row **in the same transaction** (system action, audit-logged — not a CTR-07 violation, it applies an *approved* addendum): `TERM_EXTENSION` ⇒ `contract.valid_to = new_valid_to`; `PAYMENT_TERMS` ⇒ `contract.payment_term = payment_term_override`. `ContractInternal.GetContract` always returns these stored effective values (what billing snapshots). Addenda have no own end date — they share the parent contract's expiry.
 
 **PRICE_LIST (version)**
 | From | Trigger | To |
@@ -178,7 +225,7 @@ Status badge (label mapping §3) · workflow progress stepper (doc detail right 
 ⁴ `REJECTED → DRAFT` and `CALCULATED → DRAFT` are documented deviations — see D14(f) in the plan.
 
 **SIGNING_SESSION:** PENDING_SEND →(sent to provider)→ SIGNING →(callback)→ SIGNED | FAILED; PENDING_SEND →(S, send retries exhausted, default 3 attempts)→ FAILED; PENDING_SEND/SIGNING →(U cancel)→ CANCELLED.
-**OPERATION_PERIOD:** OPEN →(U lock, OPS + permission)→ LOCKED. No unlock; post-lock edits require `volume.edit_locked` permission and are audit-logged (4.5).
+**OPERATION_PERIOD:** OPEN →(U lock, OPS + permission)→ LOCKED. No unlock; post-lock edits require `volume:edit_locked` permission and are audit-logged (4.5).
 
 ## 10. Cross-cutting reference values
 
@@ -188,13 +235,35 @@ Status badge (label mapping §3) · workflow progress stepper (doc detail right 
 - **Billing cycle** (contract): `MONTHLY` (only value in scope; column exists for future cycles).
 - **Statement line source:** `CALCULATED, MANUAL` (reconciliation panel "Manual adjustments").
 - **Currency:** `VND` default.
-- **Permissions (seed):** `volume.edit_locked`, `contract.cancel_active`, `statement.cancel_approved`, `workflow.configure`, `user.manage`, `audit.view_all`.
+- **Permissions (seed).** Format `resource:action`. **Separator rule: `:` = permission, `.` = event type** (§4) — the two vocabularies never look alike.
+
+  | Resource | Permissions |
+  |---|---|
+  | customer | `customer:read`, `customer:write` |
+  | contract | `contract:read`, `contract:write`, `contract:cancel_active` |
+  | addendum | `addendum:read`, `addendum:write` |
+  | pricelist | `pricelist:read`, `pricelist:write` |
+  | volume | `volume:read`, `volume:write`, `volume:lock_period`, `volume:edit_locked` |
+  | statement | `statement:read`, `statement:write`, `statement:cancel_approved` |
+  | approval | `approval:act` |
+  | esign | `esign:send`, `esign:cancel` |
+  | notification | `notification:read` |
+  | admin | `user:manage`, `workflow:configure`, `doctype:configure`, `audit:view_all` |
+
+  **Splitting test.** `write` covers all ordinary mutation of a document in a state where mutation is allowed — including submit, which needs no code of its own (no role holds `write` without it). A separate permission is justified **only when a different set of people should hold it**. The four that qualify all license an act the state machine otherwise forbids: `contract:cancel_active` (CTR-06 — an ACTIVE contract can't be written at all), `statement:cancel_approved` (PAY-05, same), `volume:edit_locked` (4.5's *"quyền đặc biệt"*, overrides a lock), `volume:lock_period` (irreversible and system-wide, not per-record). Anything else that is "write under a different name" is noise.
+
+  **Code checks permissions, never roles.** `if (hasRole(SALES_MANAGER))` is the same hard-coding §4.7 forbids one layer down — it would make "add a role" a redeploy, contradicting §2's runtime *"phân quyền"*. Roles are bundles (§7); only permission codes appear in code.
+  `approval:act` grants the *ability* to act on steps in general; whether the caller may act on **this** step is `step_assignee` in workflow-service (APR-01) — a permission string cannot express per-object context (D11 layer 2).
 
 ## Change log
 
 - 2026-07-24 — seeded from design-plan.md §4–5 + Figma field harvest (16 screens). Affected artifacts: none yet.
 - 2026-07-24 — Phase 2 drafting delta: `document.expiring` payload +`owner_user_id`; `operations.period_locked` payload +`recipient_role`; recipient-resolution note; API matrix +notification→identity. Affected artifacts: db-notification.md (already consistent).
 - 2026-07-24 — Phase 2 critic round 1 fixes: event payloads +`requested_by`/`document_no`/`signer_name` (notification addressing); dropped `esign.session_started` event (no consumer need); workflow cancel endpoint (§5); pricing effective-lookup params + precedence + historical semantics (§5); predecessor-truncation footnote ³ (PRC-03×PRC-04); submit/cancel wiring footnote ¹; addendum-effect footnote ²; statement deviations footnote ⁴ (D14f); signing-session max-attempts→FAILED; JWT claims + business-key exceptions (§6); CUS numbering (§2). Affected artifacts: all db-* (verified in round 2).
+- 2026-07-24 — **Permission model made explicit.** Seed permissions switched from `resource.action` to **`resource:action`** (separator rule: `:` = permission, `.` = event type — the two vocabularies previously looked identical) and expanded from 6 special cases to a full vocabulary (§10) — with a stated **splitting test**: `write` covers all ordinary mutation including submit, and a separate code is justified only when different people hold it (the four survivors all license acts the state machine otherwise forbids; the `:submit` family was cut as redundant). Role→permission bundles added (§7), with `volume:edit_locked` and `statement:cancel_approved` deliberately in none of them; §6 JWT note records that permissions are **not** a claim — services resolve `roles[] → permissions[]` from a Redis-cached map. Principle recorded: **code checks permissions, never roles**. No schema change — `permission`/`role_permission`/`user_role` already supported this. Affected artifacts: db-identity.md, db-operations.md, db-contract.md, db-audit.md (codes renamed in the same pass).
+- 2026-07-24 — **D17 append-only `status_history`.** Added to `contract` (polymorphic CONTRACT|ADDENDUM), `pricing` (per version), `billing` (per statement), `esign` (per session): INSERT+SELECT-only transition log written in the same transaction as every status change, with `trigger_kind`/`trigger_ref` from §9. Rationale: a business rule must never read audit-service (remote, eventually consistent, uninterpreted), so state history has to be local domain data; also returns the detail-screen status timeline to a synchronous local read, softening the D15 trade-off. §6 convention + §9 note added. Affected artifacts: db-contract.md, db-pricing.md, db-billing.md, db-esign.md, db-audit.md + all four .drawio (updated in the same pass).
+- 2026-07-24 — **D16 internal transport = gRPC.** Every service goes dual-stack: REST/JSON on `80xx` (public, via gateway, OpenAPI-documented) + gRPC on `505x` (service-to-service only). §5 matrix rewritten as gRPC methods; new §5.1 conventions (proto ownership, status-code mapping, deadlines, idempotency field); `/internal/**` REST convention retired. Two REST exceptions kept and justified: the approver step-action endpoint (user traffic — browsers need grpc-web + proxy) and the esign provider webhook (external ingress). Affected artifacts: all db-*.md endpoint references, registry §1/§9 footnotes, design-plan D1/D4 + new D16 (updated in the same pass).
+- 2026-07-24 — **D15 centralized audit.** Added `audit-service` (schema `audit`, port 8009) as the sole audit store; **dropped `audit_log` from all seven service schemas**. New always-outboxed event `audit.recorded` (§4); `outbox` added to identity, contract, pricing, operations, billing (workflow/esign already had one) and given `aggregate_type`/`aggregate_id`; §5 +owner→audit history query; §6 audit/outbox conventions rewritten. Accepted trade-off: document history is now a cross-service, eventually-consistent read. Affected artifacts: all db-*.md + .drawio (updated in the same pass), design-plan.md §3.
 - 2026-07-24 — Figma corrected to match the requirement on the status-vocabulary and e-sign-as-step discrepancies this registry had recorded (plan §1.4): contract `ACTIVE` now displays "Active" (not "Effective"); payment statement `ISSUED` now displays "Issued" (not "Effective"); customer list now uses `Badge/Active`/`Badge/Suspended` directly (not document badges); Administration's workflow builder no longer renders e-signature as a numbered approval step (now a separate "Post-approval action" block). §3 display-label notes updated accordingly. Affected artifacts: db-contract.md, db-billing.md, db-workflow.md (updated in the same pass).
 - 2026-07-24 — Permission-propagation fix: identity's `permission`/`role_permission` tables had no path to the services that gate on them. JWT claims (§6) gain `permissions[]`, computed from `role_permission` at token issuance, checked locally by the owning service — no new sync endpoint. Affected artifacts: design-plan.md (D11), db-identity.md, db-contract.md, db-operations.md, db-billing.md, db-workflow.md.
 - 2026-07-24 — Assignee-resolution fix: `GET /internal/users?role={role_code}` (§5, both callers) now states it returns `status='ACTIVE'` users only — a `DISABLED` user can no longer be resolved as a new workflow step assignee or a `recipient_role` notification target. Also resolved a timing contradiction this introduced: §5 said assignees resolve "at activation" while db-workflow.md's empty-assignee-resolution safeguard assumed "at instance creation" — both can't be true. Unified on **instance creation**: assignees for every non-SKIPPED step are resolved in one pass when the instance is created (same pass as `condition_expr` evaluation), so a zero-assignee step anywhere in the chain fails the submission immediately instead of surfacing only when that step is later reached. Affected artifacts: db-identity.md, db-workflow.md, db-notification.md.
