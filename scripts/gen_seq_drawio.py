@@ -134,7 +134,17 @@ DIAGRAMS["seq-01-auth"] = {
         ("call", "admin", "gw", "PUT /roles/{role_code}/permissions\n{permissions: [...]}"),
         ("call", "gw", "idsvc", "PUT /roles/{role_code}/permissions"),
         ("self", "idsvc", "assert user:manage ∈ permissions — identity resolves its own\npermission from the same cache, never special-cased (db-identity)"),
-        ("self", "idsvc", "tx: DELETE + INSERT role_permission (role_id, permission_id)\n+ INSERT outbox('audit.recorded') — every grant and revoke is traced"),
+        ("self", "idsvc", "tx: SELECT role WHERE code = ? FOR UPDATE — serialize concurrent edits\nthen DELETE + INSERT role_permission (role_id, permission_id)\n+ INSERT outbox('audit.recorded') — every grant and revoke is traced\nCOMMIT before the cache write below"),
+        ("note", "idsvc", "The role row is locked FOR UPDATE first, and the replacement is a DELETE + INSERT — the two "
+                          "facts together are what make this safe. Unlocked, two admins replacing the same role's "
+                          "permissions interleave: each deletes what it read, each inserts its own set, and the role "
+                          "ends up with a union neither admin asked for, or with a unique-violation depending on "
+                          "interleaving — and the audit rows would show two coherent-looking replacements that never "
+                          "both happened. Locking the ROLE (not the role_permission rows, which are the ones being "
+                          "deleted) gives the second writer a serialized view: it re-reads the winner's committed set "
+                          "and its own replacement is total, not partial. Same discipline as seq-08's definition "
+                          "activation, and the same reason — a set replacement is only atomic if nobody else is "
+                          "replacing the same set."),
         ("frame", "opt [best-effort cache overwrite — AFTER the commit]"),
         ("call", "idsvc", "redis", "SET perm:role:{code} = [recomputed permissions] · TTL 6h"),
         ("self", "idsvc", "SET fails or Redis is down ⇒ log + metric, swallow the error\nthe response is still 200 · the hourly sweep repairs the key"),
@@ -409,6 +419,53 @@ DIAGRAMS["seq-03-contract-approval"] = {
                        "audited 'revise' action. REVISION_REQUESTED → DRAFT on update. Either way the next submit "
                        "generates a NEW idempotency_key and therefore a new instance."),
         ("end",),
+        ("call", "sales", "ct", "GET /contracts/{id}/progress\nUC \"Theo dõi tiến độ & người xử lý\" (4.7)"),
+        ("call", "ct", "wf", "WorkflowInternal.GetInstanceByDocument(CONTRACT, document_id)"),
+        ("frame", "alt [the returned instance IS this document's current chain]"),
+        ("ret", "wf", "ct", "{instance_id, status, definition_version_no, requested_by_name,\n"
+                            "started_at, priority,\n"
+                            "current_step? {step_no, name, assignee_names[], activated_at,\n"
+                            "               sla_hours, is_overdue},\n"
+                            "steps[{step_no, name, approver_role, status, assignee_names[],\n"
+                            "       action? {actor_name, actioned_at, comment?}}]}"),
+        ("ret", "ct", "sales", "200 — e.g. 1 Sales review APPROVED · 2 Legal review ACTIVE (Trần B)\n· 3 Director sign-off PENDING"),
+        ("div", "[document SUBMITTED, no IN_PROGRESS instance — D4 window]"),
+        ("ret", "wf", "ct", "NOT_FOUND  |  a terminal instance (the PREVIOUS submission's chain)"),
+        ("self", "ct", "compose with the LOCAL status, never retry:\nlocal status = SUBMITTED AND the response is not an IN_PROGRESS instance\n⇒ INITIALIZATION_PENDING — a terminal instance here is discarded, not rendered"),
+        ("ret", "ct", "sales", "200 {workflow: INITIALIZATION_PENDING}"),
+        ("end",),
+        ("note", "wf", "Which instance? A document can accumulate SEVERAL terminal instances — CTR-04's revise and "
+                       "REVISION_REQUESTED's update each generate a new idempotency_key and therefore a new instance "
+                       "— so the method has to say. It returns the IN_PROGRESS one when it exists (the partial unique "
+                       "(document_type_code, document_id) WHERE status='IN_PROGRESS' guarantees at most one, which is "
+                       "what makes the rule total rather than a tie-break), otherwise the latest by created_at DESC. "
+                       "Without that rule a resubmitted document could render its PREVIOUS rejected chain as current "
+                       "progress."),
+        ("note", "wf", "4.7's three demands are one response: \"người đang xử lý\" = current_step.assignee_names, "
+                       "\"các bước đã hoàn thành\" = steps[] with a terminal status and their actioned_by/at/comment, "
+                       "\"các bước còn lại\" = the PENDING tail. All of it is workflow-service's own domain data — "
+                       "step instances and assignees snapshotted at creation (so the display matches the chain that "
+                       "actually runs, not today's definition) plus workflow_action rows. Served synchronously, never "
+                       "eventually consistent: this is the third read path and the three must not be confused — "
+                       "status_history is the owner's local timeline (D17), this is the approval chain, and audit "
+                       "(seq-02) is the eventual, cross-entity trail no business rule may read."),
+        ("note", "ct", "The right-hand branch is COMPOSITION, not retry semantics — NOT_FOUND stays non-retryable "
+                       "(§5.1) and CancelInstance remains the single RETRY exception. contract-service does not call "
+                       "again; it reads the answer — NOT_FOUND, or a terminal instance belonging to the PREVIOUS "
+                       "submission — together with its OWN status, and for SUBMITTED renders the same \"initialization "
+                       "pending\" the submit response already returned (D4). Discarding that terminal instance is the "
+                       "load-bearing half: without it a resubmitted document shows its previous REJECTED chain for the "
+                       "whole dispatch window. The gRPC call is the owner service's, not the browser's, so the panel is "
+                       "one request (D16 keeps gRPC off the public surface)."),
+        ("note", "ct", "Nullability is part of the contract, not an implementation detail. `current_step?` is absent "
+                       "once the instance is APPROVED, REJECTED, REVISION_REQUESTED or CANCELLED — there is no holder "
+                       "to display, and an empty object would read as one. `action?` is absent on ACTIVE and PENDING "
+                       "steps for the same reason: it exists only where a workflow_action row does — and inside it "
+                       "`comment?` is optional too, since APR-03 makes a reason mandatory only for REJECT and "
+                       "REQUEST_REVISION, so an APPROVE may legitimately carry none. "
+                       "`is_overdue = status = 'ACTIVE' AND now() > activated_at + sla_hours` — derived on read from "
+                       "the same two columns the hourly SLA sweep below compares, so the panel and the "
+                       "workflow.step_overdue event can never disagree about what \"overdue\" means."),
         ("frame", "loop [scheduled job inside contract-service, daily — D14d]"),
         ("call", "sched", "ct", "tick"),
         ("self", "ct", "APPROVED and valid_from ≤ today ⇒ ACTIVE (CTR-05)\ntx: status + status_history (trigger_kind = S) + outbox('audit.recorded')"),
@@ -802,7 +859,26 @@ DIAGRAMS["seq-08-workflow-configuration"] = {
         ("self", "wf", "assert workflow:configure ∈ permissions (D11 layer 2, §M1)\ncopy v3's steps into version_no = 4, is_active = false\nUNIQUE (document_type_id, version_no)"),
         ("ret", "wf", "admin", "201 {definition_id, version_no: 4, is_active: false}"),
         ("call", "admin", "wf", "PUT /workflow-definitions/{id}/steps\n[{step_order, name, approver_role, sla_hours}]"),
-        ("self", "wf", "assert is_active = false — an ACTIVE version is read-only\nassert ≥ 1 step · step_order contiguous from 1\ntx: replace workflow_step_definition rows + outbox('audit.recorded')"),
+        ("self", "wf", "assert workflow:configure ∈ permissions"),
+        ("frame", "one transaction — takes the activation swap's row lock"),
+        ("call", "wf", "db", "BEGIN"),
+        ("call", "wf", "db", "SELECT is_active FROM workflow_definition\nWHERE id = :target FOR UPDATE"),
+        ("ret", "db", "wf", "the target row, now locked"),
+        ("self", "wf", "assert found — else NOT_FOUND, ROLLBACK\n"
+                       "assert is_active = false UNDER THE LOCK — an ACTIVE version is\nread-only, else FAILED_PRECONDITION\n"
+                       "assert ≥ 1 step · step_order contiguous from 1"),
+        ("call", "wf", "db", "DELETE then INSERT workflow_step_definition rows\n+ INSERT outbox('audit.recorded')"),
+        ("call", "wf", "db", "COMMIT"),
+        ("ret", "db", "wf", "ok — the version stayed inactive for the whole edit"),
+        ("end",),
+        ("note", "db", "The lock is the guard — the is_active check alone is not one. Read it outside a transaction, "
+                       "replace the steps after, and a concurrent activate can commit in between: the edit then rewrites "
+                       "the chain of a version that is ACTIVE by the time the write lands, changing which steps the next "
+                       "StartInstance snapshots — with no version bump and without passing through activation, which is "
+                       "exactly what 4.7's \"insert a version, then activate\" model exists to prevent. Locking the same "
+                       "row the swap below locks makes the two writers serialize: whichever runs second sees the first's "
+                       "committed outcome, so the edit gets FAILED_PRECONDITION or the activation gets a definition whose "
+                       "steps are already final. Never both halves interleaved."),
         ("note", "wf", "There is no edit-in-place path at all, which is the point: \"change the Legal review step\" is "
                        "always insert-a-version then activate, and Figma's drag-reorder is a step_order rewrite on the "
                        "DRAFT version. That is also what keeps every past approval re-readable — a finished instance's "
