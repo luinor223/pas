@@ -33,7 +33,10 @@ from xml.sax.saxutils import escape
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "..", "docs", "design", "sequences")
 
-X0, Y0 = 60, 90            # first lifeline centre, lifeline header top
+X0, Y0 = 60, 116           # first lifeline centre, lifeline header top
+NAME_Y = Y0 - 30           # icon participants carry their name in a text cell here
+                           # (NOT verticalLabelPosition=bottom — on a 1400px-tall
+                           #  lifeline that puts the name at the foot of the page)
 GAP = 215                  # spacing between lifeline centres
 HDR_H = 40                 # lifeline header height
 STEP = 46                  # vertical distance between messages
@@ -45,6 +48,16 @@ KIND_PARTICIPANT = {
     "actor": "umlActor", "boundary": "umlBoundary",
     "control": "umlControl", "entity": "umlEntity", "plain": None,
 }
+
+# UML robustness stereotypes (Jacobson), as draw.io exposes them. Plain rectangles are
+# reserved for our own nine services, so an icon always means "not a PAS service".
+LEGEND = ("Lifeline shapes — stick figure = actor (human role) · circle with left bar = boundary "
+          "(system edge: gateway, external provider) · circle with rim arrow = control (relay, scheduler) · "
+          "circle on a line = entity (datastore or broker: Postgres schema, Redis, RabbitMQ) · "
+          "plain rectangle = one of the nine PAS services.     "
+          "Arrows — solid filled = sync request (gRPC service-to-service per D16; REST for user or "
+          "external traffic) · dashed open = response · purple open = broker publish/delivery · "
+          "self-call = local work ('tx:' ⇒ commits atomically).")
 
 ARROW = {
     "call":  "endArrow=block;endFill=1;",
@@ -813,13 +826,18 @@ def build(name, spec):
     head = [
         f'<mxCell id="title" value="{esc("PAS · sequence · " + spec["title"])}" '
         'style="text;html=1;fontSize=17;fontStyle=1;align=left;" vertex="1" parent="1">'
-        '<mxGeometry x="40" y="26" width="1100" height="26" as="geometry" /></mxCell>',
+        '<mxGeometry x="40" y="18" width="1100" height="26" as="geometry" /></mxCell>',
         f'<mxCell id="caption" value="{esc(spec["caption"])}" '
         'style="text;html=1;fontSize=11;align=left;fontColor=#777777;whiteSpace=wrap;" vertex="1" parent="1">'
-        f'<mxGeometry x="40" y="50" width="{width - 120}" height="34" as="geometry" /></mxCell>',
+        f'<mxGeometry x="40" y="44" width="{width - 120}" height="32" as="geometry" /></mxCell>',
+        f'<mxCell id="legend" value="{esc(LEGEND)}" '
+        'style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#cccccc;align=left;'
+        'verticalAlign=top;fontSize=10;fontColor=#666666;spacing=8;arcSize=4;" vertex="1" parent="1">'
+        f'<mxGeometry x="40" y="{bottom + 20}" width="{min(width - 80, 1180)}" height="72" as="geometry" /></mxCell>',
     ]
 
-    # lifelines
+    # lifelines — icon participants get their name in a separate text cell above the head,
+    # because verticalLabelPosition=bottom would drop it to the foot of the lifeline.
     life = []
     for pid, label, knd in parts:
         w = KIND_W[knd]
@@ -827,12 +845,19 @@ def build(name, spec):
         style = ("shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;"
                  "dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;"
                  "fontSize=12;fontStyle=1;")
+        head_label = label
         if p:
-            style += f"participant={p};verticalLabelPosition=bottom;verticalAlign=top;"
+            style += f"participant={p};verticalAlign=top;"
+            head_label = ""
+            life.append(
+                f'<mxCell id="nm_{pid}" value="{esc(label)}" '
+                'style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;'
+                'whiteSpace=wrap;" vertex="1" parent="1">'
+                f'<mxGeometry x="{centre[pid] - 90}" y="{NAME_Y}" width="180" height="26" as="geometry" /></mxCell>')
         else:
             style += "fillColor=#f5f9ff;strokeColor=#6c8ebf;"
         life.append(
-            f'<mxCell id="lf_{pid}" value="{esc(label)}" style="{style}" vertex="1" parent="1">'
+            f'<mxCell id="lf_{pid}" value="{esc(head_label)}" style="{style}" vertex="1" parent="1">'
             f'<mxGeometry x="{centre[pid] - w // 2}" y="{Y0}" width="{w}" '
             f'height="{bottom - Y0}" as="geometry" /></mxCell>')
 
@@ -877,7 +902,7 @@ def build(name, spec):
     inner = "\n        ".join(head + life + fcells + barcells + cells + ncells)
     return f'''<mxfile host="app.diagrams.net">
   <diagram id="{name}" name="{name}">
-    <mxGraphModel dx="1400" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="{width}" pageHeight="{bottom + 60}" math="0" shadow="0">
+    <mxGraphModel dx="1400" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="{width}" pageHeight="{bottom + 120}" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
