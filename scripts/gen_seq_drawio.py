@@ -752,36 +752,47 @@ def build(name, spec):
     open_calls = {}                 # pid -> [y, ...]
     frame_stack = []
     y = Y0 + HDR_H + 34
+    note_cursor = Y0 + HDR_H + 10   # notes stack in the gutter on their own cursor
     n = 0
 
     def note_height(text):
-        return max(48, 20 + 15 * (len(text) // 46 + 1))
+        return max(46, 18 + 14 * (len(text) // 44 + 1))
 
     for step in spec["steps"]:
         kind = step[0]
 
         if kind == "frame":
+            y += 12                                  # breathing room above the tab
             frame_stack.append({"label": step[1], "y0": y, "divs": []})
-            y += 30
+            y += 30                                  # tab occupies this band
             continue
         if kind == "div":
             if frame_stack:
-                frame_stack[-1]["divs"].append((y - 12, step[1]))
-            y += 26
+                frame_stack[-1]["divs"].append((y - 14, step[1]))
+            y += 28
             continue
         if kind == "end":
             if frame_stack:
                 f = frame_stack.pop()
-                f["y1"] = y + 6
                 f["depth"] = len(frame_stack)
+                # y1 IS the drawn bottom edge (see the rect below), so the next element
+                # can simply start below it — the old code advanced y by less than the
+                # rect's own height, which made consecutive frames overlap by 14px.
+                f["y1"] = y + 2 + f["depth"] * 10
                 frames.append(f)
-                y += 18
+                y = f["y1"] + 40          # clear visual separation, not a hairline
             continue
         if kind == "note":
-            who, text = step[1], step[2]
+            text = step[2]
             h = note_height(text)
-            notes.append((y - 8, text, h))
-            y += h + 12
+            ny = max(y - 8, note_cursor)             # never on top of the previous note
+            notes.append((ny, text, h))
+            note_cursor = ny + h + 10
+            # Reserve only a fraction of the note's height in the message flow: a note
+            # lives in the right gutter, so charging its full height to the sequence
+            # opened huge blank bands inside frames. The cursor above is what actually
+            # prevents notes colliding.
+            y += max(12, h // 3)
             continue
 
         n += 1
@@ -822,7 +833,7 @@ def build(name, spec):
                 bars.append((centre[src], stack.pop(), y))
         y += STEP
 
-    bottom = y + 30
+    bottom = max(y, note_cursor) + 30
     width = X0 + (len(parts) - 1) * GAP + 120 + GUTTER
     note_x = X0 + (len(parts) - 1) * GAP + 110
 
@@ -876,7 +887,6 @@ def build(name, spec):
     # fragments
     fcells = []
     for i, f in enumerate(frames):
-        pad = 26 + f["depth"] * 12
         fx = X0 - 60 - f["depth"] * 10
         fw = (len(parts) - 1) * GAP + 130 + f["depth"] * 20
         # Size the label tab to the text. A fixed tab makes any label that wraps overflow,
@@ -886,8 +896,8 @@ def build(name, spec):
             f'<mxCell id="fr{i}" value="{esc(f["label"])}" style="shape=umlFrame;whiteSpace=wrap;html=1;'
             f'pointerEvents=0;fontSize=11;fontStyle=2;width={tab_w};height=26;strokeColor=#9673a6;'
             f'fillColor=none;verticalAlign=top;align=left;spacingLeft=4;" vertex="1" parent="1">'
-            f'<mxGeometry x="{fx}" y="{f["y0"] - 20}" width="{fw}" '
-            f'height="{f["y1"] - f["y0"] + pad}" as="geometry" /></mxCell>')
+            f'<mxGeometry x="{fx}" y="{f["y0"] - 24}" width="{fw}" '
+            f'height="{f["y1"] - f["y0"] + 24}" as="geometry" /></mxCell>')
         for j, (dy, dlabel) in enumerate(f["divs"]):
             fcells.append(
                 f'<mxCell id="fr{i}d{j}" value="{esc(dlabel)}" style="html=1;dashed=1;strokeColor=#9673a6;'
@@ -904,6 +914,16 @@ def build(name, spec):
             f'fillColor=#fff9c4;strokeColor=#e0b400;align=left;verticalAlign=top;fontSize=10;spacing=6;" '
             f'vertex="1" parent="1">'
             f'<mxGeometry x="{note_x}" y="{ny}" width="{NOTE_W}" height="{h}" as="geometry" /></mxCell>')
+
+    # Geometry self-check: sibling frames must not overlap, and notes must not overlap.
+    # Both are invisible in the XML and only show up when the picture is opened.
+    sib = sorted(((f["y0"] - 24, f["y1"], f["depth"], f["label"]) for f in frames))
+    for (t1, b1, d1, l1), (t2, b2, d2, l2) in zip(sib, sib[1:]):
+        if d1 == d2 and t2 < b1:
+            raise AssertionError(f"{name}: frames overlap by {b1 - t2}px — {l1!r} then {l2!r}")
+    for (ny1, _, h1), (ny2, _, _) in zip(notes, notes[1:]):
+        if ny2 < ny1 + h1:
+            raise AssertionError(f"{name}: notes overlap by {ny1 + h1 - ny2}px at y={ny2}")
 
     inner = "\n        ".join(head + life + fcells + barcells + cells + ncells)
     return f'''<mxfile host="app.diagrams.net">
