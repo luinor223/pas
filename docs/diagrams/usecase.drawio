@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e" pages="2">
     <diagram id="2NC66Ut30QDmnzZMc6so" name="ver2">
-        <mxGraphModel dx="583" dy="332" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="500" dy="66" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -212,11 +212,19 @@
                 <mxCell id="yreo0M8BgQ6xwhC4wYui-65" style="endArrow=none;html=1;strokeColor=#a83c38;" parent="1" source="yreo0M8BgQ6xwhC4wYui-6" target="yreo0M8BgQ6xwhC4wYui-39" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="yreo0M8BgQ6xwhC4wYui-66" value="tự động (sau ký thành công)" style="endArrow=open;html=1;dashed=1;strokeColor=#b0a020;fontSize=10;" parent="1" source="yreo0M8BgQ6xwhC4wYui-24" target="yreo0M8BgQ6xwhC4wYui-38" edge="1">
+                <mxCell id="yreo0M8BgQ6xwhC4wYui-66" value="sau khi ký hoàn tất (Signed)" style="endArrow=open;html=1;dashed=1;strokeColor=#b0a020;fontSize=10;" parent="1" source="yreo0M8BgQ6xwhC4wYui-24" target="yreo0M8BgQ6xwhC4wYui-38" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="yreo0M8BgQ6xwhC4wYui-67" value="Quyết định thiết kế: hệ thống tự động phát hành/lưu trữ hồ sơ khi nhận callback ký thành công - không phải thao tác thủ công của Kế toán." style="shape=note;whiteSpace=wrap;html=1;size=12;fontSize=10;align=left;verticalAlign=middle;fillColor=#fffce0;strokeColor=#999999;" parent="1" vertex="1">
-                    <mxGeometry x="1060" y="1030" width="200" height="90" as="geometry"/>
+                <mxCell id="yreo0M8BgQ6xwhC4wYui-89" style="endArrow=none;html=1;strokeColor=#a83c38;" parent="1" source="yreo0M8BgQ6xwhC4wYui-6" target="yreo0M8BgQ6xwhC4wYui-38" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="430" y="902"/>
+                            <mxPoint x="600" y="866"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="yreo0M8BgQ6xwhC4wYui-67" value="Quyết định thiết kế: requirement §3.8 chỉ nói &quot;sau khi ký hoàn tất, hồ sơ được phát hành và lưu trữ&quot;, nhưng sơ đồ trạng thái bảng thanh toán tách rõ hai bước: callback success → Signed, rồi publish → Issued. Requirement không nói publish tự động và không chỉ rõ ai thực hiện. Nhóm chọn: publish là thao tác thủ công của Kế toán (SIGNED → ISSUED, U publish - registry §9), khớp seq-07." style="shape=note;whiteSpace=wrap;html=1;size=12;fontSize=10;align=left;verticalAlign=middle;fillColor=#fffce0;strokeColor=#999999;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="1010" width="220" height="180" as="geometry"/>
                 </mxCell>
                 <mxCell id="yreo0M8BgQ6xwhC4wYui-68" style="endArrow=none;html=1;dashed=1;strokeColor=#999999;" parent="1" source="yreo0M8BgQ6xwhC4wYui-67" target="yreo0M8BgQ6xwhC4wYui-38" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -280,8 +288,8 @@
             </root>
         </mxGraphModel>
     </diagram>
-    <diagram id="SpSM5TvB_5PjTBg74s3T" name="ver1">
-        <mxGraphModel dx="583" dy="332" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1650" math="0" shadow="0" adaptiveColors="auto">
+    <diagram id="SpSM5TvB_5PjTBg74s3T" name="archived">
+        <mxGraphModel dx="500" dy="522" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1650" math="0" shadow="0" adaptiveColors="auto">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>

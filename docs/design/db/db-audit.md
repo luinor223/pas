@@ -23,6 +23,7 @@ Beyond 4.10's per-entity axes, this is what enables cross-entity search: "what d
 - **`changes jsonb` is never interpreted.** Producers format the human-readable description in their own ubiquitous language; this service stores, indexes and returns it. Holding that line is what stops a central store becoming a god-service.
 - **`actor_id` is never resolved against identity at read time** — `actor_name`/`actor_department` are write-time snapshots (4.10: *"không phụ thuộc dữ liệu hiển thị hiện tại"*). A renamed or disabled user must not change what a past record shows; the ghost edge records provenance only (D7).
 - **Producers:** identity, contract, pricing, operations, billing, workflow, esign. notification-service produces nothing (no auditable domain actions). audit-service audits nothing of its own; reads gated by `audit:view_all`.
+- **Two read paths, neither substituting for the other** (seq-02). `AuditInternal.ListRecords(entity_type, entity_id, page)` is gRPC, per-entity, and fills an owning service's History tab (registry §5). The admin UC *Tra cứu audit log* needs the cross-entity axes this schema is indexed for, so it gets a user-facing **`GET /audit-records`** through the gateway — REST, because it is user traffic (D16) — with filters `entity_type`, `entity_no`, `actor_id`, `source_service`, `action`, `from`, `to` plus `page`/`size`, `ORDER BY occurred_at DESC`, gated by `audit:view_all` (held by `SYSTEM_ADMIN` alone, registry §7). Read-only by construction: the grants below are `INSERT + SELECT`, so no endpoint here can mutate the trail, and `actor_name`/`actor_department` render from each row's write-time snapshot rather than being resolved against identity (4.10).
 
 ## Rule / requirement mapping
 
@@ -31,7 +32,7 @@ Beyond 4.10's per-entity axes, this is what enables cross-entity search: "what d
 | 4.10 ai / khi nào / hành động / trước-sau / ghi chú | `actor_*`, `occurred_at`, `action`, `before_status`/`after_status`, `note` |
 | 4.10 per hợp đồng / bảng giá / bảng thanh toán / phiên ký | `(entity_type, entity_id)` index |
 | 4.10 không phụ thuộc dữ liệu hiển thị hiện tại | actor/entity_no snapshots; in-transaction write at the producer |
-| §2 admin oversight | cross-entity/actor/date queries (`audit:view_all`) |
+| §2 admin oversight, UC "Tra cứu audit log" | `GET /audit-records` — cross-entity/actor/service/action/date filters + pagination, `audit:view_all` (seq-02) |
 | 5.5 Event bị mất | outbox at every producer + relay retry + PK dedup here |
 
 ## Constraints & indexes (not shown in the diagram)

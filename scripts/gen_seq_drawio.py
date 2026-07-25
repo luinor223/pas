@@ -83,6 +83,7 @@ DIAGRAMS["seq-01-auth"] = {
                "Every other diagram assumes this gateway hop and omits it.",
     "participants": [
         ("user", ":Internal user", "actor"),
+        ("admin", ":System admin", "actor"),
         ("gw", "api-gateway", "boundary"),
         ("idsvc", "identity-service", "plain"),
         ("redis", "Redis", "entity"),
@@ -129,6 +130,33 @@ DIAGRAMS["seq-01-auth"] = {
         ("call", "idsvc", "redis", "SETEX blacklist:{jti} … ttl = exp − now"),
         ("ret", "idsvc", "gw", "204"),
         ("ret", "gw", "user", "204"),
+        ("frame", "opt [Phân quyền — the change-triggered half of §M1]"),
+        ("call", "admin", "gw", "PUT /roles/{role_code}/permissions\n{permissions: [...]}"),
+        ("call", "gw", "idsvc", "PUT /roles/{role_code}/permissions"),
+        ("self", "idsvc", "assert user:manage ∈ permissions — identity resolves its own\npermission from the same cache, never special-cased (db-identity)"),
+        ("self", "idsvc", "tx: DELETE + INSERT role_permission (role_id, permission_id)\n+ INSERT outbox('audit.recorded') — every grant and revoke is traced"),
+        ("frame", "opt [best-effort cache overwrite — AFTER the commit]"),
+        ("call", "idsvc", "redis", "SET perm:role:{code} = [recomputed permissions] · TTL 6h"),
+        ("self", "idsvc", "SET fails or Redis is down ⇒ log + metric, swallow the error\nthe response is still 200 · the hourly sweep repairs the key"),
+        ("end",),
+        ("ret", "idsvc", "gw", "200 {role_code, permissions[]}"),
+        ("ret", "gw", "admin", "200"),
+        ("note", "idsvc", "The fragment is 'opt' and the failure is swallowed on purpose: Redis is NOT on this request's "
+                          "success path. It cannot join the Postgres transaction, and letting a cache write fail an "
+                          "authorization change that is already committed would report a lie to the admin and invite a "
+                          "retry that re-writes role_permission for no reason. Contrast seq-01's read path, where Redis "
+                          "being down is fail-closed PERMISSION_DENIED — enforcement must fail shut, propagation must "
+                          "not fail the write."),
+        ("note", "idsvc", "This is the path that actually delivers revocation; the hourly loop at the top is what BOUNDS "
+                          "it. If this SET is missed, the sweep repairs the key within 1h (TTL 6h is the last-resort "
+                          "backstop, not the mechanism). Net guarantee: bounded eventual revocation (§M1), never "
+                          "immediacy — nothing in the requirement asks for immediacy, only for better than "
+                          "'wait for re-login'."),
+        ("note", "admin", "One role key, every holder at once — the map is keyed by role, not by user, which is why a "
+                          "revoke needs no per-user fan-out. The asymmetric case: assigning or removing a user's ROLE "
+                          "writes only user_role and touches Redis not at all, because roles[] is a JWT claim — that "
+                          "change lands at the user's next login, not on this request (db-identity, §M1)."),
+        ("end",),
     ],
 }
 
@@ -143,6 +171,7 @@ DIAGRAMS["seq-02-outbox-audit-notification"] = {
         ("relay", "outbox relay", "control"),
         ("mq", "Kafka", "entity"),
         ("audit", "audit-service", "plain"),
+        ("admin", ":System admin", "actor"),
         ("notif", "notification-service", "plain"),
         ("idsvc", "identity-service", "plain"),
         ("user", ":Internal user", "actor"),
@@ -222,6 +251,20 @@ DIAGRAMS["seq-02-outbox-audit-notification"] = {
         ("note", "audit", "The accepted cost of D15: if audit-service is down the non-status half of this tab is "
                           "unavailable, business operations are not. Outbox rows accumulate and drain on recovery. "
                           "A business rule may only ever read status_history — never audit (D17)."),
+        ("end",),
+        ("frame", "Tra cứu audit log — the admin's cross-entity search"),
+        ("call", "admin", "audit", "GET /audit-records\n?entity_type&entity_no&actor_id&source_service&action&from&to&page&size"),
+        ("self", "audit", "assert audit:view_all ∈ permissions (§7 — SYSTEM_ADMIN only)\nSELECT … ORDER BY occurred_at DESC, paged\nserved by (actor_id | source_service | entity_type+entity_id, occurred_at DESC)\nand (action) — db-audit.md"),
+        ("ret", "audit", "admin", "200 {records[], page, total}"),
+        ("note", "admin", "REGISTRY DELTA — the cross-entity axes had indexes but no endpoint. AuditInternal.ListRecords "
+                          "above is NOT a substitute: it is gRPC (service-to-service, D16), keyed on one "
+                          "(entity_type, entity_id), and exists to fill an owning service's History tab. \"Tra cứu audit "
+                          "log\" is a human asking \"what did user X do last week\" — user traffic, therefore REST "
+                          "through the gateway, with filters and pagination. Read-only by construction: the schema "
+                          "grants INSERT + SELECT only, so not even audit-service can rewrite the trail."),
+        ("note", "audit", "actor_name and actor_department render from each row's own write-time snapshot and are never "
+                          "resolved against identity at read time — 4.10's \"không phụ thuộc vào dữ liệu hiển thị hiện "
+                          "tại\". A user renamed or DISABLED since must not change what a past record shows."),
         ("end",),
     ],
 }
@@ -305,7 +348,14 @@ DIAGRAMS["seq-03-contract-approval"] = {
         ("self", "ct", "tx: UPDATE … SET status='UNDER_REVIEW' WHERE status='SUBMITTED'\n+ status_history (trigger_kind = W) + INSERT processed_event (§9¹)"),
         ("note", "ct", "Guarded on the expected from_status and deduped in the same transaction: delivery is "
                        "at-least-once (D6), so a redelivered instance_started must be a no-op, not a second flip. "
-                       "PRICE_LIST and PAYMENT_STATEMENT have no UNDER_REVIEW state and ignore this event entirely."),
+                       "Order-tolerant in BOTH directions (§9¹): Kafka orders what the relay sent, not what committed, "
+                       "so a workflow.completed can arrive while the document is still SUBMITTED — that handler admits "
+                       "SUBMITTED and applies the skipped SUBMITTED → UNDER_REVIEW edge itself before the outcome, in "
+                       "one transaction, with a status_history row for each edge (both trigger_kind = W). Two §9 edges "
+                       "in sequence, never an edge §9 doesn't have. Conversely an instance_started landing after the "
+                       "outcome matches no row and does nothing. Without both halves a reorder wedges the document "
+                       "permanently. PRICE_LIST and PAYMENT_STATEMENT have no UNDER_REVIEW state and ignore this "
+                       "event entirely."),
         ("async", "mq", "notif", "workflow.instance_started + workflow.step_assigned"),
         ("self", "notif", "INSERT notification × assignee_ids\n\"New document assigned to you\""),
         ("note", "mq", "Relay claim and broker mechanics are exactly seq-02 and are not redrawn."),
@@ -340,13 +390,19 @@ DIAGRAMS["seq-03-contract-approval"] = {
         ("div", "[APPROVE — final step (APR-05)]"),
         ("self", "wf", "instance → APPROVED\n+ outbox(workflow.completed{APPROVED}, audit.recorded)"),
         ("async", "mq", "ct", "workflow.completed {outcome: APPROVED}"),
-        ("self", "ct", "tx: UNDER_REVIEW → APPROVED WHERE status='UNDER_REVIEW'\n+ status_history (trigger_kind = W) + processed_event (D3)"),
+        ("self", "ct", "tx: completion guard status IN ('SUBMITTED','UNDER_REVIEW')\n"
+                       "SUBMITTED: apply SUBMITTED → UNDER_REVIEW first (§9¹)\n"
+                       "then → APPROVED; one status_history row per edge, both trigger_kind = W\n"
+                       "+ processed_event (D3) — all in the one transaction"),
         ("async", "mq", "notif", "workflow.completed → requested_by (\"contract approved\")"),
         ("ret", "wf", "appr", "200 {step: APPROVED, document: APPROVED}"),
         ("div", "[REJECT or REQUEST_REVISION (APR-03/04)]"),
         ("self", "wf", "tx: instance → REJECTED | REVISION_REQUESTED\nsweep remaining PENDING steps → CANCELLED\n+ outbox(workflow.completed, audit.recorded)"),
         ("async", "mq", "ct", "workflow.completed {outcome: REJECTED | REVISION_REQUESTED}"),
-        ("self", "ct", "tx: UNDER_REVIEW → REJECTED | REVISION_REQUESTED\n+ status_history + processed_event"),
+        ("self", "ct", "tx: completion guard status IN ('SUBMITTED','UNDER_REVIEW')\n"
+                       "SUBMITTED: apply SUBMITTED → UNDER_REVIEW first (§9¹)\n"
+                       "then → REJECTED | REVISION_REQUESTED; one status_history row per edge,\n"
+                       "both trigger_kind = W + processed_event — all in the one transaction"),
         ("async", "mq", "notif", "workflow.completed → requested_by (\"rejected — action required\")"),
         ("ret", "wf", "appr", "200 {step: REJECTED, document: REJECTED}"),
         ("note", "ct", "CTR-04: a REJECTED contract is never auto-resubmitted — REJECTED → DRAFT needs an explicit, "
@@ -720,6 +776,95 @@ DIAGRAMS["seq-07-esign"] = {
                          "CANCELLED) that receives a late session_completed is a documented no-op — the guarded UPDATE "
                          "matches nothing. For a CONTRACT, contract-service does not consume this event at all (D14e): "
                          "the frontend composes contract status with GET /signing-sessions/by-document/… for display."),
+    ],
+}
+
+# ── 8. workflow configuration (admin) ────────────────────────────────────────
+DIAGRAMS["seq-08-workflow-configuration"] = {
+    "title": "8 · Workflow configuration — new version, activation swap, running instances unaffected",
+    "caption": "4.7 \"quy trình phê duyệt không được hard-code\" · UC Quản trị hệ thống → Cấu hình workflow · "
+               "permission workflow:configure · db-workflow's definition/instance split. The admin-facing half of seq-03.",
+    "participants": [
+        ("admin", ":System admin", "actor"),
+        ("wf", "workflow-service", "plain"),
+        ("db", "workflow schema", "entity"),
+        ("appr", ":Approver", "actor"),
+        ("ct", "contract-service", "plain"),
+    ],
+    "steps": [
+        ("call", "admin", "wf", "GET /workflow-definitions?document_type=CONTRACT"),
+        ("ret", "wf", "admin", "[{version_no: 3, is_active: true, steps: 3}, {version_no: 2, …}]"),
+        ("note", "wf", "4.7 in one sentence: the chain is DATA. No service branches on document type to decide who "
+                       "approves — the engine reads workflow_step_definition rows, and registry §7's four seed chains "
+                       "are rows an admin may replace at runtime. That is the requirement's \"không được hard-code "
+                       "theo if/else đơn giản\", and this diagram is where it is actually exercised."),
+        ("call", "admin", "wf", "POST /workflow-definitions\n{document_type: CONTRACT, based_on_version_no: 3}"),
+        ("self", "wf", "assert workflow:configure ∈ permissions (D11 layer 2, §M1)\ncopy v3's steps into version_no = 4, is_active = false\nUNIQUE (document_type_id, version_no)"),
+        ("ret", "wf", "admin", "201 {definition_id, version_no: 4, is_active: false}"),
+        ("call", "admin", "wf", "PUT /workflow-definitions/{id}/steps\n[{step_order, name, approver_role, sla_hours}]"),
+        ("self", "wf", "assert is_active = false — an ACTIVE version is read-only\nassert ≥ 1 step · step_order contiguous from 1\ntx: replace workflow_step_definition rows + outbox('audit.recorded')"),
+        ("note", "wf", "There is no edit-in-place path at all, which is the point: \"change the Legal review step\" is "
+                       "always insert-a-version then activate, and Figma's drag-reorder is a step_order rewrite on the "
+                       "DRAFT version. That is also what keeps every past approval re-readable — a finished instance's "
+                       "definition_id still resolves to the chain that actually ran (db-workflow)."),
+        ("call", "admin", "wf", "POST /workflow-definitions/{id}/activate"),
+        ("frame", "one transaction — deactivate BEFORE activate"),
+        ("call", "wf", "db", "BEGIN"),
+        ("call", "wf", "db", "SELECT id, document_type_id, is_active, version_no\nFROM workflow_definition WHERE id = :target FOR UPDATE"),
+        ("ret", "db", "wf", "the target row, now locked"),
+        ("self", "wf", "assert found — else NOT_FOUND, ROLLBACK\nthe locked target's document_type_id defines the swap scope"),
+        ("frame", "alt [target already active — idempotent no-op]"),
+        ("call", "wf", "db", "COMMIT — no writes, no duplicate audit record"),
+        ("ret", "db", "wf", "ok — target was already active"),
+        ("div", "[target inactive — perform the guarded swap]"),
+        ("call", "wf", "db", "UPDATE workflow_definition SET is_active = false\nWHERE document_type_id = ? AND is_active     → 0 or 1 rows"),
+        ("call", "wf", "db", "UPDATE workflow_definition SET is_active = true\nWHERE id = :target AND NOT is_active     → MUST be 1 row"),
+        ("self", "wf", "activated ≠ 1 ⇒ ROLLBACK — never commit a deactivate\nthat is not paired with its activate"),
+        ("call", "wf", "db", "INSERT outbox (audit.recorded — before/after version_no, actor)"),
+        ("call", "wf", "db", "COMMIT"),
+        ("ret", "db", "wf", "ok — exactly one active version, by construction"),
+        ("end",),
+        ("end",),
+        ("note", "db", "Order is load-bearing, the same shape as seq-04's truncate-then-approve: the partial unique "
+                       "(document_type_id) WHERE is_active admits exactly one active version per document type, so "
+                       "activating first aborts on the constraint and no chain could ever be swapped. But order alone "
+                       "is not enough — the guards above are what stop the swap committing HALF done."),
+        ("note", "db", "Without them a missing target can go unnoticed, the deactivate can land, and an activate that "
+                       "matches nothing can still be followed by COMMIT: a document type with NO active definition, "
+                       "every subsequent submit failing ValidateStartable, and no error raised at the moment of "
+                       "damage. Hence: lock and validate the target FIRST, use its document_type_id as the swap scope, "
+                       "treat an already-active target as an idempotent read-only success, and require an inactive "
+                       "target's activate to report exactly 1 row. "
+                       "The deactivate is allowed to report 0 — the partial unique already bounds it to ≤ 1, and 0 is "
+                       "the legitimate first-activation case for a freshly seeded document type; it is the ACTIVATE "
+                       "whose count carries the invariant."),
+        ("note", "db", "Concurrency: two admins activating different versions of one document type serialize on the "
+                       "same currently-active row in the deactivate, and the loser then hits the partial unique on its "
+                       "own activate — ABORTED, nothing half-applied. If no active version exists yet, neither blocks, "
+                       "and the partial unique is what rejects the second directly. Either way the failure is a "
+                       "rejected request, never a document type left with zero or two active chains."),
+        ("ret", "wf", "admin", "200 {version_no: 4, is_active: true}"),
+        ("note", "wf", "Activation deliberately does NOT verify that each step's role has an ACTIVE holder. A chain is "
+                       "legitimately configured before the people exist, and the check already lives where it can act "
+                       "on the answer: ValidateStartable rejects the SUBMIT and names the unfillable role (seq-03). "
+                       "Two gates for one fact would just let the config screen and the submit screen disagree."),
+        ("frame", "opt [an approval already running under v3 — unaffected]"),
+        ("call", "appr", "wf", "POST /workflow-steps/{step_instance_id}/actions\n{action: APPROVE, comment}"),
+        ("self", "wf", "reads workflow_step_instance + step_assignee — both written at\ninstance creation, and workflow_instance.definition_id still pins v3\nnothing on the action path reads workflow_step_definition at all"),
+        ("ret", "wf", "appr", "200 {step: APPROVED, next_step: Legal review} — v3's chain, to the end"),
+        ("note", "appr", "This is the whole reason definitions are versioned instead of edited. A chain mutating under a "
+                         "running approval would change \"các bước còn lại\" (4.7) mid-flight, could strand an ACTIVE "
+                         "step whose role left the chain, and would undermine APR-02's \"no re-approving a completed "
+                         "step\" — the step numbers themselves would have moved underneath it."),
+        ("end",),
+        ("call", "ct", "wf", "WorkflowInternal.StartInstance(CONTRACT, …, idempotency_key)\nthe first submit after activation (seq-03)"),
+        ("self", "wf", "resolve is_active ⇒ v4 · pin definition_id = v4\nsnapshot v4's steps + assignees into the new instance"),
+        ("ret", "wf", "ct", "OK {instance_id} — new instances get v4, in-flight ones keep v3"),
+        ("note", "ct", "The cutover is per instance and needs no migration: which chain a document follows is fixed at "
+                       "the moment its instance is created and never re-read. \"Cấu hình loại hồ sơ\", the other "
+                       "workflow-service admin UC, is ordinary CRUD on document_type_config (esign_enabled and friends, "
+                       "D10) with this same assert-permission / write / outbox('audit.recorded') shape, so it is not "
+                       "drawn separately."),
     ],
 }
 
