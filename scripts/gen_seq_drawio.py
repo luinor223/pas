@@ -23,7 +23,7 @@ Conventions in the labels themselves — kept verbatim from the registry so the
 diagrams and the registry cannot drift:
   gRPC methods  <Service>Internal.<Method>   (registry §5, D16)
   REST paths    user traffic only            (registry §5 "REST, not gRPC")
-  event types   registry §4                  (routing key on pas.events)
+  event types   registry §4                  (event_type header on topic pas.events)
   statuses      registry §3 / transitions §9
 """
 import os
@@ -53,7 +53,7 @@ KIND_PARTICIPANT = {
 # reserved for our own nine services, so an icon always means "not a PAS service".
 LEGEND = ("Lifeline shapes — stick figure = actor (human role) · circle with left bar = boundary "
           "(system edge: gateway, external provider) · circle with rim arrow = control (relay, scheduler) · "
-          "circle on a line = entity (datastore or broker: Postgres schema, Redis, RabbitMQ) · "
+          "circle on a line = entity (datastore or broker: Postgres schema, Redis, Kafka) · "
           "plain rectangle = one of the nine PAS services.     "
           "Arrows — solid filled = sync request (gRPC service-to-service per D16; REST for user or "
           "external traffic) · dashed open = response · purple open = broker publish/delivery · "
@@ -141,7 +141,7 @@ DIAGRAMS["seq-02-outbox-audit-notification"] = {
         ("owner", "owning service", "plain"),
         ("db", "its schema", "entity"),
         ("relay", "outbox relay", "control"),
-        ("mq", "RabbitMQ pas.events", "entity"),
+        ("mq", "Kafka", "entity"),
         ("audit", "audit-service", "plain"),
         ("notif", "notification-service", "plain"),
         ("idsvc", "identity-service", "plain"),
@@ -169,10 +169,16 @@ DIAGRAMS["seq-02-outbox-audit-notification"] = {
         ("note", "relay", "§M2: the claim predicate must repeat the poll's staleness clause exactly. 0 rows ⇒ another "
                           "worker (re)claimed, published or cancelled it first — skip. Under READ COMMITTED the loser "
                           "re-evaluates against the winner's committed row, so this is real mutual exclusion."),
-        ("async", "relay", "mq", "publish routing_key = event_type\nenvelope{event_id = outbox.id, occurred_at, actor, payload}"),
+        ("async", "relay", "mq", "send(topic = pas.events | pas.audit, key = aggregate_id = document id,\n"
+                                 "headers{event_type, document_type},\n"
+                                 "value = envelope{event_id = outbox.id, occurred_at, actor, payload})"),
         ("call", "relay", "db", "UPDATE outbox SET published_at = now()"),
-        ("note", "relay", "On publish failure: clear claimed_at, retry_count + 1 — the same staleness clause reclaims "
-                          "it either way. At-least-once delivery is the contract; consumers must dedup."),
+        ("note", "relay", "published_at is stamped only after the broker acks (acks=all, enable.idempotence=true — D2). "
+                          "On send failure: clear claimed_at, retry_count + 1 — the same staleness clause reclaims it "
+                          "either way. At-least-once is still the contract (the relay can die after the ack, before the "
+                          "stamp), so consumers must dedup. key = aggregate_id ⇒ one partition per document — but Kafka "
+                          "orders what was *sent*, so commit order survives only because this poll is ORDER BY created_at "
+                          "and one publisher runs per service (§M2). Consumers must not depend on it: §9¹ is order-tolerant."),
         ("end",),
         ("frame", "opt [the cancelled_at side exit — who writes it (§M2)]"),
         ("call", "owner", "db", "UPDATE outbox SET cancelled_at = now()\nWHERE id = ? AND claimed_at IS NULL\nAND cancelled_at IS NULL AND published_at IS NULL"),
@@ -181,12 +187,17 @@ DIAGRAMS["seq-02-outbox-audit-notification"] = {
                           "A timestamp lease has no fencing, so \"stale\" never means the worker is dead; it may be paused "
                           "and resume. The full handoff for a claimed row is drawn in seq-03's cancel fragment."),
         ("end",),
-        ("async", "mq", "audit", "audit.recorded"),
+        ("async", "mq", "audit", "audit.recorded — topic pas.audit, group 'audit-service'"),
         ("self", "audit", "INSERT audit_record (id = envelope event_id)\nON CONFLICT DO NOTHING"),
         ("note", "audit", "PK = source event id, so dedup is the natural key — audit-service needs no processed_event "
                           "table (db-audit.md). Rows are immutable: INSERT + SELECT grants only, so a business service "
                           "can never rewrite its own history."),
-        ("async", "mq", "notif", "<domain event>"),
+        ("async", "mq", "notif", "<domain event> — topic pas.events, group 'notification-service'"),
+        ("note", "mq", "Fan-out is one consumer group per consuming service (D2), not a broker binding: every group "
+                       "reads the whole topic and skips what it doesn't handle, on the event_type / document_type headers, before "
+                       "deserializing the payload. Offsets are committed after processing, so a redelivery is normal — "
+                       "not an error path. A record that can never succeed must go to pas.events.DLT and let the offset "
+                       "advance: unlike a requeue, a stuck record blocks its whole partition behind it."),
         ("self", "notif", "SELECT processed_event WHERE event_id = ?"),
         ("frame", "opt [not yet processed]"),
         ("frame", "opt [event carries recipient_role, not user ids]"),
@@ -227,7 +238,7 @@ DIAGRAMS["seq-03-contract-approval"] = {
         ("relay", "contract relay", "control"),
         ("wf", "workflow-service", "plain"),
         ("idsvc", "identity-service", "plain"),
-        ("mq", "RabbitMQ", "entity"),
+        ("mq", "Kafka", "entity"),
         ("notif", "notification-service", "plain"),
         ("sched", "scheduler", "control"),
     ],
@@ -372,7 +383,7 @@ DIAGRAMS["seq-04-pricelist-version"] = {
         ("db", "pricing schema", "entity"),
         ("relay", "pricing relay", "control"),
         ("wf", "workflow-service", "plain"),
-        ("mq", "RabbitMQ", "entity"),
+        ("mq", "Kafka", "entity"),
         ("notif", "notification-service", "plain"),
         ("sched", "scheduler", "control"),
         ("bill", "billing-service", "plain"),
@@ -454,7 +465,7 @@ DIAGRAMS["seq-05-volume-period-lock"] = {
         ("op", "operations-service", "plain"),
         ("ct", "contract-service", "plain"),
         ("pr", "pricing-service", "plain"),
-        ("mq", "RabbitMQ", "entity"),
+        ("mq", "Kafka", "entity"),
         ("notif", "notification-service", "plain"),
         ("idsvc", "identity-service", "plain"),
         ("bill", "billing-service", "plain"),
@@ -522,7 +533,7 @@ DIAGRAMS["seq-06-payment-statement"] = {
         ("pr", "pricing-service", "plain"),
         ("relay", "billing relay", "control"),
         ("wf", "workflow-service", "plain"),
-        ("mq", "RabbitMQ", "entity"),
+        ("mq", "Kafka", "entity"),
         ("notif", "notification-service", "plain"),
     ],
     "steps": [
@@ -623,7 +634,7 @@ DIAGRAMS["seq-07-esign"] = {
         ("ct", "contract-service", "plain"),
         ("es", "esign-service", "plain"),
         ("prov", "MockSign provider", "boundary"),
-        ("mq", "RabbitMQ", "entity"),
+        ("mq", "Kafka", "entity"),
         ("notif", "notification-service", "plain"),
     ],
     "steps": [

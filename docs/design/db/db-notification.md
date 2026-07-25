@@ -14,7 +14,7 @@ Schema `notification`, owned by notification-service — pure event consumer (4.
 | Rule | Design element |
 |---|---|
 | 4.9 triggers (cần xử lý / từ chối / được duyệt / ký xong / sắp hết hạn) | consumed event set (registry §4) |
-| 4.9 async from other services | RabbitMQ consumer; no sync coupling to producers |
+| 4.9 async from other services | Kafka consumer (`pas.events`, group `notification-service`); no sync coupling to producers |
 | 4.9 view + mark read | list endpoint + `read_at` |
 | APR-07 notification failure ≠ business failure | outbox at producers + redelivery + `processed_event` dedup |
 
