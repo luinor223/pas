@@ -637,7 +637,14 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="e1" edge="1" parent="1" source="esign__signing_session_r3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;strokeColor=#90a4ae;endArrow=open;endFill=0;fontSize=10;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="esign__owner_document">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="275" />
+              <mxPoint x="360" y="370" />
+              <mxPoint x="720" y="370" />
+              <mxPoint x="720" y="530" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="e2" edge="1" parent="1" source="esign__signing_callback_log_r1" style="edgeStyle=entityRelationEdgeStyle;rounded=0;strokeColor=#546e7a;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;fontSize=10;html=1;" target="esign__signing_session">
           <mxGeometry relative="1" as="geometry" />
