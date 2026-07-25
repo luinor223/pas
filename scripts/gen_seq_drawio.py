@@ -278,7 +278,7 @@ DIAGRAMS["seq-03-contract-approval"] = {
                        "double-submit (5.5) while an instance is active. Neither subsumes the other."),
         ("div", "[UNAVAILABLE — the only status §5.1 retries in general]"),
         ("self", "relay", "clear claimed_at, retry_count + 1 → reclaimed after the lease"),
-        ("div", "[FAILED_PRECONDITION / ALREADY_EXISTS — permanent, do not spin]"),
+        ("div", "[FAILED_PRECONDITION / ALREADY_EXISTS — permanent]"),
         ("self", "relay", "stop retrying, park the outbox row\n+ outbox('audit.recorded') · document stays SUBMITTED,\nflagged \"workflow initialization failed\""),
         ("note", "relay", "The residual race the pre-check cannot close (a sole assignee disabled between check and "
                           "dispatch) lands here — visibly parked for an admin, never retried forever. Same discipline "
@@ -386,7 +386,7 @@ DIAGRAMS["seq-04-pricelist-version"] = {
         ("ret", "wf", "pr", "OK"),
         ("self", "pr", "warn on a cross-scope overlap the EXCLUDE cannot see\n(different scope kinds, same customer — db-pricing.md's residual gap)"),
         ("self", "pr", "tx: DRAFT → SUBMITTED + status_history\n+ outbox('workflow.start_requested', idempotency_key) + outbox(audit)"),
-        ("frame", "ref — dispatch + approval chain exactly as seq-03 (Commercial approval → Director sign-off)"),
+        ("frame", "ref — approval per seq-03 (Commercial → Director)"),
         ("call", "relay", "wf", "WorkflowInternal.StartInstance(PRICE_LIST, …, idempotency_key)"),
         ("end",),
         ("frame", "alt [outcome APPROVED]"),
@@ -482,7 +482,7 @@ DIAGRAMS["seq-05-volume-period-lock"] = {
         ("frame", "alt [post-lock edit — caller lacks volume:edit_locked]"),
         ("call", "ops", "op", "PATCH /volume-records/{id}"),
         ("ret", "op", "ops", "403 PERMISSION_DENIED — period LOCKED (4.5)"),
-        ("div", "[caller holds volume:edit_locked — granted per user, in no role bundle]"),
+        ("div", "[caller holds volume:edit_locked]"),
         ("call", "ops", "op", "PATCH /volume-records/{id}"),
         ("self", "op", "tx: UPDATE volume_record\n+ outbox('audit.recorded') — MANDATORY on this path"),
         ("ret", "op", "ops", "200 {record_no}"),
@@ -543,7 +543,7 @@ DIAGRAMS["seq-06-payment-statement"] = {
                          "just fails the request with nothing committed — no failure fragment needed. The order is not "
                          "arbitrary: the contract supplies customer_id + service_group, which are inputs to the pricing "
                          "lookup, and period_end is the pricing lookup's date."),
-        ("frame", "one transaction — everything durable is a snapshot (PAY-03 / D7)"),
+        ("frame", "one transaction — all durable values are snapshots (PAY-03)"),
         ("self", "bill", "INSERT payment_statement\nsnapshots: contract_no, customer_name, period_start/end,\nprice_list_no + version_no, payment_term, vat_rate, currency"),
         ("self", "bill", "INSERT statement_line per priced service_code\nquantity = Σ of that code's volume records\nsnapshots: service_name, unit, unit_price · source = 'CALCULATED'"),
         ("self", "bill", "INSERT statement_line_volume per contributing record\n(line → volume_record, quantity snapshot)"),
@@ -577,7 +577,7 @@ DIAGRAMS["seq-06-payment-statement"] = {
         ("call", "bill", "wf", "WorkflowInternal.ValidateStartable(PAYMENT_STATEMENT)"),
         ("ret", "wf", "bill", "OK"),
         ("self", "bill", "tx: RECONCILED → SUBMITTED + status_history\n+ outbox('workflow.start_requested', idempotency_key) + outbox(audit)"),
-        ("frame", "ref — dispatch + approval chain exactly as seq-03 (Accounting check → Director sign-off)"),
+        ("frame", "ref — approval per seq-03 (Accounting → Director)"),
         ("call", "relay", "wf", "WorkflowInternal.StartInstance(PAYMENT_STATEMENT, …, idempotency_key)"),
         ("end",),
         ("frame", "alt [outcome APPROVED]"),
@@ -718,11 +718,14 @@ def validate(name, spec):
         k = s[0]
         if k == "frame":
             depth += 1
+            assert len(s[1]) <= 62, (f"{name}: frame label is {len(s[1])} chars, max 62 — it would wrap out of "
+                                     f"the tab. Shorten it and put the detail in a note: {s[1]!r}")
         elif k == "end":
             depth -= 1
             assert depth >= 0, f"{name}: 'end' without 'frame'"
         elif k == "div":
             assert depth > 0, f"{name}: 'div' outside a frame"
+            assert len(s[1]) <= 62, (f"{name}: div label is {len(s[1])} chars, max 62: {s[1]!r}")
         elif k == "note":
             assert s[1] is None or s[1] in ids, f"{name}: note anchored to unknown '{s[1]}'"
         elif k == "self":
@@ -876,10 +879,13 @@ def build(name, spec):
         pad = 26 + f["depth"] * 12
         fx = X0 - 60 - f["depth"] * 10
         fw = (len(parts) - 1) * GAP + 130 + f["depth"] * 20
+        # Size the label tab to the text. A fixed tab makes any label that wraps overflow,
+        # and the frame's own top border then strikes through it.
+        tab_w = min(max(int(len(f["label"]) * 6.2) + 26, 150), 440)
         fcells.append(
             f'<mxCell id="fr{i}" value="{esc(f["label"])}" style="shape=umlFrame;whiteSpace=wrap;html=1;'
-            f'pointerEvents=0;fontSize=11;fontStyle=2;width=170;height=26;strokeColor=#9673a6;'
-            f'fillColor=none;verticalAlign=top;align=left;" vertex="1" parent="1">'
+            f'pointerEvents=0;fontSize=11;fontStyle=2;width={tab_w};height=26;strokeColor=#9673a6;'
+            f'fillColor=none;verticalAlign=top;align=left;spacingLeft=4;" vertex="1" parent="1">'
             f'<mxGeometry x="{fx}" y="{f["y0"] - 20}" width="{fw}" '
             f'height="{f["y1"] - f["y0"] + pad}" as="geometry" /></mxCell>')
         for j, (dy, dlabel) in enumerate(f["divs"]):
