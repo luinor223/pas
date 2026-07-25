@@ -440,6 +440,7 @@ SPECS = {
                 ("", "signer_email text", None),
                 ("", "provider text", None),
                 ("", "provider_ref text", None),
+                ("", "idempotency_key uuid", None),
                 ("", "status text", None),
                 ("", "attempts int", None),
                 ("", "last_error text", None),
