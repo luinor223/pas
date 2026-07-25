@@ -29,7 +29,7 @@ Schema `workflow`, owned by workflow-service — the configurable approval engin
 | Rule | Design element |
 |---|---|
 | 4.7 configurable, no hard-code | definitions + steps as data; seed chains registry §7 |
-| 4.7 progress display | instance `current_step_order` + step statuses (sync GET, §5) |
+| 4.7 progress display | instance `current_step_order` + step statuses (`WorkflowInternal.GetInstanceByDocument`, §5) |
 | APR-01 | `step_assignee` snapshot + membership check |
 | APR-02 | sequential activation + optimistic lock |
 | APR-03 | comment CHECK |
