@@ -65,6 +65,12 @@ ARROW = {
     "async": "endArrow=open;endFill=0;endSize=10;strokeColor=#7B4FA8;",
 }
 
+# Message labels sit above their arrow and are wider than the gap between lifelines, so
+# they must be opaque: a transparent label lands on top of a lifeline, a frame border or
+# a neighbouring label and both become unreadable.
+LABEL_BG = "labelBackgroundColor=#FFFFFF;"
+LINE_H = 15          # per extra label line, used to reserve vertical clearance
+
 
 # ─────────────────────────────────────────────────────────────── diagram specs
 
@@ -156,7 +162,7 @@ DIAGRAMS["seq-02-outbox-audit-notification"] = {
                        "A plain async audit write would drop the trail whenever a service died after COMMIT."),
         ("frame", "loop [relay poll, every N seconds]"),
         ("call", "relay", "db", "SELECT … WHERE published_at IS NULL AND cancelled_at IS NULL\n"
-                                "AND (claimed_at IS NULL OR claimed_at &lt; now() − lease) ORDER BY created_at"),
+                                "AND (claimed_at IS NULL OR claimed_at < now() − lease) ORDER BY created_at"),
         ("ret", "db", "relay", "pending rows"),
         ("call", "relay", "db", "UPDATE outbox SET claimed_at = now()\nWHERE id = ? AND <same predicate>"),
         ("ret", "db", "relay", "1 row — claim won"),
@@ -339,7 +345,7 @@ DIAGRAMS["seq-03-contract-approval"] = {
         ("frame", "loop [scheduled job inside contract-service, daily — D14d]"),
         ("call", "sched", "ct", "tick"),
         ("self", "ct", "APPROVED and valid_from ≤ today ⇒ ACTIVE (CTR-05)\ntx: status + status_history (trigger_kind = S) + outbox('audit.recorded')"),
-        ("self", "ct", "ACTIVE and valid_to &lt; today ⇒ EXPIRED\ntx: status + status_history (trigger_kind = S) + outbox('audit.recorded')"),
+        ("self", "ct", "ACTIVE and valid_to < today ⇒ EXPIRED\ntx: status + status_history (trigger_kind = S) + outbox('audit.recorded')"),
         ("async", "ct", "mq", "document.expiring {days_left, owner_user_id} — direct publish, no outbox (D9)"),
         ("async", "mq", "notif", "document.expiring → owner_user_id (\"contract expiring in 30 days\")"),
         ("note", "sched", "D14e: contract status never reacts to e-sign. APPROVED → ACTIVE fires on schedule whether a "
@@ -348,7 +354,7 @@ DIAGRAMS["seq-03-contract-approval"] = {
         ("end",),
         ("frame", "loop [SLA sweep — workflow-service, hourly]"),
         ("call", "sched", "wf", "tick"),
-        ("self", "wf", "ACTIVE steps where now() − activated_at &gt; sla_hours\nAND overdue_notified_at IS NULL"),
+        ("self", "wf", "ACTIVE steps where now() − activated_at > sla_hours\nAND overdue_notified_at IS NULL"),
         ("async", "wf", "mq", "workflow.step_overdue {waiting_hours, sla_hours, assignee_ids}\nstamp overdue_notified_at (emit once, not every run)"),
         ("async", "mq", "notif", "workflow.step_overdue → assignees (\"approval overdue\")"),
         ("end",),
@@ -373,7 +379,7 @@ DIAGRAMS["seq-04-pricelist-version"] = {
     ],
     "steps": [
         ("call", "sales", "pr", "POST /price-lists/{id}/versions\n{valid_from, valid_to, lines[], addendum_id?}"),
-        ("self", "pr", "assert ≥ 1 scope field set (PRC-01)\nassert valid_from ≤ valid_to (PRC-02)\nassert valid_from &gt; the latest LOCKED period's end_date\nderive scope_key · status = DRAFT"),
+        ("self", "pr", "assert ≥ 1 scope field set (PRC-01)\nassert valid_from ≤ valid_to (PRC-02)\nassert valid_from > the latest LOCKED period's end_date\nderive scope_key · status = DRAFT"),
         ("note", "pr", "No backdating: PRC-02 only checks from ≤ to, so without the third assert a successor could be "
                        "given a valid_from inside an already-billed period, retroactively changing which version was "
                        "\"in force\" there — a rebuild or adjustment would then resolve a different version than the "
@@ -394,7 +400,7 @@ DIAGRAMS["seq-04-pricelist-version"] = {
         ("frame", "one transaction — ORDER IS LOAD-BEARING (§9³)"),
         ("call", "pr", "db", "BEGIN"),
         ("call", "pr", "db", "assert no overlapping APPROVED/EFFECTIVE version has\nvalid_from ≥ successor.valid_from → else FAILED_PRECONDITION\n(a successor may not rewrite a later approved version's validity)"),
-        ("call", "pr", "db", "UPDATE predecessor SET valid_to = successor.valid_from − 1 day\nWHERE scope_key = ? AND status IN ('APPROVED','EFFECTIVE')\nAND id &lt;&gt; :successor_id AND valid_from &lt; :successor_valid_from\nAND valid_to ≥ :successor_valid_from"),
+        ("call", "pr", "db", "UPDATE predecessor SET valid_to = successor.valid_from − 1 day\nWHERE scope_key = ? AND status IN ('APPROVED','EFFECTIVE')\nAND id <> :successor_id AND valid_from < :successor_valid_from\nAND valid_to ≥ :successor_valid_from"),
         ("call", "pr", "db", "UPDATE successor SET status = 'APPROVED'"),
         ("call", "pr", "db", "INSERT status_history (successor SUBMITTED→APPROVED, trigger_kind = W)\n+ INSERT processed_event + INSERT outbox(audit.recorded)\nthe predecessor's valid_to change is an audit 'changes' entry, not a transition"),
         ("call", "pr", "db", "COMMIT"),
@@ -423,12 +429,12 @@ DIAGRAMS["seq-04-pricelist-version"] = {
         ("note", "sched", "Order pinned deliberately: after truncation the predecessor's valid_to is successor.valid_from "
                           "− 1, so on activation day both the EXPIRED rule and the SUPERSEDED rule match. §9/PRC-04 "
                           "permit either, but a version replaced by a successor should read SUPERSEDED, not EXPIRED."),
-        ("self", "pr", "EFFECTIVE and valid_to &lt; today ⇒ EXPIRED (no successor)\ntx: status + status_history (trigger_kind = S) + outbox(audit)"),
+        ("self", "pr", "EFFECTIVE and valid_to < today ⇒ EXPIRED (no successor)\ntx: status + status_history (trigger_kind = S) + outbox(audit)"),
         ("async", "pr", "mq", "document.expiring — price list about to lapse (4.9, D9, direct publish)"),
         ("async", "mq", "notif", "document.expiring → owner_user_id (\"expiring in 14 days\")"),
         ("end",),
         ("call", "bill", "pr", "PricingInternal.GetEffectivePriceList(\ncontract_id, customer_id, service_group, date = period_end)"),
-        ("self", "pr", "resolve scope by precedence:\nCONTRACT &gt; CUSTOMER+GROUP &gt; CUSTOMER\nrange contains date — SUPERSEDED/EXPIRED included"),
+        ("self", "pr", "resolve scope by precedence:\nCONTRACT > CUSTOMER+GROUP > CUSTOMER\nrange contains date — SUPERSEDED/EXPIRED included"),
         ("ret", "pr", "bill", "{price_list_no, version_no, status,\nlines[{service_code, service_name, unit, unit_price, currency}]}"),
         ("note", "bill", "The response carries service_name and unit because pricing owns the service catalog — billing's "
                          "PAY-03 line snapshot must come from the authority, not from a snapshot-of-operations'-snapshot. "
@@ -764,7 +770,8 @@ def build(name, spec):
         if kind == "frame":
             y += 12                                  # breathing room above the tab
             frame_stack.append({"label": step[1], "y0": y, "divs": []})
-            y += 30                                  # tab occupies this band
+            y += 36                                  # tab band + clearance for the first
+                                                     # message's label, which sits above it
             continue
         if kind == "div":
             if frame_stack:
@@ -796,13 +803,18 @@ def build(name, spec):
             continue
 
         n += 1
+        # Reserve room for every extra label line, so a 3-line label cannot ride up into
+        # the frame tab or the message above it.
+        extra = (str(step[-1]).count("\n")) * LINE_H
+        y += extra
+
         if kind == "self":
             who, label = step[1], step[2]
             cx = centre[who]
             eid = f"m{n}"
             cells.append(
                 f'<mxCell id="{eid}" value="{esc(label)}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;'
-                f'align=left;spacingLeft=8;verticalAlign=middle;endArrow=block;endFill=1;fontSize=11;" '
+                f'align=left;spacingLeft=8;verticalAlign=middle;endArrow=block;endFill=1;fontSize=11;{LABEL_BG}" '
                 f'edge="1" parent="1">'
                 f'<mxGeometry relative="1" as="geometry">'
                 f'<Array as="points"><mxPoint x="{cx + 46}" y="{y}" /><mxPoint x="{cx + 46}" y="{y + 24}" /></Array>'
@@ -819,7 +831,7 @@ def build(name, spec):
         eid = f"m{n}"
         cells.append(
             f'<mxCell id="{eid}" value="{esc(label)}" style="html=1;verticalAlign=bottom;align=center;'
-            f'rounded=0;curved=0;fontSize=11;{ARROW[kind]}" edge="1" parent="1">'
+            f'rounded=0;curved=0;fontSize=11;{LABEL_BG}{ARROW[kind]}" edge="1" parent="1">'
             f'<mxGeometry relative="1" as="geometry">'
             f'<mxPoint x="{x1 + d}" y="{y}" as="sourcePoint" />'
             f'<mxPoint x="{x2 - d}" y="{y}" as="targetPoint" />'
@@ -902,7 +914,7 @@ def build(name, spec):
             fcells.append(
                 f'<mxCell id="fr{i}d{j}" value="{esc(dlabel)}" style="html=1;dashed=1;strokeColor=#9673a6;'
                 f'endArrow=none;align=left;verticalAlign=bottom;spacingLeft=6;fontSize=10;fontStyle=2;'
-                f'fontColor=#6a3d8f;" edge="1" parent="1"><mxGeometry relative="1" as="geometry">'
+                f'fontColor=#6a3d8f;{LABEL_BG}" edge="1" parent="1"><mxGeometry relative="1" as="geometry">'
                 f'<mxPoint x="{fx}" y="{dy}" as="sourcePoint" />'
                 f'<mxPoint x="{fx + fw}" y="{dy}" as="targetPoint" /></mxGeometry></mxCell>')
 
@@ -941,7 +953,14 @@ def build(name, spec):
 
 
 def esc(text):
-    return escape(str(text).replace("\n", "<br>"), {'"': "&quot;"})
+    """Encode for two layers: draw.io parses the XML attribute, then renders the result
+    as HTML (html=1). A literal "<same predicate>" survives the XML parse and is then
+    swallowed by the HTML renderer as an unknown tag, so angle brackets must be
+    entity-escaped for the HTML layer *before* the XML layer escapes them again.
+    Specs therefore carry plain text — never hand-written &lt;/&gt; entities."""
+    s = str(text).replace("&", "&" + "amp;").replace("<", "&" + "lt;").replace(">", "&" + "gt;")
+    s = s.replace("\n", "<br>")               # a real tag, for the HTML layer
+    return escape(s, {'"': "&quot;"})         # XML layer
 
 
 def main():
