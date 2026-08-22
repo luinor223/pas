@@ -1,10 +1,10 @@
 # db-identity — notes (step 2.1)
 
-Schema `identity`, owned by identity-service. Diagram: [db-identity.drawio](db-identity.drawio).
+Database `pas_identity`, owned by identity-service under its own login role. Diagram: [db-identity.drawio](db-identity.drawio).
 
 ## Key decisions
 - **Plain RBAC**: `role` ⟷ `permission` via `role_permission`; users get roles via `user_role`. No per-object ACLs — contextual authorization (APR-01 "assignee of the current step") is enforced by workflow-service against `step_assignee`, not here (D11 layer 2).
-- **No refresh-token / blacklist table**: JWT access tokens; revocation via Redis blacklist keyed by jti (registry §1). A DB table would duplicate Redis state.
+- **Two-token auth, `refresh_token` table, no blacklist** (D11, registry §6): access tokens are short-lived **RS256** JWTs (15 min) — identity signs with its private key, the **edge validates** with the public key and injects identity headers; services store nothing and hold no key. **Refresh** tokens are the stateful half: opaque 256-bit secrets, **SHA-256-hashed** (never stored raw), in `refresh_token (id, user_id, family_id, token_hash UNIQUE, issued_at, expires_at, revoked_at, replaced_by)`. `POST /auth/refresh` **rotates** — issue a new pair, set the old row's `revoked_at` + `replaced_by`; presenting an already-revoked token revokes the whole `family_id` (reuse/theft detection). Logout revokes the family; disabling a user revokes all their families. No `jti` blacklist — revocation lives here on the ~15-min refresh path, not on the per-request hot path (that would need a Redis lookup on every call), so Redis stays a pure permission cache.
 - **`last_login_at`, `status ACTIVE|DISABLED`**: from Figma Administration screen (user list shows both).
 - **No `processed_event`**: identity consumes no events; workflow and notification call it synchronously (`IdentityInternal.ListUsersByRole`).
 - **`outbox` for audit only** (D15): identity emits no business events, but user/role/permission changes are auditable, so `audit.recorded` rows are written to `outbox` in the same transaction as the change.
