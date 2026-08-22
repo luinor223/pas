@@ -1,0 +1,55 @@
+# Central version catalog. Referenced as libs.<alias> in build files.
+
+[versions]
+springBoot = "4.0.0"
+dependencyManagement = "1.1.0"
+java = "25"
+jjwt = "0.12.6"          # JSON Web Token (io.jsonwebtoken)
+springdoc = "2.7.0"      # OpenAPI / Swagger UI for Spring Boot 3+/4
+flyway = "11.1.0"        # DB migrations
+testcontainers = "1.20.4"
+springGrpc = "1.0.3"
+protobuf = "4.33.4"
+grpcJava = "1.77.1"
+protobufPlugin = "0.9.5"
+
+[libraries]
+# Starter versions come from the Boot BOM.
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-data-redis = { module = "org.springframework.boot:spring-boot-starter-data-redis" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+
+# --- JSON ---
+spring-boot-starter-json = { module = "org.springframework.boot:spring-boot-starter-json" }
+
+# --- Persistence ---
+postgresql = { module = "org.postgresql:postgresql" }
+spring-boot-flyway = { module = "org.springframework.boot:spring-boot-flyway" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+
+# --- JWT ---
+jjwt-api = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jjwt" }
+jjwt-impl = { module = "io.jsonwebtoken:jjwt-impl", version.ref = "jjwt" }
+jjwt-jackson = { module = "io.jsonwebtoken:jjwt-jackson", version.ref = "jjwt" }
+
+# --- API docs ---
+springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+
+# --- gRPC ---
+spring-grpc-starter = { module = "org.springframework.grpc:spring-grpc-server-spring-boot-starter" }
+protoc = { module = "com.google.protobuf:protoc", version.ref = "protobuf" }
+protoc-gen-grpc-java = { module = "io.grpc:protoc-gen-grpc-java", version.ref = "grpcJava" }
+
+# --- Testing ---
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "dependencyManagement" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
