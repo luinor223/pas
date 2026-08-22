@@ -1,0 +1,52 @@
+server:
+  port: 8001
+
+spring:
+  application:
+    name: identity-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_identity}
+    username: ${DB_USER:identity}
+    password: ${DB_PASSWORD:identity}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  grpc:
+    server:
+      port: 50051
+
+bootstrap:
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:admin12345}
+    email: ${ADMIN_EMAIL:admin@abclogistics.local}
+    full-name: System Administrator
+
+jwt:
+  issuer: ${JWT_ISSUER:pas-identity}
+  access-token-ttl: PT15M
+  refresh-token-ttl: P14D
+  # RS256 private key (PKCS#8 PEM). identity signs; the edge validates with the public key.
+  private-key-path: ${JWT_PRIVATE_KEY_PATH:../../infra/keys/jwt-private.pem}
+
+redis:
+  perm-cache-ttl: PT6H
+  perm-prefix: "perm:role:"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,67 @@
+import com.google.protobuf.gradle.id
+
+plugins {
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.protobuf)
+}
+
+dependencyManagement {
+    imports {
+        mavenBom("org.springframework.grpc:spring-grpc-dependencies:${libs.versions.springGrpc.get()}")
+    }
+}
+
+dependencies {
+    implementation(project(":libs:common"))
+
+    implementation(libs.spring.boot.starter.web)
+    implementation(libs.spring.boot.starter.data.jpa)
+    implementation(libs.spring.boot.starter.security)
+    implementation(libs.spring.boot.starter.validation)
+    implementation(libs.spring.boot.starter.actuator)
+    implementation(libs.spring.boot.starter.data.redis)
+    implementation(libs.springdoc.openapi)
+    implementation(libs.spring.grpc.starter)
+
+    runtimeOnly(libs.postgresql)
+    implementation(libs.spring.boot.flyway)
+    implementation(libs.flyway.core)
+    runtimeOnly(libs.flyway.postgresql)
+
+    // identity signs JWTs; verification lives in common
+    implementation(libs.jjwt.api)
+    runtimeOnly(libs.jjwt.impl)
+    runtimeOnly(libs.jjwt.jackson)
+
+    testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.testcontainers.postgresql)
+}
+
+// Integration tests (Testcontainers) need Docker; excluded from the default build.
+tasks.test {
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
+}
+
+val protobufVersion = libs.versions.protobuf.get()
+val grpcJavaVersion = libs.versions.grpcJava.get()
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:$protobufVersion"
+    }
+    plugins {
+        id("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcJavaVersion"
+        }
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.plugins {
+                id("grpc")
+            }
+        }
+    }
+}
