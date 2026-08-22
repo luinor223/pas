@@ -1,0 +1,26 @@
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: pas_default
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+experimental:
+  plugins:
+    jwt:
+      moduleName: github.com/agilezebra/jwt-middleware
+      version: v1.6.0
+
+api:
+  dashboard: true
+  insecure: true
+
+log:
+  level: INFO
+
+accessLog: {}
