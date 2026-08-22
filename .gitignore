@@ -8,6 +8,12 @@
 hs_err_pid*
 replay_pid*
 
+# ===== Gradle =====
+.gradle/
+build/
+# keep the wrapper jar despite *.jar above
+!gradle/wrapper/gradle-wrapper.jar
+
 # ===== Maven =====
 target/
 pom.xml.tag
@@ -48,3 +54,6 @@ out/
 .env.local
 *.local.yml
 *.local.yaml
+
+# ===== JWT signing keys (private keys never committed; public key is tracked) =====
+infra/keys/*private*.pem
