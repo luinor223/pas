@@ -11,6 +11,7 @@ replay_pid*
 # ===== Gradle =====
 .gradle/
 build/
+bin/
 # keep the wrapper jar despite *.jar above
 !gradle/wrapper/gradle-wrapper.jar
 
