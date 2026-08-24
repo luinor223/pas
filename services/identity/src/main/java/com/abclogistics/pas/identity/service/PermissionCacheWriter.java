@@ -57,13 +57,27 @@ public class PermissionCacheWriter {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @Transactional(readOnly = true)
+    public void warmup() {
+        refreshAllInternal("warmup");
+    }
+
     @Scheduled(fixedRate = 3_600_000)
     @Transactional(readOnly = true)
+    public void scheduledRefresh() {
+        refreshAllInternal("scheduled");
+    }
+
+    // Kept for backward compat if called directly; delegates to internal.
     public void refreshAll() {
+        refreshAllInternal("manual");
+    }
+
+    private void refreshAllInternal(String trigger) {
         for (Role role : roles.findAll()) {
             role.getPermissions().size(); // initialize before serialization
             write(role);
         }
-        log.debug("Permission cache refreshed");
+        log.debug("Permission cache refreshed via {}", trigger);
     }
 }
