@@ -1,6 +1,7 @@
 rootProject.name = "pas"
 
 include("libs:common")
+include("proto")
 
 include("services:identity")
 

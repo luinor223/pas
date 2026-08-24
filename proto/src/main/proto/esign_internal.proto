@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package pas.esign.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.esign.grpc";
+option java_outer_classname = "EsignInternalProto";
+
+// Owner: esign-service — signing sessions.
+service EsignInternal {
+  rpc CreateSigningSession(CreateSigningSessionRequest) returns (CreateSigningSessionResponse);
+}
+
+message CreateSigningSessionRequest {
+  string document_type = 1;
+  string document_id = 2;
+  string document_no = 3;
+  string signer_name = 4;
+  string signer_email = 5;
+  string idempotency_key = 6;
+}
+
+message CreateSigningSessionResponse {
+  string session_id = 1;
+  string status = 2;
+}

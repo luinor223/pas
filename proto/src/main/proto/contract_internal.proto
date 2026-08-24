@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package pas.contract.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.contract.grpc";
+option java_outer_classname = "ContractInternalProto";
+
+// Owner: contract-service — customers, contracts, addenda.
+service ContractInternal {
+  rpc GetContract(GetContractRequest) returns (GetContractResponse);
+  rpc GetSigningPayload(GetSigningPayloadRequest) returns (GetSigningPayloadResponse);
+}
+
+message GetContractRequest {
+  string id = 1;
+}
+
+message GetContractResponse {
+  string id = 1;
+  string contract_no = 2;
+  string status = 3;
+  string valid_from = 4;
+  string valid_to = 5;
+  string service_group = 6;
+  double vat_rate = 7;
+  string payment_term = 8;
+  string customer_id = 9;
+  string customer_name = 10;
+  string currency = 11;
+}
+
+message GetSigningPayloadRequest {
+  string document_type = 1;
+  string id = 2;
+}
+
+message GetSigningPayloadResponse {
+  string document_no = 1;
+  bytes pdf_content = 2;
+  string signer_name = 3;
+  string signer_email = 4;
+}

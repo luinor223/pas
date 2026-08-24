@@ -39,7 +39,7 @@ public class OutboxEvent {
     private UUID aggregateId;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "payload", nullable = false, updatable = false, columnDefinition = "jsonb")
+    @Column(name = "payload", nullable = false, updatable = false)
     private String payload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -68,6 +68,15 @@ public class OutboxEvent {
         this.payload = payload;
         this.createdAt = Instant.now();
         this.retryCount = 0;
+    }
+
+    /** Test-only helper to control ordering in relay tests. */
+    void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    void setClaimedAt(Instant claimedAt) {
+        this.claimedAt = claimedAt;
     }
 
     /** A business or workflow event. */

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package pas.identity;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.identity.grpc";
+option java_outer_classname = "IdentityInternalProto";
+
+// Internal, service-to-service only (never routed by the gateway).
+service IdentityInternal {
+  rpc ListUsersByRole(ListUsersByRoleRequest) returns (ListUsersByRoleResponse);
+}
+
+message ListUsersByRoleRequest {
+  string role_code = 1;
+}
+
+message ListUsersByRoleResponse {
+  repeated UserRef users = 1;
+}
+
+message UserRef {
+  string id = 1;
+  string username = 2;
+  string full_name = 3;
+  string department = 4;
+}

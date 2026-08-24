@@ -13,6 +13,7 @@ dependencyManagement {
 
 dependencies {
     implementation(project(":libs:common"))
+    implementation(project(":proto"))
 
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.data.jpa)

@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package pas.audit.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.audit.grpc";
+option java_outer_classname = "AuditInternalProto";
+
+// Owner: audit-service — sole audit store.
+service AuditInternal {
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+}
+
+message ListRecordsRequest {
+  string entity_type = 1;
+  string entity_id = 2;
+  int32 page = 3;
+  int32 size = 4;
+}
+
+message ListRecordsResponse {
+  repeated AuditRecord records = 1;
+  int32 total = 2;
+}
+
+message AuditRecord {
+  string source_service = 1;
+  string entity_type = 2;
+  string entity_id = 3;
+  string entity_no = 4;
+  string action = 5;
+  string actor_id = 6;
+  string actor_name = 7;
+  string actor_department = 8;
+  string before_status = 9;
+  string after_status = 10;
+  string changes = 11;
+  string note = 12;
+  string ip_address = 13;
+  string occurred_at = 14;
+}
