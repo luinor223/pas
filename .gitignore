@@ -55,5 +55,8 @@ out/
 *.local.yml
 *.local.yaml
 
-# ===== JWT signing keys (private keys never committed; public key is tracked) =====
-infra/keys/*private*.pem
+# ===== JWT signing keys (generated locally via `make keys`; never committed) =====
+infra/keys/*.pem
+infra/docker/traefik/dynamic/jwt.yml
+!infra/keys/.gitkeep
+!infra/docker/traefik/dynamic/.gitkeep
