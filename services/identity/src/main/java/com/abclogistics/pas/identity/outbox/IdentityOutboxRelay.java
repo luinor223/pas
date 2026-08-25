@@ -48,8 +48,6 @@ public class IdentityOutboxRelay extends OutboxRelay {
                 event.getEventType().getBytes(StandardCharsets.UTF_8)));
         record.headers().add(new RecordHeader("document_type",
                 event.getAggregateType().getBytes(StandardCharsets.UTF_8)));
-        record.headers().add(new RecordHeader("aggregate_type",
-                event.getAggregateType().getBytes(StandardCharsets.UTF_8)));
         // Block until ack so published_at is stamped only after broker confirms (acks=all)
         kafka.send(record).get(5, TimeUnit.SECONDS);
         log.debug("Published outbox event {} type={} topic={} key={}", event.getId(),
