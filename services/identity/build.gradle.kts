@@ -1,8 +1,5 @@
-import com.google.protobuf.gradle.id
-
 plugins {
     alias(libs.plugins.spring.boot)
-    alias(libs.plugins.protobuf)
 }
 
 dependencyManagement {
@@ -13,6 +10,7 @@ dependencyManagement {
 
 dependencies {
     implementation(project(":libs:common"))
+    implementation(project(":proto"))
 
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.data.jpa)
@@ -42,26 +40,5 @@ dependencies {
 tasks.test {
     useJUnitPlatform {
         excludeTags("integration")
-    }
-}
-
-val protobufVersion = libs.versions.protobuf.get()
-val grpcJavaVersion = libs.versions.grpcJava.get()
-
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:$protobufVersion"
-    }
-    plugins {
-        id("grpc") {
-            artifact = "io.grpc:protoc-gen-grpc-java:$grpcJavaVersion"
-        }
-    }
-    generateProtoTasks {
-        all().forEach { task ->
-            task.plugins {
-                id("grpc")
-            }
-        }
     }
 }

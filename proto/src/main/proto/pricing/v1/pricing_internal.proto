@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package pas.pricing.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.pricing.grpc";
+option java_outer_classname = "PricingInternalProto";
+
+// Owner: pricing-service — service catalog, price lists.
+service PricingInternal {
+  rpc GetServiceItem(GetServiceItemRequest) returns (GetServiceItemResponse);
+  rpc GetEffectivePriceList(GetEffectivePriceListRequest) returns (GetEffectivePriceListResponse);
+}
+
+message GetServiceItemRequest {
+  string code = 1;
+}
+
+message GetServiceItemResponse {
+  string code = 1;
+  string name = 2;
+  string unit = 3;
+  bool is_active = 4;
+}
+
+message GetEffectivePriceListRequest {
+  string contract_id = 1;
+  string customer_id = 2;
+  string service_group = 3;
+  string date = 4; // period_end
+}
+
+message GetEffectivePriceListResponse {
+  string price_list_no = 1;
+  int32 version_no = 2;
+  string valid_from = 3;
+  string valid_to = 4;
+  repeated PriceLine lines = 5;
+}
+
+message PriceLine {
+  string service_code = 1;
+  string service_name = 2;
+  string unit = 3;
+  double unit_price = 4;
+  string scope_key = 5;
+}

@@ -23,6 +23,14 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+
   grpc:
     server:
       port: 50051
@@ -44,6 +52,13 @@ jwt:
 redis:
   perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
+
+outbox:
+  relay:
+    enabled: true
+    claim-lease: PT60S
+    batch-size: 100
+    poll-interval: PT5S
 
 management:
   endpoints:

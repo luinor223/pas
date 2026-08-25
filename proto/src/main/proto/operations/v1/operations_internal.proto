@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package pas.operations.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.operations.grpc";
+option java_outer_classname = "OperationsInternalProto";
+
+// Owner: operations-service — periods, volumes.
+service OperationsInternal {
+  rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+}
+
+message ListVolumesRequest {
+  string contract_id = 1;
+  string period_code = 2;
+}
+
+message ListVolumesResponse {
+  string period_state = 1;
+  string period_start = 2;
+  string period_end = 3;
+  repeated VolumeRecord volumes = 4;
+}
+
+message VolumeRecord {
+  string record_no = 1;
+  string service_code = 2;
+  string unit = 3;
+  double quantity = 4;
+  string service_name = 5;
+}

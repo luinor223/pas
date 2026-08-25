@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package pas.billing.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.billing.grpc";
+option java_outer_classname = "BillingInternalProto";
+
+// Owner: billing-service — payment statements.
+service BillingInternal {
+  rpc GetSigningPayload(GetSigningPayloadRequest) returns (GetSigningPayloadResponse);
+}
+
+message GetSigningPayloadRequest {
+  string id = 1;
+}
+
+message GetSigningPayloadResponse {
+  string document_no = 1;
+  bytes pdf_content = 2;
+  string signer_name = 3;
+  string signer_email = 4;
+}

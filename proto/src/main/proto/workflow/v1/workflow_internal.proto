@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package pas.workflow.v1;
+
+option java_multiple_files = true;
+option java_package = "com.abclogistics.pas.workflow.grpc";
+option java_outer_classname = "WorkflowInternalProto";
+
+// Owner: workflow-service — configurable approval engine.
+service WorkflowInternal {
+  rpc ValidateStartable(ValidateStartableRequest) returns (ValidateStartableResponse);
+  rpc StartInstance(StartInstanceRequest) returns (StartInstanceResponse);
+  rpc CancelInstance(CancelInstanceRequest) returns (CancelInstanceResponse);
+  rpc GetInstanceByDocument(GetInstanceByDocumentRequest) returns (GetInstanceByDocumentResponse);
+}
+
+message ValidateStartableRequest {
+  string document_type = 1;
+}
+
+message ValidateStartableResponse {}
+
+message StartInstanceRequest {
+  string document_type = 1;
+  string document_id = 2;
+  string document_no = 3;
+  string requested_by = 4;
+  string idempotency_key = 5;
+  string priority = 6;
+}
+
+message StartInstanceResponse {
+  string instance_id = 1;
+  string status = 2;
+}
+
+message CancelInstanceRequest {
+  string document_type = 1;
+  string document_id = 2;
+  string idempotency_key = 3;
+}
+
+message CancelInstanceResponse {}
+
+message GetInstanceByDocumentRequest {
+  string document_type = 1;
+  string document_id = 2;
+}
+
+message GetInstanceByDocumentResponse {
+  string instance_id = 1;
+  string status = 2;
+  int32 definition_version_no = 3;
+  string requested_by_name = 4;
+  string started_at = 5;
+  string priority = 6;
+  StepInstance current_step = 7;
+  repeated StepInstance steps = 8;
+}
+
+message StepInstance {
+  int32 step_no = 1;
+  string name = 2;
+  string approver_role = 3;
+  string status = 4;
+  repeated string assignee_names = 5;
+  StepAction action = 6;
+  string activated_at = 7;
+  int32 sla_hours = 8;
+  bool is_overdue = 9;
+}
+
+message StepAction {
+  string actor_name = 1;
+  string actioned_at = 2;
+  string comment = 3;
+  string action = 4;
+}

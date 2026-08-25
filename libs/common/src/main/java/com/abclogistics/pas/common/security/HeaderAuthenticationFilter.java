@@ -90,7 +90,7 @@ public class HeaderAuthenticationFilter extends OncePerRequestFilter {
         if (trimmed.startsWith("[")) {
             try {
                 return objectMapper.readValue(trimmed, new TypeReference<List<String>>() { });
-            } catch (RuntimeException e) {
+            } catch (Exception e) {
                 return List.of();
             }
         }
