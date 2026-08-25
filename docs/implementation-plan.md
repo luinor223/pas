@@ -85,12 +85,12 @@ Sync matrix `00-registry.md:86`, event catalog `00-registry.md:66`, status trans
 ```
 pas/
   build.gradle.kts:1          root (Java 25, Spring Boot 4.0.0)
-  settings.gradle.kts:1       includes libs:common, services:identity (+future services)
+  settings.gradle.kts:1       includes proto, libs:common, services:identity (+future services)
   gradle/libs.versions.toml:1 version catalog (Spring Boot, JJWT 0.12.6, Flyway 11.1.0, spring-grpc 1.0.3, protobuf 4.33.4)
   libs/common/src/main/java/com/abclogistics/pas/common/  BaseEntity, outbox/OutboxEvent, audit/AuditRecorder, security/HeaderAuthenticationFilter, PermissionCache, error/* 
+  proto/src/main/proto/{service}/v1/*.proto  centralized proto (callee owns file, callers depend, package pas.<service>.v1) per 00-registry.md:115
   services/identity/          template for all services (Spring Web, Data JPA, Security, Validation, Redis, Flyway, grpc-spring-boot-starter, OpenAPI)
     src/main/resources/db/migration/V1__*.sql
-    src/main/proto/identity_internal.proto
     src/main/java/...  controller/service/domain/repository/grpc
     src/test/java/...  JwtRoundTripTest.java, AuthFlowIT.java (integration tag excluded by default build.gradle.kts:42)
   services/<new>/             scaffold by copying identity structure, rename DB/ports per 00-registry.md:7
@@ -118,7 +118,7 @@ make test-integration
 make down-v             # wipe DBs
 ```
 
-Service template `services/identity/build.gradle.kts:1`: copy, change `DB_URL/DB_USER/DB_PASSWORD/ports` in `docker-compose.yml`, keep `libs:common` dependency, `protobuf {}` block, `useJUnitPlatform { excludeTags("integration") }`.
+Service template `services/identity/build.gradle.kts:1`: copy, change `DB_URL/DB_USER/DB_PASSWORD/ports` in `docker-compose.yml`, keep `libs:common` + `proto` dependencies, `useJUnitPlatform { excludeTags("integration") }` (protobuf generation centralized in `proto/`).
 
 ---
 
