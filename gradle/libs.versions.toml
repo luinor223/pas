@@ -7,7 +7,8 @@ java = "25"
 jjwt = "0.12.6"          # JSON Web Token (io.jsonwebtoken)
 springdoc = "2.7.0"      # OpenAPI / Swagger UI for Spring Boot 3+/4
 flyway = "11.1.0"        # DB migrations
-testcontainers = "1.21.4"
+testcontainers = "1.21.4"     # latest 1.x where all modules (postgresql, kafka, junit-jupiter) exist
+testcontainersCore = "2.0.5"  # core 2.0.5 shades docker-java 3.7.1 (supports Docker 29 API 1.55); 1.21.4 core still on 3.4.2 (API 1.32 rejected by Docker 29)
 springGrpc = "1.0.3"
 protobuf = "4.33.4"
 grpcJava = "1.77.1"
@@ -52,7 +53,7 @@ spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testcontainers" }
-testcontainers-generic = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
+testcontainers-generic = { module = "org.testcontainers:testcontainers", version.ref = "testcontainersCore" }
 h2 = { module = "com.h2database:h2" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
