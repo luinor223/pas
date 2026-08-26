@@ -23,24 +23,26 @@ import java.util.Map;
 public class SlaScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(SlaScheduler.class);
-    private final WorkflowStepInstanceRepository stepRepo;
     private final StepAssigneeRepository assigneeRepo;
     private final ObjectProvider<KafkaTemplate<String, String>> kafkaProvider;
     private final ObjectMapper objectMapper;
+    private final SlaSchedulerHelper helper;
 
-    public SlaScheduler(WorkflowStepInstanceRepository stepRepo, StepAssigneeRepository assigneeRepo,
-                        ObjectProvider<KafkaTemplate<String, String>> kafkaProvider, ObjectMapper objectMapper) {
-        this.stepRepo = stepRepo;
+    public SlaScheduler(StepAssigneeRepository assigneeRepo,
+                        ObjectProvider<KafkaTemplate<String, String>> kafkaProvider,
+                        ObjectMapper objectMapper,
+                        SlaSchedulerHelper helper) {
         this.assigneeRepo = assigneeRepo;
         this.kafkaProvider = kafkaProvider;
         this.objectMapper = objectMapper;
+        this.helper = helper;
     }
 
     @Scheduled(fixedDelayString = "${workflow.sla-check-interval:PT60S}")
-    @Transactional
     public void checkOverdue() {
+        // Fetch outside TX to avoid holding DB connection while blocking on Kafka acks (P3 residual) — via helper so @Transactional proxy applies
+        List<WorkflowStepInstance> overdue = helper.fetchOverdueCandidates();
         Instant now = Instant.now();
-        List<WorkflowStepInstance> overdue = stepRepo.findByStatusAndOverdueNotifiedAtIsNullAndActivatedAtBefore("ACTIVE", now);
         for (WorkflowStepInstance step : overdue) {
             if (step.getActivatedAt() == null) continue;
             Instant deadline = step.getActivatedAt().plusSeconds((long) step.getSlaHours() * 3600);
@@ -60,7 +62,6 @@ public class SlaScheduler {
                             "document_no", instance.getDocumentNo()
                     );
                     String json = objectMapper.writeValueAsString(payload);
-                    // D9 / registry §4: workflow.step_overdue is published WITHOUT outbox (self-heals next run), direct to pas.events
                     KafkaTemplate<String, String> kafka = kafkaProvider.getIfAvailable();
                     if (kafka != null) {
                         ProducerRecord<String, String> record = new ProducerRecord<>("pas.events",
@@ -69,12 +70,10 @@ public class SlaScheduler {
                         record.headers().add(new RecordHeader("document_type", instance.getDocumentTypeCode().getBytes(StandardCharsets.UTF_8)));
                         // block until acks=all ack — only stamp on success so failure self-heals next run (matches WorkflowOutboxRelay:19)
                         kafka.send(record).get(5, java.util.concurrent.TimeUnit.SECONDS);
-                        step.setOverdueNotifiedAt(now);
-                        stepRepo.save(step);
+                        helper.markOverdueNotified(step.getId(), now);
                         log.info("SLA overdue detected for instance {} step {} (assignees={}, waiting={}h)", instance.getId(), step.getStepOrder(), assigneeIds.size(), waitingHours);
                     } else {
                         log.debug("Kafka not available, step_overdue self-heals next run for step {}", step.getId());
-                        // don't stamp — retry next scheduler run
                     }
                 } catch (Exception e) {
                     log.warn("Failed to emit overdue event for step {}: {}", step.getId(), e.getMessage());
