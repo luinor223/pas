@@ -34,12 +34,11 @@ public class InboxService {
 
     @Transactional(readOnly = true)
     public InboxResponse assignedToMe(UUID userId) {
-        List<UUID> activeStepIds = assigneeRepo.findActiveStepIdsByUserId(userId);
+        // JOIN FETCH avoids N+1 (P2#10)
+        List<com.abclogistics.pas.workflow.domain.StepAssignee> assignees = assigneeRepo.findActiveWithFetchByUserId(userId);
         List<InboxResponse.InboxItem> items = new ArrayList<>();
-        for (UUID stepId : activeStepIds) {
-            var stepOpt = stepInstanceRepo.findById(stepId);
-            if (stepOpt.isEmpty()) continue;
-            WorkflowStepInstance step = stepOpt.get();
+        for (var sa : assignees) {
+            WorkflowStepInstance step = sa.getStepInstance();
             WorkflowInstance inst = step.getInstance();
             items.add(toItem(inst, step));
         }

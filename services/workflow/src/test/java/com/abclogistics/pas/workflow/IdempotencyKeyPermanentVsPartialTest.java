@@ -4,13 +4,13 @@ import com.abclogistics.pas.identity.grpc.UserRef;
 import com.abclogistics.pas.workflow.domain.WorkflowInstance;
 import com.abclogistics.pas.workflow.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.repository.WorkflowInstanceRepository;
-import com.abclogistics.pas.workflow.service.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.service.WorkflowInstanceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.*;
 @Tag("integration")
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(TestIdentityConfig.class)
 class IdempotencyKeyPermanentVsPartialTest {
 
     @Container
@@ -56,7 +57,7 @@ class IdempotencyKeyPermanentVsPartialTest {
 
     @Autowired WorkflowInstanceService instanceService;
     @Autowired WorkflowInstanceRepository instanceRepo;
-    @Autowired IdentityGrpcClient identityClient;
+    @Autowired StubIdentityGrpcClient identityClient;
 
     private final UUID docId = UUID.randomUUID();
     private final String docNo = "CTR-2026-9999";

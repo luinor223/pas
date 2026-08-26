@@ -74,28 +74,32 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
         try {
             UUID docId = UUID.fromString(request.getDocumentId());
             UUID idemKey = UUID.fromString(request.getIdempotencyKey());
-            // priority may be empty; default to NORMAL
             String priority = request.getPriority().isBlank() ? "NORMAL" : request.getPriority();
-            // requested_by is string (maybe uuid string) — parse if present
+            String customerName = request.getCustomerName();
+            // Prefer explicit requested_by_id/name (new fields), fallback to legacy requested_by heuristic
             UUID requestedBy = null;
-            String requestedByName = request.getRequestedBy();
-            // In our service, requested_by is passed as userId? The proto says requested_by string (name?), but we treat as name.
-            // Try to parse if it's a UUID; otherwise treat as name with null id.
-            // For tests we need deterministic: passed requested_by as name, but we capture current user? Instead use provided value as name, id remains null or parsed.
-            // Let's attempt: if request contains valid UUID in requested_by, use it; else leave null.
-            try {
-                if (requestedByName != null && !requestedByName.isBlank()) {
-                    // heuristic: if it looks like UUID, parse
-                    if (requestedByName.matches("[0-9a-fA-F-]{36}")) {
-                        requestedBy = UUID.fromString(requestedByName);
-                    }
+            String requestedByName = null;
+            if (!request.getRequestedById().isBlank()) {
+                try { requestedBy = UUID.fromString(request.getRequestedById()); } catch (Exception ignored) {}
+                requestedByName = request.getRequestedByName().isBlank() ? request.getRequestedBy() : request.getRequestedByName();
+            } else if (!request.getRequestedByName().isBlank()) {
+                requestedByName = request.getRequestedByName();
+                if (!request.getRequestedBy().isBlank() && request.getRequestedBy().matches("[0-9a-fA-F-]{36}")) {
+                    try { requestedBy = UUID.fromString(request.getRequestedBy()); } catch (Exception ignored) {}
                 }
-            } catch (Exception ignored) {}
+            } else {
+                String legacy = request.getRequestedBy();
+                if (legacy != null && legacy.matches("[0-9a-fA-F-]{36}")) {
+                    try { requestedBy = UUID.fromString(legacy); } catch (Exception ignored) {}
+                    requestedByName = legacy;
+                } else {
+                    requestedByName = legacy;
+                }
+            }
 
-            // customer_name not in proto, pass null or empty
             WorkflowInstance inst = instanceService.startInstance(
                     request.getDocumentType(), docId, request.getDocumentNo(),
-                    "", priority, requestedBy, requestedByName, idemKey);
+                    customerName, priority, requestedBy, requestedByName, idemKey);
             responseObserver.onNext(StartInstanceResponse.newBuilder()
                     .setInstanceId(inst.getId().toString())
                     .setStatus(inst.getStatus())

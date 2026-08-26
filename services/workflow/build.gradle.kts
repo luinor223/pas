@@ -34,7 +34,6 @@ dependencies {
     testImplementation(libs.testcontainers.generic)
     testImplementation(libs.testcontainers.kafka)
     testImplementation("org.awaitility:awaitility:4.3.0")
-    testImplementation(libs.h2)
 }
 
 tasks.test {

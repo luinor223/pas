@@ -16,5 +16,8 @@ public interface StepAssigneeRepository extends JpaRepository<StepAssignee, UUID
     @Query("select sa.stepInstance.id from StepAssignee sa where sa.userId = :userId and sa.stepInstance.status = 'ACTIVE'")
     List<UUID> findActiveStepIdsByUserId(@Param("userId") UUID userId);
 
+    @Query("select sa from StepAssignee sa join fetch sa.stepInstance si join fetch si.instance where sa.userId = :userId and si.status = 'ACTIVE'")
+    List<StepAssignee> findActiveWithFetchByUserId(@Param("userId") UUID userId);
+
     boolean existsByStepInstance_IdAndUserId(UUID stepInstanceId, UUID userId);
 }

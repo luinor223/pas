@@ -195,24 +195,20 @@ public class WorkflowInstanceService {
         if (!"IN_PROGRESS".equals(instance.getStatus())) {
             throw new FailedPreconditionException("Workflow instance not in progress, cannot cancel: " + instance.getStatus());
         }
-        // succeed only while no step has been actioned
+        // succeed only while no step has been actioned (use action count, not status heuristic)
         List<WorkflowStepInstance> steps = stepInstanceRepo.findByInstance_IdOrderByStepOrderAsc(instance.getId());
-        boolean anyActioned = steps.stream().anyMatch(s -> !"PENDING".equals(s.getStatus()) && !"ACTIVE".equals(s.getStatus()));
-        // actually check if any workflow_action exists for this instance
         long actionCount = actionRepo.findByStepInstance_Instance_IdOrderByCreatedAtAsc(instance.getId()).size();
         if (actionCount > 0) {
             throw new FailedPreconditionException("Cannot cancel workflow instance after a step has been actioned");
         }
 
-        // cancel ACTIVE step via version-guarded update (close approve-vs-cancel race)
+        // cancel ACTIVE step via version-guarded update (close approve-vs-cancel race) — do not touch managed entity after bulk update (avoid double-update)
         for (WorkflowStepInstance s : steps) {
             if ("ACTIVE".equals(s.getStatus())) {
                 int updated = stepInstanceRepo.approveIfActive(s.getId(), s.getVersion(), "CANCELLED", Instant.now(), null, null);
                 if (updated == 0) {
                     throw new AbortedException("Concurrent modification during cancel — step version mismatch");
                 }
-                // reflect for in-memory
-                s.setStatus("CANCELLED");
             } else if ("PENDING".equals(s.getStatus())) {
                 s.setStatus("CANCELLED");
                 s.setCompletedAt(Instant.now());
@@ -223,12 +219,7 @@ public class WorkflowInstanceService {
         instance.setCompletedAt(Instant.now());
         instanceRepo.save(instance);
 
-        emit(instance.getDocumentId(), "workflow.completed", documentTypeCode, Map.of(
-                "instance_id", instance.getId().toString(),
-                "outcome", "CANCELLED",
-                "document_no", instance.getDocumentNo(),
-                "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
-        ));
+        // No workflow.completed for CANCELLED per db-workflow.md:11 (inbox reflects state immediately) and registry §4 (only APPROVED/REJECTED/REVISION_REQUESTED)
         audit.record("WORKFLOW_INSTANCE", instance.getId(), "workflow.instance_cancelled",
                 null, Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
     }
@@ -272,13 +263,12 @@ public class WorkflowInstanceService {
         List<WorkflowStepInstance> allSteps = stepInstanceRepo.findByInstance_IdOrderByStepOrderAsc(instance.getId());
 
         if ("APPROVE".equals(action)) {
-            // optimistic-lock guard (D5)
+            // optimistic-lock guard (D5) — bulk update already sets status/version, do not touch managed entity afterwards (avoid double-update P1#4)
             int updated = stepInstanceRepo.approveIfActive(step.getId(), step.getVersion(), "APPROVED", now, actor.userId(), actor.fullName());
             if (updated == 0) {
                 throw new AbortedException("Step was concurrently modified (ABORTED)");
             }
-            // record action
-            step.setStatus("APPROVED");
+            // record action (step reference still valid, status updated via bulk)
             WorkflowAction wa = new WorkflowAction(step, "APPROVE", actor.userId(), actor.fullName(), comment);
             actionRepo.save(wa);
 
