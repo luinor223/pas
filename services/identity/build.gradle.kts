@@ -34,11 +34,23 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.generic)
+    testImplementation(libs.testcontainers.kafka)
+    testImplementation("org.awaitility:awaitility:4.3.0")
 }
 
 // Integration tests (Testcontainers) need Docker; excluded from the default build.
+// Enable with: ./gradlew test -PincludeIntegration  or  -DincludeIntegration=true
 tasks.test {
+    // PG TimeZone Asia/Saigon invalid on PG16 image -> force UTC for H2/PSQL
+    jvmArgs("-Duser.timezone=UTC")
     useJUnitPlatform {
-        excludeTags("integration")
+        val include = project.findProperty("includeIntegration") != null
+                || System.getProperty("includeIntegration") != null
+        if (include) {
+            includeTags("integration")
+        } else {
+            excludeTags("integration")
+        }
     }
 }

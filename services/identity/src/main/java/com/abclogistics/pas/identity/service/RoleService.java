@@ -36,7 +36,6 @@ public class RoleService {
     @Transactional(readOnly = true)
     public List<RoleResponse> list() {
         return roles.findAll().stream()
-                .map(r -> roles.findByCode(r.getCode()).orElseThrow())
                 .map(RoleResponse::from)
                 .toList();
     }
