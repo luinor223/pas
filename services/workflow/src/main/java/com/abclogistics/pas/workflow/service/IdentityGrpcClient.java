@@ -28,6 +28,12 @@ public class IdentityGrpcClient {
         this.stub = IdentityInternalGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS);
     }
 
+    /** For test doubles that don't need a real channel. */
+    protected IdentityGrpcClient() {
+        this.channel = null;
+        this.stub = null;
+    }
+
     public List<UserRef> listUsersByRole(String roleCode) {
         ListUsersByRoleRequest req = ListUsersByRoleRequest.newBuilder().setRoleCode(roleCode).build();
         return stub.listUsersByRole(req).getUsersList();

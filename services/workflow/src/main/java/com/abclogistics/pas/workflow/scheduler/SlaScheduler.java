@@ -67,13 +67,15 @@ public class SlaScheduler {
                                 instance.getDocumentId().toString(), json);
                         record.headers().add(new RecordHeader("event_type", "workflow.step_overdue".getBytes(StandardCharsets.UTF_8)));
                         record.headers().add(new RecordHeader("document_type", instance.getDocumentTypeCode().getBytes(StandardCharsets.UTF_8)));
-                        kafka.send(record);
+                        // block until acks=all ack — only stamp on success so failure self-heals next run (matches WorkflowOutboxRelay:19)
+                        kafka.send(record).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                        step.setOverdueNotifiedAt(now);
+                        stepRepo.save(step);
+                        log.info("SLA overdue detected for instance {} step {} (assignees={}, waiting={}h)", instance.getId(), step.getStepOrder(), assigneeIds.size(), waitingHours);
                     } else {
                         log.debug("Kafka not available, step_overdue self-heals next run for step {}", step.getId());
+                        // don't stamp — retry next scheduler run
                     }
-                    step.setOverdueNotifiedAt(now);
-                    stepRepo.save(step);
-                    log.info("SLA overdue detected for instance {} step {} (assignees={}, waiting={}h)", instance.getId(), step.getStepOrder(), assigneeIds.size(), waitingHours);
                 } catch (Exception e) {
                     log.warn("Failed to emit overdue event for step {}: {}", step.getId(), e.getMessage());
                 }

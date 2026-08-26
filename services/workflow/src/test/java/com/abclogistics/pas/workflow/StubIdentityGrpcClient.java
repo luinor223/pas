@@ -16,7 +16,7 @@ public class StubIdentityGrpcClient extends IdentityGrpcClient {
     private final Map<String, List<UserRef>> overrides = new ConcurrentHashMap<>();
 
     public StubIdentityGrpcClient() {
-        super("localhost", 50051);
+        super();
     }
 
     @Override

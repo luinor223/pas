@@ -61,22 +61,12 @@ public class WorkflowDefinitionService {
         DocumentTypeConfig docType = docTypeRepo.findByCode(req.documentTypeCode())
                 .orElseThrow(() -> new NotFoundException("Unknown document type: " + req.documentTypeCode()));
         // serialize version allocation per document type to avoid uq_workflow_definition_type_version race (P2#8)
+        // lock the document type row so concurrent POSTs for same type serialize (previous retry-inside-TX was rollback-only)
         docTypeRepo.findWithLockById(docType.getId())
                 .orElseThrow(() -> new NotFoundException("Unknown document type: " + req.documentTypeCode()));
         int nextVersion = definitionRepo.maxVersionNoByDocumentTypeId(docType.getId()) + 1;
         WorkflowDefinition def = WorkflowDefinition.create(docType, nextVersion, req.name(), SecurityUtils.currentUserId());
-        try {
-            definitionRepo.save(def);
-            definitionRepo.flush();
-        } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            // concurrent create won same version_no -> retry once after re-reading max
-            int retryVersion = definitionRepo.maxVersionNoByDocumentTypeId(docType.getId()) + 1;
-            WorkflowDefinition retry = WorkflowDefinition.create(docType, retryVersion, req.name(), SecurityUtils.currentUserId());
-            definitionRepo.save(retry);
-            audit.record("WORKFLOW_DEFINITION", retry.getId(), retry.getName(), "workflow.definition_created",
-                    null, null, null, Map.of("documentType", req.documentTypeCode(), "versionNo", retryVersion));
-            return toResponse(retry);
-        }
+        definitionRepo.save(def);
         audit.record("WORKFLOW_DEFINITION", def.getId(), def.getName(), "workflow.definition_created",
                 null, null, null, Map.of("documentType", req.documentTypeCode(), "versionNo", nextVersion));
         return toResponse(def);
