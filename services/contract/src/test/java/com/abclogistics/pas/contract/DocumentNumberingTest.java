@@ -1,17 +1,31 @@
 package com.abclogistics.pas.contract;
 
+import com.abclogistics.pas.contract.domain.EntityType;
+import com.abclogistics.pas.contract.service.DocumentNumberService;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-import com.abclogistics.pas.contract.service.DocumentNumberService;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * registry §2 business keys. Numbers are server-generated and never client-supplied.
@@ -47,37 +61,86 @@ class DocumentNumberingTest {
     @Autowired
     DocumentNumberService numbers;
 
+    @Autowired
+    TransactionTemplate tx;
+
     @Test
     void contractNumbersAreCtrYearSeq() {
-        throw new UnsupportedOperationException("session-3 Phase B — CTR numbering");
+        String first = tx.execute(s -> numbers.nextDocumentNo(EntityType.CONTRACT, 2026));
+        String second = tx.execute(s -> numbers.nextDocumentNo(EntityType.CONTRACT, 2026));
+
+        assertThat(first).matches("CTR-2026-\\d{4}");
+        assertThat(second).matches("CTR-2026-\\d{4}");
+        assertThat(seq(second)).isEqualTo(seq(first) + 1);
     }
 
     @Test
     void addendumNumbersAreAddYearSeq() {
-        throw new UnsupportedOperationException("session-3 Phase B — ADD numbering");
+        String no = tx.execute(s -> numbers.nextDocumentNo(EntityType.ADDENDUM, 2026));
+        assertThat(no).matches("ADD-2026-\\d{4}");
     }
 
     @Test
     void documentSequenceRestartsEachYearPerType() {
-        throw new UnsupportedOperationException("session-3 Phase B — per-year reset");
+        // Each (type, year) is its own counter row, so a new year starts at 1 again -- which is
+        // safe precisely because the year is part of the number.
+        tx.execute(s -> numbers.nextDocumentNo(EntityType.CONTRACT, 2030));
+        tx.execute(s -> numbers.nextDocumentNo(EntityType.CONTRACT, 2030));
+        String nextYear = tx.execute(s -> numbers.nextDocumentNo(EntityType.CONTRACT, 2031));
+
+        assertThat(seq(nextYear)).isEqualTo(1);
     }
 
     @Test
     void customerSequenceDoesNotRestartAcrossYears() {
-        // A year-keyed customer counter would hand out CUS-1 again every January and collide on
-        // customer.code's UNIQUE.
-        throw new UnsupportedOperationException("session-3 Phase B — CUS continuity");
+        // A year-keyed customer counter would hand out CUS-0001 again every January and collide
+        // on customer.code's UNIQUE. There is only ever one counter row, so the sequence is
+        // monotonic for the life of the system.
+        String first = tx.execute(s -> numbers.nextCustomerCode());
+        String second = tx.execute(s -> numbers.nextCustomerCode());
+
+        assertThat(first).matches("CUS-\\d{4}");
+        assertThat(seq(second)).isEqualTo(seq(first) + 1);
     }
 
     @Test
-    void concurrentCreatesNeverShareASequence() {
-        // The row lock is what prevents this; without it the race surfaces as a UNIQUE violation.
-        throw new UnsupportedOperationException("session-3 Phase B — counter row lock");
+    void concurrentCreatesNeverShareASequence() throws Exception {
+        // The row lock is what prevents this. Without it, concurrent readers see the same
+        // next_seq and the race surfaces later as a UNIQUE violation on contract_no.
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            List<Callable<String>> jobs = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                jobs.add(() -> tx.execute(s -> numbers.nextDocumentNo(EntityType.CONTRACT, 2040)));
+            }
+            Set<String> allocated = pool.invokeAll(jobs).stream()
+                    .map(DocumentNumberingTest::join)
+                    .collect(Collectors.toSet());
+
+            assertThat(allocated).hasSize(threads);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
-    void clientSuppliedCodeIsIgnored() {
-        throw new UnsupportedOperationException("session-3 Phase B — server-generated only");
+    void allocationOutsideATransactionIsRefused() {
+        // MANDATORY propagation: allocating in its own transaction would release the row lock
+        // before the caller inserts the row carrying the number, reopening the race.
+        assertThatThrownBy(() -> numbers.nextDocumentNo(EntityType.CONTRACT, 2026))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
     }
 
+    private static int seq(String documentNo) {
+        return Integer.parseInt(documentNo.substring(documentNo.lastIndexOf('-') + 1));
+    }
+
+    private static String join(Future<String> f) {
+        try {
+            return f.get();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 }

@@ -134,6 +134,8 @@ public class Contract extends BaseEntity {
     public String getCreatedByDepartment() { return createdByDepartment; }
     public String getUpdatedByName() { return updatedByName; }
 
+    /** Only reachable while the contract is editable (CTR-01) — the service enforces that. */
+    public void setCustomer(Customer customer) { this.customer = customer; }
     public void setDescription(String v) { this.description = v; }
     public void setServiceGroup(ServiceGroup v) { this.serviceGroup = v; }
     public void setValue(BigDecimal v) { this.value = v; }

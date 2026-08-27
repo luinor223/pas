@@ -1,5 +1,9 @@
 package com.abclogistics.pas.contract.domain;
 
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+
 /**
  * registry §3 — the CONTRACT / ADDENDUM status enum. Addenda share it exactly (db-contract.md).
  * <p>
@@ -41,17 +45,42 @@ public enum DocumentStatus {
     REVISION_REQUESTED,
     CANCELLED;
 
+    /** One row of the §9 table: from -> to, legal only under these triggers. */
+    private record Edge(DocumentStatus from, DocumentStatus to, Set<TriggerKind> triggers) { }
+
+    private static final List<Edge> TABLE = List.of(
+            new Edge(DRAFT, SUBMITTED, EnumSet.of(TriggerKind.U)),
+            new Edge(DRAFT, CANCELLED, EnumSet.of(TriggerKind.U)),
+            new Edge(SUBMITTED, CANCELLED, EnumSet.of(TriggerKind.U)),
+            new Edge(SUBMITTED, UNDER_REVIEW, EnumSet.of(TriggerKind.W)),
+            new Edge(UNDER_REVIEW, APPROVED, EnumSet.of(TriggerKind.W)),
+            new Edge(UNDER_REVIEW, REJECTED, EnumSet.of(TriggerKind.W)),
+            new Edge(UNDER_REVIEW, REVISION_REQUESTED, EnumSet.of(TriggerKind.W)),
+            new Edge(REVISION_REQUESTED, DRAFT, EnumSet.of(TriggerKind.U)),
+            new Edge(REJECTED, DRAFT, EnumSet.of(TriggerKind.U)),
+            new Edge(APPROVED, ACTIVE, EnumSet.of(TriggerKind.S)),
+            new Edge(ACTIVE, EXPIRED, EnumSet.of(TriggerKind.S)),
+            new Edge(ACTIVE, CANCELLED, EnumSet.of(TriggerKind.U)));
+
     /**
      * CTR-01 — "Chỉ được chỉnh sửa hợp đồng ở trạng thái Draft hoặc Revision Requested."
      * An app-level state check; a DB CHECK cannot see the transition (db-contract.md).
+     *
+     * <p>REJECTED is deliberately NOT editable: CTR-04 requires an explicit, audited revise
+     * back to DRAFT first.
      */
     public boolean isEditable() {
-        throw new UnsupportedOperationException("session-3 Phase B");
+        return this == DRAFT || this == REVISION_REQUESTED;
     }
 
-    /** True once the document can no longer move under any trigger. */
+    /**
+     * True once the document can no longer move under any trigger.
+     *
+     * <p>Derived from the table rather than hardcoded, so a status that later gains an outgoing
+     * edge stops reporting terminal automatically — the two can never disagree.
+     */
     public boolean isTerminal() {
-        throw new UnsupportedOperationException("session-3 Phase B");
+        return TABLE.stream().noneMatch(e -> e.from() == this);
     }
 
     /**
@@ -60,6 +89,7 @@ public enum DocumentStatus {
      * (S) and illegal for a user (U), which is what stops CTR-03 being bypassed by hand.
      */
     public boolean canTransitionTo(DocumentStatus to, TriggerKind trigger) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+        return TABLE.stream().anyMatch(
+                e -> e.from() == this && e.to() == to && e.triggers().contains(trigger));
     }
 }
