@@ -1,0 +1,34 @@
+package com.abclogistics.pas.workflow.controller;
+
+import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.workflow.dto.InboxResponse;
+import com.abclogistics.pas.workflow.service.InboxService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/inbox")
+public class InboxController {
+
+    private final InboxService inboxService;
+
+    public InboxController(InboxService inboxService) {
+        this.inboxService = inboxService;
+    }
+
+    @GetMapping
+    public InboxResponse inbox(@RequestParam(defaultValue = "ASSIGNED") String tab) {
+        UUID userId = SecurityUtils.currentUserId();
+        if (userId == null) throw new org.springframework.security.access.AccessDeniedException("Authentication required");
+        return switch (tab.toUpperCase()) {
+            case "ASSIGNED" -> inboxService.assignedToMe(userId);
+            case "SUBMITTED" -> inboxService.submittedByMe(userId);
+            case "COMPLETED" -> inboxService.completed(userId);
+            default -> throw new IllegalArgumentException("Unknown tab: " + tab + " (use ASSIGNED, SUBMITTED, COMPLETED)");
+        };
+    }
+}

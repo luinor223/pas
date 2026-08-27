@@ -1,0 +1,71 @@
+server:
+  port: 8006
+
+spring:
+  application:
+    name: workflow-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_workflow}
+    username: ${DB_USER:workflow}
+    password: ${DB_PASSWORD:workflow}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: workflow
+
+  flyway:
+    enabled: true
+    schemas: workflow
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+
+  grpc:
+    server:
+      port: 50056
+    client:
+      identity:
+        address: static://identity-service:50051
+        negotiationType: PLAINTEXT
+
+identity:
+  grpc:
+    host: ${IDENTITY_GRPC_HOST:localhost}
+    port: ${IDENTITY_GRPC_PORT:50051}
+
+redis:
+  perm-cache-ttl: PT6H
+  perm-prefix: "perm:role:"
+
+outbox:
+  relay:
+    enabled: true
+    claim-lease: PT60S
+    batch-size: 100
+    poll-interval: PT5S
+
+workflow:
+  sla-check-interval: PT60S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

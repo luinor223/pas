@@ -116,5 +116,38 @@ services:
       - "traefik.http.routers.identity.entrypoints=web"
       - "traefik.http.routers.identity.middlewares=identity-ratelimit,jwt-auth@file,api-v1-strip"
 
+  workflow-service:
+    build:
+      context: .
+      dockerfile: services/workflow/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_workflow
+      DB_USER: workflow
+      DB_PASSWORD: workflow
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      IDENTITY_GRPC_HOST: identity-service
+      IDENTITY_GRPC_PORT: 50051
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      identity-service:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.workflow.loadbalancer.server.port=8006"
+      - "traefik.http.middlewares.workflow-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.workflow-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.workflow.rule=PathPrefix(`/api/v1/workflow-definitions`) || PathPrefix(`/api/v1/workflow-steps`) || PathPrefix(`/api/v1/inbox`)"
+      - "traefik.http.routers.workflow.entrypoints=web"
+      - "traefik.http.routers.workflow.middlewares=workflow-ratelimit,jwt-auth@file,api-v1-strip"
+
 volumes:
   pgdata:
