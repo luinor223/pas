@@ -1,7 +1,9 @@
 package com.abclogistics.pas.contract.controller;
 
+import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.ContractResponse;
+import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.ContractService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -57,6 +59,18 @@ public class ContractController {
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse create(@Valid @RequestBody ContractRequest request) {
         return ContractResponse.of(contracts.create(request));
+    }
+
+    /**
+     * CTR-02 checks, then D4: the status change and the dispatch intent commit together and a
+     * relay makes the remote call. The response says INITIALIZATION_PENDING because that is what
+     * has actually happened — nothing has been dispatched yet.
+     */
+    @PostMapping("/{id}/submit")
+    @PreAuthorize("hasAuthority('contract:write')")
+    public SubmitResponse submit(@PathVariable UUID id) {
+        contracts.submit(id);
+        return SubmitResponse.pendingDispatch(DocumentStatus.SUBMITTED.name());
     }
 
     /** CTR-01 + optimistic lock. Editing a REVISION_REQUESTED contract returns it to DRAFT. */

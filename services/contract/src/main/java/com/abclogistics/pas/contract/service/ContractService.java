@@ -11,24 +11,30 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
 import com.abclogistics.pas.contract.domain.TriggerKind;
+import com.abclogistics.pas.common.outbox.OutboxEvent;
+import com.abclogistics.pas.common.outbox.OutboxRepository;
+import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.contract.event.WorkflowStartRequested;
+import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
+import com.abclogistics.pas.workflow.grpc.GetInstanceByDocumentResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
 import java.util.Currency;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.function.Function;
 
 /**
  * Contract lifecycle (4.2, CTR-01..CTR-07).
@@ -36,19 +42,41 @@ import java.util.function.Function;
 @Service
 public class ContractService {
 
+    /** The workflow document type code this service submits under (workflow V2 seed). */
+    static final String DOCUMENT_TYPE = "CONTRACT";
+
+    /** Rendered while D4's dispatch window is open; never persisted as a document status (D14e). */
+    public static final String INITIALIZATION_PENDING = "INITIALIZATION_PENDING";
+
+    /** workflow_instance.status — the one non-terminal value (workflow V1 CHECK). */
+    private static final String WORKFLOW_IN_PROGRESS = "IN_PROGRESS";
+
+    private static final BigDecimal MIN_VAT = BigDecimal.ZERO;
+    private static final BigDecimal MAX_VAT = new BigDecimal("100");
+
     private final ContractRepository contracts;
     private final CustomerService customers;
     private final DocumentNumberService numbers;
     private final StatusTransitionService transitions;
+    private final AttachmentRepository attachments;
+    private final WorkflowGrpcClient workflow;
+    private final OutboxRepository outbox;
+    private final ObjectMapper objectMapper;
     private final AuditRecorder audit;
 
     public ContractService(ContractRepository contracts, CustomerService customers,
                            DocumentNumberService numbers, StatusTransitionService transitions,
+                           AttachmentRepository attachments, WorkflowGrpcClient workflow,
+                           OutboxRepository outbox, ObjectMapper objectMapper,
                            AuditRecorder audit) {
         this.contracts = contracts;
         this.customers = customers;
         this.numbers = numbers;
         this.transitions = transitions;
+        this.attachments = attachments;
+        this.workflow = workflow;
+        this.outbox = outbox;
+        this.objectMapper = objectMapper;
         this.audit = audit;
     }
 
@@ -63,9 +91,9 @@ public class ContractService {
                                  String q, Pageable pageable) {
         return contracts.search(
                 customerId,
-                parseOptional("status", status, DocumentStatus::valueOf, DocumentStatus.values()),
-                parseOptional("serviceGroup", serviceGroup, ServiceGroup::valueOf, ServiceGroup.values()),
-                likePattern(q),
+                RequestValues.parseOptional("status", status, DocumentStatus::valueOf, DocumentStatus.values()),
+                RequestValues.parseOptional("serviceGroup", serviceGroup, ServiceGroup::valueOf, ServiceGroup.values()),
+                RequestValues.likePattern(q),
                 pageable);
     }
 
@@ -155,7 +183,7 @@ public class ContractService {
         // its own tells a reviewer nothing, and the row is the only record — status_history covers
         // transitions, and nothing else keeps a prior value.
         audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
-                "UPDATE", null, null, null, diff(was, snapshot(contract)));
+                "UPDATE", null, null, null, FieldDiff.between(was, snapshot(contract)));
 
         if (before == DocumentStatus.REVISION_REQUESTED) {
             transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
@@ -200,10 +228,10 @@ public class ContractService {
                     "validFrom must not be after validTo (CTR-02)");
         }
         return new Reference(
-                parseRequired("serviceGroup", request.serviceGroup(),
+                RequestValues.parseRequired("serviceGroup", request.serviceGroup(),
                         ServiceGroup::valueOf, ServiceGroup.values()),
                 parseCurrency(request.currency()),
-                parseOptional("billingCycle", request.billingCycle(),
+                RequestValues.parseOptional("billingCycle", request.billingCycle(),
                         BillingCycle::valueOf, BillingCycle.values()));
     }
 
@@ -212,7 +240,7 @@ public class ContractService {
      * the value ends up on an invoice, and billing has no way to interpret "VDN".
      */
     private String parseCurrency(String raw) {
-        String code = blankToNull(raw);
+        String code = RequestValues.blankToNull(raw);
         if (code == null) {
             return null;
         }
@@ -224,39 +252,6 @@ public class ContractService {
                     "currency must be an ISO 4217 code (got \"%s\")".formatted(raw));
         }
         return code;
-    }
-
-    private static <E extends Enum<E>> E parseRequired(String field, String raw,
-                                                       Function<String, E> parser, E[] allowed) {
-        E parsed = parseOptional(field, raw, parser, allowed);
-        if (parsed == null) {
-            throw new UnprocessableEntityException("%s is required".formatted(field));
-        }
-        return parsed;
-    }
-
-    private static <E extends Enum<E>> E parseOptional(String field, String raw,
-                                                       Function<String, E> parser, E[] allowed) {
-        String value = blankToNull(raw);
-        if (value == null) {
-            return null;
-        }
-        try {
-            return parser.apply(value.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            throw new UnprocessableEntityException("%s must be one of %s (got \"%s\")"
-                    .formatted(field, Arrays.toString(allowed), raw));
-        }
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
-    }
-
-    /** Lower-cased and wrapped here rather than in SQL — see {@link ContractRepository#search}. */
-    private static String likePattern(String q) {
-        String term = blankToNull(q);
-        return term == null ? null : "%" + term.trim().toLowerCase(Locale.ROOT) + "%";
     }
 
     /** The audited fields, in the order they read on the contract itself. */
@@ -276,33 +271,6 @@ public class ContractService {
         return fields;
     }
 
-    private static Map<String, Object> diff(Map<String, Object> was, Map<String, Object> now) {
-        Map<String, Object> changes = new LinkedHashMap<>();
-        was.forEach((field, before) -> {
-            Object after = now.get(field);
-            if (!sameValue(before, after)) {
-                Map<String, Object> change = new LinkedHashMap<>();
-                change.put("from", text(before));
-                change.put("to", text(after));
-                changes.put(field, change);
-            }
-        });
-        return changes;
-    }
-
-    /** 10 and 10.00 are the same VAT rate; {@code equals} on BigDecimal disagrees. */
-    private static boolean sameValue(Object before, Object after) {
-        if (before instanceof BigDecimal x && after instanceof BigDecimal y) {
-            return x.compareTo(y) == 0;
-        }
-        return Objects.equals(before, after);
-    }
-
-    /** Null stays null in the payload — "not stated" and the string "null" are different facts. */
-    private static String text(Object value) {
-        return value == null ? null : value.toString();
-    }
-
     /**
      * D4 commit-then-dispatch. In ONE transaction: CTR-02 checks, {@code DRAFT → SUBMITTED},
      * the {@code status_history} row, and a {@code workflow.start_requested} outbox row
@@ -318,8 +286,107 @@ public class ContractService {
      */
     @Transactional
     public void submit(UUID id) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+        Contract contract = get(id);
+        DocumentStatus before = contract.getStatus();
+        if (before != DocumentStatus.DRAFT) {
+            throw new ConflictException(
+                    "Contract %s is %s; only a DRAFT can be submitted (registry §9)"
+                            .formatted(contract.getContractNo(), before));
+        }
+        requireSubmittable(contract);
+
+        // BEFORE the commit, and read-only: a document type with no active definition must fail
+        // fast as a 412. Committing first would leave a SUBMITTED contract whose outbox row the
+        // relay retries forever against a configuration that is never going to appear.
+        workflow.validateStartable(DOCUMENT_TYPE);
+
+        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+                before, DocumentStatus.SUBMITTED, TriggerKind.U, null, "Submitted for approval");
+        contract.setStatus(DocumentStatus.SUBMITTED);
+
+        // D4: the status change, its history row and the dispatch intent commit together. The
+        // remote call is the relay's job. The reverse order — StartInstance first — orphans a
+        // live, assignee-notified instance on a still-DRAFT document if the commit then fails,
+        // and no retry can undo that.
+        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
+        WorkflowStartRequested payload = new WorkflowStartRequested(
+                UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),
+                contract.getCustomer().getName(), "NORMAL",
+                actor == null ? null : actor.userId(),
+                actor == null ? "system" : actor.fullName());
+        outbox.save(OutboxEvent.event(WorkflowStartRequested.EVENT_TYPE,
+                EntityType.CONTRACT.name(), contract.getId(), objectMapper.writeValueAsString(payload)));
     }
+
+    /**
+     * CTR-02. Every prerequisite is checked here rather than trusted from create/update, because
+     * the world moves between the two: a customer can be suspended, and the fields that billing
+     * snapshots (PAY-03) are deliberately optional while the contract is still a DRAFT.
+     */
+    private void requireSubmittable(Contract contract) {
+        Customer customer = contract.getCustomer();
+        if (customer.getStatus() != CustomerStatus.ACTIVE) {
+            throw new UnprocessableEntityException(
+                    "Customer %s is %s; only an ACTIVE customer may have a contract submitted (CTR-02)"
+                            .formatted(customer.getCode(), customer.getStatus()));
+        }
+        if (contract.getValidFrom().isAfter(contract.getValidTo())) {
+            throw new UnprocessableEntityException("validFrom must not be after validTo (CTR-02)");
+        }
+        if (!attachments.existsByOwnerTypeAndOwnerId(EntityType.CONTRACT, contract.getId())) {
+            throw new UnprocessableEntityException(
+                    "Contract %s has no attachment; at least one is required to submit (CTR-02)"
+                            .formatted(contract.getContractNo()));
+        }
+        // Null here means "not stated", and billing would have to guess. 0% is a different and
+        // perfectly valid answer, which is exactly why null must never be read as zero.
+        if (contract.getVatRate() == null) {
+            throw new UnprocessableEntityException(
+                    "vatRate is required to submit (CTR-02); it is never assumed to be 0");
+        }
+        if (contract.getVatRate().compareTo(MIN_VAT) < 0 || contract.getVatRate().compareTo(MAX_VAT) > 0) {
+            throw new UnprocessableEntityException(
+                    "vatRate must be between 0 and 100 (got %s)".formatted(contract.getVatRate()));
+        }
+        if (RequestValues.blankToNull(contract.getPaymentTerm()) == null) {
+            throw new UnprocessableEntityException("paymentTerm is required to submit (CTR-02)");
+        }
+    }
+
+    /**
+     * Approval progress for the document (4.7), composed owner-side rather than retried.
+     *
+     * <p>registry §5 states the rule as a predicate, not a case list: when the local status is
+     * SUBMITTED and the response is <em>not</em> an IN_PROGRESS instance — whether that is an
+     * absent instance or a terminal one from a previous submission — the answer is
+     * INITIALIZATION_PENDING and the returned instance is DISCARDED.
+     *
+     * <p>The discard is the whole point. CTR-04's revise and REVISION_REQUESTED → DRAFT → submit
+     * each mint a new idempotency key and therefore a new instance, so a document accumulates
+     * terminal instances. Without it, a resubmitted contract shows its previous REJECTED chain as
+     * current progress for the entire dispatch window.
+     */
+    @Transactional(readOnly = true)
+    public ApprovalProgress progress(UUID id) {
+        Contract contract = get(id);
+        GetInstanceByDocumentResponse instance =
+                workflow.getInstanceByDocument(DOCUMENT_TYPE, id).orElse(null);
+        boolean live = instance != null && WORKFLOW_IN_PROGRESS.equals(instance.getStatus());
+
+        if (contract.getStatus() == DocumentStatus.SUBMITTED && !live) {
+            return new ApprovalProgress(INITIALIZATION_PENDING, null);
+        }
+        return instance == null
+                ? new ApprovalProgress(contract.getStatus().name(), null)
+                : new ApprovalProgress(instance.getStatus(), instance);
+    }
+
+    /**
+     * {@code instance} is null while the dispatch is still pending, and null too when a stale
+     * terminal instance was discarded. Item 10 maps this to a response DTO for REST; the proto
+     * message does not leave the service layer before then.
+     */
+    public record ApprovalProgress(String state, GetInstanceByDocumentResponse instance) { }
 
     /**
      * The M2 cancel-vs-dispatch handoff. A timestamp lease has no fencing token, so only a row

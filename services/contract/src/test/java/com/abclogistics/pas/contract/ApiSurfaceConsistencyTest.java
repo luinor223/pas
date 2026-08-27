@@ -1,6 +1,7 @@
 package com.abclogistics.pas.contract;
 
 import com.abclogistics.pas.contract.controller.AttachmentController;
+import com.abclogistics.pas.contract.controller.ContractController;
 import com.abclogistics.pas.contract.controller.CustomerController;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,34 +28,64 @@ import static org.assertj.core.api.Assertions.assertThat;
  * controller serves is a broken promise, and a controller route it does not mention is an
  * undocumented one. This test compares the two directly.
  *
- * <p>Scoped to the surfaces Phase B items 1 and 4 own — customers and attachments. Items 5-14 add
- * the contract/addendum actions and should widen {@link #COVERED_PREFIXES} as they land, which is
- * the point: an unimplemented documented path stays visible instead of being silently tolerated.
+ * <p>Covers the whole REST surface. Routes Phase B has not reached yet are listed in
+ * {@link #PENDING}, and that list is itself asserted: an entry that is no longer documented, or
+ * one that HAS since been implemented, fails the build. So the gap shrinks deliberately rather
+ * than being tolerated, and finishing an item forces its line to be deleted here.
  *
  * <p>No Spring context — reflection over the controller classes, so it runs without Docker.
  */
 class ApiSurfaceConsistencyTest {
 
-    private static final List<String> COVERED_PREFIXES = List.of("/customers", "/attachments");
+    private static final List<String> COVERED_PREFIXES =
+            List.of("/customers", "/contracts", "/addenda", "/attachments");
 
-    private static final List<Class<?>> CONTROLLERS =
-            List.of(CustomerController.class, AttachmentController.class);
+    private static final List<Class<?>> CONTROLLERS = List.of(
+            CustomerController.class, ContractController.class, AttachmentController.class);
+
+    /** Documented but not built yet — Phase B items 6-14. Delete a line as its item lands. */
+    private static final Set<String> PENDING = Set.of(
+            "POST /contracts/{id}/cancel",            // item 7  — M2 cancel-vs-dispatch
+            "POST /contracts/{id}/revise",            // item 8  — CTR-04
+            "POST /contracts/{id}/send-for-signing",  // item 13 — D10 / D14e
+            "GET /contracts/{id}/progress",           // item 10 — proxy + response DTO
+            "GET /contracts/{id}/history",            // item 10 — status_history read
+            "GET /addenda",                           // item 11 — addendum lifecycle
+            "POST /addenda",
+            "GET /addenda/{id}",
+            "PUT /addenda/{id}",
+            "POST /addenda/{id}/submit",
+            "POST /addenda/{id}/cancel",
+            "POST /addenda/{id}/revise",
+            "GET /addenda/{id}/progress");
 
     @Test
-    void everyDocumentedRouteUnderTheseSurfacesIsServed() {
-        assertThat(documentedRoutes()).isSubsetOf(implementedRoutes());
+    void everyDocumentedRouteIsServedUnlessItIsListedAsPending() {
+        Set<String> owed = new TreeSet<>(documentedRoutes());
+        owed.removeAll(PENDING);
+        assertThat(owed).isSubsetOf(implementedRoutes());
     }
 
     @Test
-    void everyImplementedRouteUnderTheseSurfacesIsDocumented() {
+    void everyImplementedRouteIsDocumented() {
         assertThat(implementedRoutes()).isSubsetOf(documentedRoutes());
     }
 
     @Test
+    void nothingOnThePendingListIsStale() {
+        // A pending entry that no longer appears in the OpenAPI is a typo or a removed route.
+        assertThat(PENDING).isSubsetOf(documentedRoutes());
+        // And one that has since been implemented must be deleted from the list, or the build
+        // stops telling the truth about what is left to do.
+        assertThat(implementedRoutes()).doesNotContainAnyElementsOf(PENDING);
+    }
+
+    @Test
     void theComparisonIsActuallyLookingAtSomething() {
-        // A silent regex change that matched nothing would make both tests above pass trivially.
+        // A silent regex change that matched nothing would make the tests above pass trivially.
         assertThat(implementedRoutes()).contains(
                 "GET /customers", "POST /customers/{id}/suspend",
+                "POST /contracts/{id}/submit",
                 "GET /attachments/{id}", "DELETE /attachments/{id}");
     }
 
