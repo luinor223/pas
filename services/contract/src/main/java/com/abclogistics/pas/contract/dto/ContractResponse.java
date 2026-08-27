@@ -35,7 +35,7 @@ public record ContractResponse(
                 c.getId(), c.getContractNo(),
                 c.getCustomer().getId(), c.getCustomer().getName(),
                 c.getDescription(), c.getServiceGroup().name(), c.getValue(), c.getCurrency(),
-                c.getValidFrom(), c.getValidTo(), c.getPaymentTerm(), c.getBillingCycle(),
+                c.getValidFrom(), c.getValidTo(), c.getPaymentTerm(), c.getBillingCycle().name(),
                 c.getVatRate(), c.getPenaltyTerms(), c.getServiceClause(),
                 c.getStatus().name(), c.getStatus().isEditable(), c.getVersion(),
                 c.getCreatedAt(), c.getCreatedByName(), c.getUpdatedAt());

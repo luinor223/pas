@@ -3,7 +3,12 @@ package com.abclogistics.pas.contract.controller;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.dto.AttachmentResponse;
 import com.abclogistics.pas.contract.service.AttachmentService;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -47,6 +52,27 @@ public class AttachmentController {
                                      @RequestParam UUID ownerId,
                                      @RequestPart("file") MultipartFile file) {
         return AttachmentResponse.of(attachments.upload(ownerType, ownerId, file));
+    }
+
+    /**
+     * Streams the stored bytes back under the original filename. The filename is put in the
+     * Content-Disposition header only, quoted and encoded by {@link ContentDisposition} — it is
+     * client-supplied text and never touches a path or an unescaped header value.
+     */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('contract:read')")
+    public ResponseEntity<Resource> download(@PathVariable UUID id) {
+        AttachmentService.AttachmentContent content = attachments.download(id);
+        String declared = content.metadata().getContentType();
+        MediaType mediaType = declared == null
+                ? MediaType.APPLICATION_OCTET_STREAM : MediaType.parseMediaType(declared);
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(content.metadata().getFileName(), java.nio.charset.StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .body(content.resource());
     }
 
     @DeleteMapping("/{id}")

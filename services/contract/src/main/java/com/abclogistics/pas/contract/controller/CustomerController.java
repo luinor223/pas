@@ -1,6 +1,7 @@
 package com.abclogistics.pas.contract.controller;
 
 import com.abclogistics.pas.contract.domain.Customer;
+import com.abclogistics.pas.contract.dto.CustomerContactResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.dto.SuspendRequest;
@@ -52,6 +53,18 @@ public class CustomerController {
     public CustomerResponse get(@PathVariable UUID id) {
         Customer customer = customers.get(id);
         return CustomerResponse.of(customer, customers.contactsOf(id));
+    }
+
+    /**
+     * Contacts are read on their own, but written only through the customer body: the set is
+     * replaced wholesale so the "at most one primary" rule is decided by one request, not by the
+     * order two per-contact calls happen to arrive in.
+     */
+    @GetMapping("/{id}/contacts")
+    @PreAuthorize("hasAuthority('customer:read')")
+    public List<CustomerContactResponse> contacts(@PathVariable UUID id) {
+        customers.get(id); // 404 for an unknown customer rather than an empty list
+        return customers.contactsOf(id).stream().map(CustomerContactResponse::of).toList();
     }
 
     @PostMapping

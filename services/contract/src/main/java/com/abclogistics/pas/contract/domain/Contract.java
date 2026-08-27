@@ -67,8 +67,9 @@ public class Contract extends BaseEntity {
     @Column(name = "payment_term")
     private String paymentTerm;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "billing_cycle", nullable = false)
-    private String billingCycle;
+    private BillingCycle billingCycle;
 
     /** Percent, 0..100. Required at submit (CTR-02). Null is "not stated", never 0. */
     @Column(name = "vat_rate")
@@ -109,7 +110,7 @@ public class Contract extends BaseEntity {
         c.validFrom = validFrom;
         c.validTo = validTo;
         c.currency = "VND";
-        c.billingCycle = "MONTHLY";
+        c.billingCycle = BillingCycle.MONTHLY;
         c.status = DocumentStatus.DRAFT;
         return c;
     }
@@ -124,7 +125,7 @@ public class Contract extends BaseEntity {
     public LocalDate getValidFrom() { return validFrom; }
     public LocalDate getValidTo() { return validTo; }
     public String getPaymentTerm() { return paymentTerm; }
-    public String getBillingCycle() { return billingCycle; }
+    public BillingCycle getBillingCycle() { return billingCycle; }
     public BigDecimal getVatRate() { return vatRate; }
     public String getPenaltyTerms() { return penaltyTerms; }
     public String getServiceClause() { return serviceClause; }
@@ -143,7 +144,7 @@ public class Contract extends BaseEntity {
     public void setValidFrom(LocalDate v) { this.validFrom = v; }
     public void setValidTo(LocalDate v) { this.validTo = v; }
     public void setPaymentTerm(String v) { this.paymentTerm = v; }
-    public void setBillingCycle(String v) { this.billingCycle = v; }
+    public void setBillingCycle(BillingCycle v) { this.billingCycle = v; }
     public void setVatRate(BigDecimal v) { this.vatRate = v; }
     public void setPenaltyTerms(String v) { this.penaltyTerms = v; }
     public void setServiceClause(String v) { this.serviceClause = v; }

@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,8 +49,9 @@ public class CustomerService {
     public Page<Customer> search(String query, String status, Pageable pageable) {
         CustomerStatus parsed = status == null || status.isBlank()
                 ? null : CustomerStatus.valueOf(status);
-        String q = query == null || query.isBlank() ? null : query;
-        return customers.search(q, parsed, pageable);
+        String pattern = query == null || query.isBlank()
+                ? null : "%" + query.trim().toLowerCase(Locale.ROOT) + "%";
+        return customers.search(pattern, parsed, pageable);
     }
 
     @Transactional(readOnly = true)

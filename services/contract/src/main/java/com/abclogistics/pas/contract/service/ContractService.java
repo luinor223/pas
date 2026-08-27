@@ -4,6 +4,7 @@ import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.contract.domain.BillingCycle;
 import com.abclogistics.pas.contract.domain.Contract;
 import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
@@ -19,9 +20,15 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Currency;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Contract lifecycle (4.2, CTR-01..CTR-07).
@@ -45,11 +52,21 @@ public class ContractService {
         this.audit = audit;
     }
 
+    /**
+     * The documented filter set (openapi {@code GET /contracts}): customer, status, service group
+     * and a free-text {@code q} over contract number, description and customer name. An
+     * unparseable status or service group is the caller's mistake, so it is a 422 naming the
+     * allowed values — not a 500 from a raw {@code valueOf}.
+     */
     @Transactional(readOnly = true)
-    public Page<Contract> search(UUID customerId, String status, Pageable pageable) {
-        DocumentStatus parsed = status == null || status.isBlank()
-                ? null : DocumentStatus.valueOf(status);
-        return contracts.search(customerId, parsed, pageable);
+    public Page<Contract> search(UUID customerId, String status, String serviceGroup,
+                                 String q, Pageable pageable) {
+        return contracts.search(
+                customerId,
+                parseOptional("status", status, DocumentStatus::valueOf, DocumentStatus.values()),
+                parseOptional("serviceGroup", serviceGroup, ServiceGroup::valueOf, ServiceGroup.values()),
+                likePattern(q),
+                pageable);
     }
 
     @Transactional(readOnly = true)
@@ -60,15 +77,17 @@ public class ContractService {
 
     @Transactional
     public Contract create(ContractRequest request) {
-        validateWindow(request);
+        // Reference values are parsed before anything is written, so an unknown service group or
+        // currency never reaches Postgres as a CHECK violation.
+        Reference reference = validate(request);
         Customer customer = customers.get(request.customerId());
 
         Contract contract = Contract.create(
                 numbers.nextDocumentNo(EntityType.CONTRACT, request.validFrom().getYear()),
                 customer,
-                ServiceGroup.valueOf(request.serviceGroup()),
+                reference.serviceGroup(),
                 request.validFrom(), request.validTo());
-        applyFields(contract, request);
+        applyFields(contract, request, reference);
         SecurityUtils.currentUser().ifPresent(user -> {
             contract.setCreatedBy(user.userId());
             contract.setCreatedByName(user.fullName());
@@ -78,7 +97,11 @@ public class ContractService {
 
         audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
                 "CREATE", null, contract.getStatus().name(), null,
-                Map.of("customerId", customer.getId().toString()));
+                Map.of("customerId", customer.getId().toString(),
+                        "customerCode", customer.getCode(),
+                        "serviceGroup", contract.getServiceGroup().name(),
+                        "validFrom", String.valueOf(contract.getValidFrom()),
+                        "validTo", String.valueOf(contract.getValidTo())));
         return contract;
     }
 
@@ -110,7 +133,7 @@ public class ContractService {
         if (request.version() != contract.getVersion()) {
             throw new ObjectOptimisticLockingFailureException(Contract.class, id);
         }
-        validateWindow(request);
+        Reference reference = validate(request);
 
         if (!Objects.equals(contract.getCustomer().getId(), request.customerId())) {
             // A DRAFT may be re-pointed at another customer; anything past DRAFT is unreachable
@@ -121,36 +144,42 @@ public class ContractService {
                     Map.of("from", contract.getCustomer().getCode(), "to", replacement.getCode()));
             contract.setCustomer(replacement);
         }
-        applyFields(contract, request);
+        Map<String, Object> was = snapshot(contract);
+        applyFields(contract, request, reference);
         SecurityUtils.currentUser().ifPresent(user -> {
             contract.setUpdatedBy(user.userId());
             contract.setUpdatedByName(user.fullName());
         });
+
+        // D15: the audit row carries which fields changed and what they changed from. "UPDATE" on
+        // its own tells a reviewer nothing, and the row is the only record — status_history covers
+        // transitions, and nothing else keeps a prior value.
+        audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
+                "UPDATE", null, null, null, diff(was, snapshot(contract)));
 
         if (before == DocumentStatus.REVISION_REQUESTED) {
             transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
                     before, DocumentStatus.DRAFT, TriggerKind.U, null,
                     "Returned to DRAFT by being edited after a revision request");
             contract.setStatus(DocumentStatus.DRAFT);
-        } else {
-            audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
-                    "UPDATE", null, null, null, Map.of());
         }
         return contract;
     }
 
-    private void applyFields(Contract contract, ContractRequest request) {
+    private void applyFields(Contract contract, ContractRequest request, Reference reference) {
         contract.setDescription(request.description());
-        contract.setServiceGroup(ServiceGroup.valueOf(request.serviceGroup()));
+        contract.setServiceGroup(reference.serviceGroup());
         contract.setValue(request.value());
-        if (request.currency() != null) {
-            contract.setCurrency(request.currency());
+        // currency and billingCycle have non-null DDL defaults, so an omitted value keeps what is
+        // already there rather than being nulled out.
+        if (reference.currency() != null) {
+            contract.setCurrency(reference.currency());
         }
         contract.setValidFrom(request.validFrom());
         contract.setValidTo(request.validTo());
         contract.setPaymentTerm(request.paymentTerm());
-        if (request.billingCycle() != null) {
-            contract.setBillingCycle(request.billingCycle());
+        if (reference.billingCycle() != null) {
+            contract.setBillingCycle(reference.billingCycle());
         }
         // vatRate is copied as-is, null included: null means "not stated" and must never become 0.
         contract.setVatRate(request.vatRate());
@@ -158,11 +187,120 @@ public class ContractService {
         contract.setServiceClause(request.serviceClause());
     }
 
-    private void validateWindow(ContractRequest request) {
+    /** The reference values a request carries as free text, resolved once and reused. */
+    private record Reference(ServiceGroup serviceGroup, String currency, BillingCycle billingCycle) { }
+
+    /**
+     * Every check that can be made without touching the database, made before anything is written.
+     * A bad reference value is the caller's mistake (422), not a database constraint violation.
+     */
+    private Reference validate(ContractRequest request) {
         if (request.validFrom().isAfter(request.validTo())) {
             throw new UnprocessableEntityException(
                     "validFrom must not be after validTo (CTR-02)");
         }
+        return new Reference(
+                parseRequired("serviceGroup", request.serviceGroup(),
+                        ServiceGroup::valueOf, ServiceGroup.values()),
+                parseCurrency(request.currency()),
+                parseOptional("billingCycle", request.billingCycle(),
+                        BillingCycle::valueOf, BillingCycle.values()));
+    }
+
+    /**
+     * ISO 4217, checked against the JDK's own currency table rather than a hand-kept list —
+     * the value ends up on an invoice, and billing has no way to interpret "VDN".
+     */
+    private String parseCurrency(String raw) {
+        String code = blankToNull(raw);
+        if (code == null) {
+            return null;
+        }
+        code = code.trim().toUpperCase(Locale.ROOT);
+        try {
+            Currency.getInstance(code);
+        } catch (IllegalArgumentException e) {
+            throw new UnprocessableEntityException(
+                    "currency must be an ISO 4217 code (got \"%s\")".formatted(raw));
+        }
+        return code;
+    }
+
+    private static <E extends Enum<E>> E parseRequired(String field, String raw,
+                                                       Function<String, E> parser, E[] allowed) {
+        E parsed = parseOptional(field, raw, parser, allowed);
+        if (parsed == null) {
+            throw new UnprocessableEntityException("%s is required".formatted(field));
+        }
+        return parsed;
+    }
+
+    private static <E extends Enum<E>> E parseOptional(String field, String raw,
+                                                       Function<String, E> parser, E[] allowed) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return parser.apply(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new UnprocessableEntityException("%s must be one of %s (got \"%s\")"
+                    .formatted(field, Arrays.toString(allowed), raw));
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    /** Lower-cased and wrapped here rather than in SQL — see {@link ContractRepository#search}. */
+    private static String likePattern(String q) {
+        String term = blankToNull(q);
+        return term == null ? null : "%" + term.trim().toLowerCase(Locale.ROOT) + "%";
+    }
+
+    /** The audited fields, in the order they read on the contract itself. */
+    private static Map<String, Object> snapshot(Contract contract) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("description", contract.getDescription());
+        fields.put("serviceGroup", contract.getServiceGroup());
+        fields.put("value", contract.getValue());
+        fields.put("currency", contract.getCurrency());
+        fields.put("validFrom", contract.getValidFrom());
+        fields.put("validTo", contract.getValidTo());
+        fields.put("paymentTerm", contract.getPaymentTerm());
+        fields.put("billingCycle", contract.getBillingCycle());
+        fields.put("vatRate", contract.getVatRate());
+        fields.put("penaltyTerms", contract.getPenaltyTerms());
+        fields.put("serviceClause", contract.getServiceClause());
+        return fields;
+    }
+
+    private static Map<String, Object> diff(Map<String, Object> was, Map<String, Object> now) {
+        Map<String, Object> changes = new LinkedHashMap<>();
+        was.forEach((field, before) -> {
+            Object after = now.get(field);
+            if (!sameValue(before, after)) {
+                Map<String, Object> change = new LinkedHashMap<>();
+                change.put("from", text(before));
+                change.put("to", text(after));
+                changes.put(field, change);
+            }
+        });
+        return changes;
+    }
+
+    /** 10 and 10.00 are the same VAT rate; {@code equals} on BigDecimal disagrees. */
+    private static boolean sameValue(Object before, Object after) {
+        if (before instanceof BigDecimal x && after instanceof BigDecimal y) {
+            return x.compareTo(y) == 0;
+        }
+        return Objects.equals(before, after);
+    }
+
+    /** Null stays null in the payload — "not stated" and the string "null" are different facts. */
+    private static String text(Object value) {
+        return value == null ? null : value.toString();
     }
 
     /**

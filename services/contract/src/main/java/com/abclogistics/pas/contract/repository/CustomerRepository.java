@@ -17,10 +17,12 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     boolean existsByCode(String code);
 
+    /** {@code q} arrives as a ready lower-cased {@code %pattern%} — see {@link ContractRepository#search}. */
     @Query("""
             select c from Customer c
-            where (:q is null or lower(c.name) like lower(concat('%', :q, '%'))
-                              or lower(c.code) like lower(concat('%', :q, '%')))
+            where (:q is null or lower(c.name) like :q
+                              or lower(c.code) like :q
+                              or lower(c.taxCode) like :q)
               and (:status is null or c.status = :status)
             """)
     Page<Customer> search(@Param("q") String q, @Param("status") CustomerStatus status, Pageable pageable);

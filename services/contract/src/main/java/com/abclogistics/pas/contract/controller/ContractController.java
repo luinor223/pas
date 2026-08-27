@@ -39,8 +39,11 @@ public class ContractController {
     @PreAuthorize("hasAuthority('contract:read')")
     public Page<ContractResponse> list(@RequestParam(required = false) UUID customerId,
                                        @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String serviceGroup,
+                                       @RequestParam(required = false) String q,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        return contracts.search(customerId, status, pageable).map(ContractResponse::of);
+        return contracts.search(customerId, status, serviceGroup, q, pageable)
+                .map(ContractResponse::of);
     }
 
     @GetMapping("/{id}")
