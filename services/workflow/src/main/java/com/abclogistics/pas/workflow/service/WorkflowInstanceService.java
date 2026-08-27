@@ -195,10 +195,9 @@ public class WorkflowInstanceService {
         if (!"IN_PROGRESS".equals(instance.getStatus())) {
             throw new FailedPreconditionException("Workflow instance not in progress, cannot cancel: " + instance.getStatus());
         }
-        // succeed only while no step has been actioned (use action count, not status heuristic)
+        // succeed only while no step has been actioned — use exists query, not counting all rows (review: why counting every row)
         List<WorkflowStepInstance> steps = stepInstanceRepo.findByInstance_IdOrderByStepOrderAsc(instance.getId());
-        long actionCount = actionRepo.findByStepInstance_Instance_IdOrderByCreatedAtAsc(instance.getId()).size();
-        if (actionCount > 0) {
+        if (actionRepo.existsByStepInstance_Instance_Id(instance.getId())) {
             throw new FailedPreconditionException("Cannot cancel workflow instance after a step has been actioned");
         }
 
@@ -326,13 +325,15 @@ public class WorkflowInstanceService {
             audit.record("WORKFLOW_STEP", step.getId(), "workflow.step_approved",
                     null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
 
-        } else if ("REJECT".equals(action)) {
-            int updated = stepInstanceRepo.approveIfActive(step.getId(), step.getVersion(), "REJECTED", now, actor.userId(), actor.fullName());
+        } else if ("REJECT".equals(action) || "REQUEST_REVISION".equals(action)) {
+            // merged: REJECT and REQUEST_REVISION share same flow, only status/audit differ (review)
+            String newStatus = "REJECT".equals(action) ? "REJECTED" : "REVISION_REQUESTED";
+            String auditName = "REJECT".equals(action) ? "workflow.step_rejected" : "workflow.step_revision_requested";
+            int updated = stepInstanceRepo.approveIfActive(step.getId(), step.getVersion(), newStatus, now, actor.userId(), actor.fullName());
             if (updated == 0) throw new AbortedException("Step concurrently modified");
-            WorkflowAction wa = new WorkflowAction(step, "REJECT", actor.userId(), actor.fullName(), comment);
+            WorkflowAction wa = new WorkflowAction(step, action, actor.userId(), actor.fullName(), comment);
             actionRepo.save(wa);
-            // terminate instance REJECTED, cancel pending steps
-            instance.setStatus("REJECTED");
+            instance.setStatus(newStatus);
             instance.setCompletedAt(now);
             instance.setCurrentStepOrder(null);
             instanceRepo.save(instance);
@@ -345,52 +346,19 @@ public class WorkflowInstanceService {
             }
             emit(instance.getDocumentId(), "workflow.completed", instance.getDocumentTypeCode(), Map.of(
                     "instance_id", instance.getId().toString(),
-                    "outcome", "REJECTED",
+                    "outcome", newStatus,
                     "document_no", instance.getDocumentNo(),
                     "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
             ));
             emit(instance.getDocumentId(), "workflow.step_actioned", instance.getDocumentTypeCode(), Map.of(
                     "instance_id", instance.getId().toString(),
                     "step_no", step.getStepOrder(),
-                    "action", "REJECT",
+                    "action", action,
                     "comment", comment,
                     "document_no", instance.getDocumentNo(),
                     "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
             ));
-            audit.record("WORKFLOW_STEP", step.getId(), "workflow.step_rejected",
-                    null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
-
-        } else if ("REQUEST_REVISION".equals(action)) {
-            int updated = stepInstanceRepo.approveIfActive(step.getId(), step.getVersion(), "REVISION_REQUESTED", now, actor.userId(), actor.fullName());
-            if (updated == 0) throw new AbortedException("Step concurrently modified");
-            WorkflowAction wa = new WorkflowAction(step, "REQUEST_REVISION", actor.userId(), actor.fullName(), comment);
-            actionRepo.save(wa);
-            instance.setStatus("REVISION_REQUESTED");
-            instance.setCompletedAt(now);
-            instance.setCurrentStepOrder(null);
-            instanceRepo.save(instance);
-            for (WorkflowStepInstance s : allSteps) {
-                if ("PENDING".equals(s.getStatus())) {
-                    s.setStatus("CANCELLED");
-                    s.setCompletedAt(now);
-                    stepInstanceRepo.save(s);
-                }
-            }
-            emit(instance.getDocumentId(), "workflow.completed", instance.getDocumentTypeCode(), Map.of(
-                    "instance_id", instance.getId().toString(),
-                    "outcome", "REVISION_REQUESTED",
-                    "document_no", instance.getDocumentNo(),
-                    "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
-            ));
-            emit(instance.getDocumentId(), "workflow.step_actioned", instance.getDocumentTypeCode(), Map.of(
-                    "instance_id", instance.getId().toString(),
-                    "step_no", step.getStepOrder(),
-                    "action", "REQUEST_REVISION",
-                    "comment", comment,
-                    "document_no", instance.getDocumentNo(),
-                    "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
-            ));
-            audit.record("WORKFLOW_STEP", step.getId(), "workflow.step_revision_requested",
+            audit.record("WORKFLOW_STEP", step.getId(), auditName,
                     null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
         }
     }

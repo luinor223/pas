@@ -61,8 +61,8 @@ public class InboxService {
 
     @Transactional(readOnly = true)
     public InboxResponse completed(UUID userId) {
-        var actions = actionRepo.findByActorIdOrderByCreatedAtDesc(userId);
-        // deduplicate by instance? But each action is a separate item; group by step instance's instance
+        // JOIN FETCH avoids N+1 (each action would lazy-load step+instance) — review P2
+        var actions = actionRepo.findByActorIdWithFetchOrderByCreatedAtDesc(userId);
         List<InboxResponse.InboxItem> items = new ArrayList<>();
         for (var action : actions) {
             WorkflowStepInstance step = action.getStepInstance();

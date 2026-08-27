@@ -57,14 +57,8 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             instanceService.validateStartable(request.getDocumentType());
             responseObserver.onNext(ValidateStartableResponse.newBuilder().build());
             responseObserver.onCompleted();
-        } catch (NotFoundException e) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription(e.getMessage()).asRuntimeException());
-        } catch (FailedPreconditionException e) {
-            responseObserver.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).asRuntimeException());
-        } catch (ConflictException e) {
-            responseObserver.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).asRuntimeException());
         } catch (Exception e) {
-            responseObserver.onError(Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -76,7 +70,6 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             UUID idemKey = UUID.fromString(request.getIdempotencyKey());
             String priority = request.getPriority().isBlank() ? "NORMAL" : request.getPriority();
             String customerName = request.getCustomerName();
-            // Prefer explicit requested_by_id/name (new fields), fallback to legacy requested_by heuristic
             UUID requestedBy = null;
             String requestedByName = null;
             if (!request.getRequestedById().isBlank()) {
@@ -105,18 +98,8 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
                     .setStatus(inst.getStatus())
                     .build());
             responseObserver.onCompleted();
-        } catch (IllegalArgumentException e) {
-            responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException());
-        } catch (NotFoundException e) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription(e.getMessage()).asRuntimeException());
-        } catch (FailedPreconditionException e) {
-            responseObserver.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).asRuntimeException());
-        } catch (AbortedException e) {
-            responseObserver.onError(Status.ABORTED.withDescription(e.getMessage()).asRuntimeException());
-        } catch (ConflictException e) {
-            responseObserver.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).asRuntimeException());
         } catch (Exception e) {
-            responseObserver.onError(Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -129,18 +112,8 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             instanceService.cancelInstance(request.getDocumentType(), docId, idemKey);
             responseObserver.onNext(CancelInstanceResponse.newBuilder().build());
             responseObserver.onCompleted();
-        } catch (IllegalArgumentException e) {
-            responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException());
-        } catch (NotFoundException e) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription(e.getMessage()).asRuntimeException());
-        } catch (FailedPreconditionException e) {
-            responseObserver.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).asRuntimeException());
-        } catch (AbortedException e) {
-            responseObserver.onError(Status.ABORTED.withDescription(e.getMessage()).asRuntimeException());
-        } catch (ConflictException e) {
-            responseObserver.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).asRuntimeException());
         } catch (Exception e) {
-            responseObserver.onError(Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -173,13 +146,19 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             }
             responseObserver.onNext(builder.build());
             responseObserver.onCompleted();
-        } catch (IllegalArgumentException e) {
-            responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException());
-        } catch (NotFoundException e) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription(e.getMessage()).asRuntimeException());
         } catch (Exception e) {
-            responseObserver.onError(Status.INTERNAL.withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
+    }
+
+    private Status mapToStatus(Exception e) {
+        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
+        if (e instanceof NotFoundException) return Status.NOT_FOUND;
+        if (e instanceof FailedPreconditionException) return Status.FAILED_PRECONDITION;
+        if (e instanceof AbortedException) return Status.ABORTED;
+        if (e instanceof ConflictException) return Status.FAILED_PRECONDITION;
+        if (e instanceof org.springframework.security.access.AccessDeniedException) return Status.PERMISSION_DENIED;
+        return Status.INTERNAL;
     }
 
     private StepInstance toProtoStep(WorkflowStepInstance s, Instant now) {

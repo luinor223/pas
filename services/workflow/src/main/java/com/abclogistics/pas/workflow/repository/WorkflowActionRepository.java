@@ -10,4 +10,9 @@ public interface WorkflowActionRepository extends JpaRepository<WorkflowAction, 
     List<WorkflowAction> findByStepInstance_IdOrderByCreatedAtAsc(UUID stepInstanceId);
     List<WorkflowAction> findByStepInstance_Instance_IdOrderByCreatedAtAsc(UUID instanceId);
     List<WorkflowAction> findByActorIdOrderByCreatedAtDesc(UUID actorId);
+
+    boolean existsByStepInstance_Instance_Id(UUID instanceId);
+
+    @org.springframework.data.jpa.repository.Query("select a from WorkflowAction a join fetch a.stepInstance si join fetch si.instance where a.actorId = :actorId order by a.createdAt desc")
+    List<WorkflowAction> findByActorIdWithFetchOrderByCreatedAtDesc(@org.springframework.data.repository.query.Param("actorId") UUID actorId);
 }

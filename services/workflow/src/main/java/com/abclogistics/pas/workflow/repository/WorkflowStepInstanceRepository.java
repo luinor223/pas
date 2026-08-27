@@ -27,8 +27,5 @@ public interface WorkflowStepInstanceRepository extends JpaRepository<WorkflowSt
                         @Param("newStatus") String newStatus, @Param("now") Instant now,
                         @Param("actorId") UUID actorId, @Param("actorName") String actorName);
 
-    @Query("select s from WorkflowStepInstance s where s.instance.id = :instanceId and s.stepOrder = :order")
-    Optional<WorkflowStepInstance> findByInstanceAndOrder(@Param("instanceId") UUID instanceId, @Param("order") int order);
-
     List<WorkflowStepInstance> findByStatusAndOverdueNotifiedAtIsNullAndActivatedAtBefore(String status, Instant before);
 }
