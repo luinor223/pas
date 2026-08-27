@@ -1,0 +1,95 @@
+server:
+  port: 8002
+
+spring:
+  application:
+    name: contract-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_contract}
+    username: ${DB_USER:contract}
+    password: ${DB_PASSWORD:contract}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: contract
+
+  flyway:
+    enabled: true
+    schemas: contract
+
+  servlet:
+    multipart:
+      max-file-size: ${MAX_FILE_SIZE:20MB}
+      max-request-size: ${MAX_REQUEST_SIZE:25MB}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: contract-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+  grpc:
+    server:
+      port: 50052
+    client:
+      workflow:
+        address: static://workflow-service:50056
+        negotiationType: PLAINTEXT
+
+workflow:
+  grpc:
+    host: ${WORKFLOW_GRPC_HOST:localhost}
+    port: ${WORKFLOW_GRPC_PORT:50056}
+
+redis:
+  perm-cache-ttl: PT6H
+  perm-prefix: "perm:role:"
+
+outbox:
+  relay:
+    enabled: true
+    claim-lease: PT60S
+    batch-size: 100
+    poll-interval: PT5S
+
+contract:
+  kafka:
+    # registry §4: a record that can never be processed goes to <topic>.DLT so the offset can
+    # advance — without it a poison workflow.completed retries forever and blocks the partition.
+    dlt-suffix: ".DLT"
+    retry-attempts: 3
+    retry-backoff: PT2S
+  # D14d status scheduler — APPROVED->ACTIVE at valid_from, ACTIVE->EXPIRED at valid_to
+  status-sweep-interval: PT60S
+  # D9 expiry warning — DIRECT publish (no outbox row), swept on the same schedule as the
+  # D14d flips above but a separate mechanism: a lost warning simply re-fires next run.
+  expiry-warning-days: 30
+  attachment-storage-path: ${ATTACHMENT_STORAGE_PATH:/var/pas/attachments}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
