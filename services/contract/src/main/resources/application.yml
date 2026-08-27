@@ -87,6 +87,12 @@ contract:
   # D14d flips above but a separate mechanism: a lost warning simply re-fires next run.
   expiry-warning-days: 30
   attachment-storage-path: ${ATTACHMENT_STORAGE_PATH:/var/pas/attachments}
+  # Orphan sweep: the recovery path for the two cases a transaction synchronization cannot cover —
+  # a crash between writing the file and committing, and a post-commit delete that failed on IO.
+  # The grace period must exceed the longest plausible upload transaction, or the sweep would
+  # delete a file whose row is still being committed.
+  attachment-cleanup-interval: PT1H
+  attachment-cleanup-grace: PT1H
 
 management:
   endpoints:

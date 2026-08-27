@@ -63,9 +63,10 @@ public class AttachmentController {
     @PreAuthorize("hasAuthority('contract:read')")
     public ResponseEntity<Resource> download(@PathVariable UUID id) {
         AttachmentService.AttachmentContent content = attachments.download(id);
-        String declared = content.metadata().getContentType();
-        MediaType mediaType = declared == null
-                ? MediaType.APPLICATION_OCTET_STREAM : MediaType.parseMediaType(declared);
+        // Normalised at upload, but re-checked here: a row written before that check exists, or
+        // edited outside this service, must not make its own file undownloadable.
+        MediaType mediaType = MediaType.parseMediaType(
+                AttachmentService.safeContentType(content.metadata().getContentType()));
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(content.metadata().getFileName(), java.nio.charset.StandardCharsets.UTF_8)
                 .build();

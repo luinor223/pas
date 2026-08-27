@@ -13,6 +13,7 @@ import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
+import com.abclogistics.pas.contract.service.AttachmentCleanupSweep;
 import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
@@ -90,12 +91,17 @@ class AttachmentLifecycleTest {
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("outbox.relay.enabled", () -> "false");
         registry.add("contract.attachment-storage-path", STORAGE::toString);
+        // The sweep must never fire on its own here; each test drives it explicitly.
+        registry.add("contract.attachment-cleanup-enabled", () -> "false");
+        registry.add("contract.attachment-cleanup-interval", () -> "PT1H");
+        registry.add("contract.attachment-cleanup-grace", () -> "PT0S");
     }
 
     private static final AuthenticatedUser SALES = new AuthenticatedUser(
             UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
 
     @Autowired AttachmentService attachments;
+    @Autowired AttachmentCleanupSweep sweep;
     @Autowired AttachmentRepository attachmentRepository;
     @Autowired ContractService contracts;
     @Autowired CustomerService customers;
@@ -306,6 +312,100 @@ class AttachmentLifecycleTest {
         assertThat(stored).exists();
         assertThat(rowExists(saved)).isTrue();
         assertThat(read(saved)).isEqualTo("still needed");
+    }
+
+    // ---- metadata validation -----------------------------------------------------------------
+
+    @Test
+    void anUploadWithoutAFilenameIsRejected() {
+        // file_name is NOT NULL; without this check the request dies as a constraint violation at
+        // flush time instead of telling the caller what was wrong.
+        UUID contractId = draftContract();
+
+        assertThatThrownBy(() -> tx.execute(s -> attachments.upload(EntityType.CONTRACT, contractId,
+                new MockMultipartFile("file", null, "application/pdf", "bytes".getBytes(StandardCharsets.UTF_8)))))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("file name");
+
+        assertThatThrownBy(() -> tx.execute(s -> attachments.upload(EntityType.CONTRACT, contractId,
+                new MockMultipartFile("file", "   ", "application/pdf", "bytes".getBytes(StandardCharsets.UTF_8)))))
+                .isInstanceOf(UnprocessableEntityException.class);
+    }
+
+    @Test
+    void anUnparseableContentTypeFallsBackToOctetStream() {
+        // The content type is client text and is only ever read back on download. Stored verbatim,
+        // "not/a/media/type" makes a successfully uploaded file impossible to retrieve.
+        UUID contractId = draftContract();
+
+        Attachment saved = upload(contractId, "odd.bin", "not/a/media/type", "bytes");
+
+        assertThat(saved.getContentType()).isEqualTo("application/octet-stream");
+        assertThat(tx.execute(s -> attachments.download(saved.getId())).metadata().getContentType())
+                .isEqualTo("application/octet-stream");
+    }
+
+    @Test
+    void anAbsentContentTypeFallsBackToOctetStream() {
+        UUID contractId = draftContract();
+        Attachment saved = upload(contractId, "unknown.bin", null, "bytes");
+
+        assertThat(saved.getContentType()).isEqualTo("application/octet-stream");
+    }
+
+    // ---- orphan recovery ------------------------------------------------------------------------
+
+    @Test
+    void theSweepDeletesAFileNoRowReferences() throws Exception {
+        // The two cases a transaction synchronization cannot cover: dying between the write and
+        // the commit, and a post-commit delete whose IO failed. Both leave exactly this.
+        Path orphan = STORAGE.resolve("contract").resolve(UUID.randomUUID().toString());
+        Files.createDirectories(orphan.getParent());
+        Files.writeString(orphan, "nobody's file");
+
+        int deleted = sweep.removeOrphans();
+
+        assertThat(deleted).isGreaterThanOrEqualTo(1);
+        assertThat(orphan).doesNotExist();
+    }
+
+    @Test
+    void theSweepLeavesReferencedFilesAlone() {
+        UUID contractId = draftContract();
+        Attachment saved = upload(contractId, "keep.pdf", "application/pdf", "referenced");
+
+        sweep.removeOrphans();
+
+        assertThat(Path.of(saved.getStoragePath())).exists();
+        assertThat(rowExists(saved)).isTrue();
+    }
+
+    @Test
+    void theSweepNeverRemovesTheRowForAMissingFile() throws Exception {
+        // Direction matters: the row is the record of truth, so a missing file is a fault to be
+        // reported, not tidied away. Deleting rows here would silently drop CTR-02 evidence.
+        UUID contractId = draftContract();
+        Attachment saved = upload(contractId, "vanished.pdf", "application/pdf", "gone soon");
+        Files.delete(Path.of(saved.getStoragePath()));
+
+        sweep.removeOrphans();
+
+        assertThat(rowExists(saved)).isTrue();
+    }
+
+    @Test
+    void aRolledBackUploadsFileIsGoneEvenIfTheSweepNeverRuns() {
+        // Belt and braces: the sweep is recovery, not the primary mechanism.
+        UUID contractId = draftContract();
+        MockMultipartFile file = multipart("doomed.pdf", "application/pdf", "never committed");
+
+        String path = tx.execute(s -> {
+            String stored = attachments.upload(EntityType.CONTRACT, contractId, file).getStoragePath();
+            s.setRollbackOnly();
+            return stored;
+        });
+
+        assertThat(Path.of(path)).doesNotExist();
     }
 
     // ---- audit ---------------------------------------------------------------------------------

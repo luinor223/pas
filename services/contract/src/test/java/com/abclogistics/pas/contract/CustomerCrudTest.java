@@ -10,6 +10,7 @@ import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
 import com.abclogistics.pas.contract.service.CustomerService;
 import org.junit.jupiter.api.AfterEach;
@@ -166,7 +167,7 @@ class CustomerCrudTest {
         assertThat(namesOf(id)).containsExactlyInAnyOrder("Alpha", "Beta");
 
         tx.executeWithoutResult(s -> customers.update(id,
-                withContacts("Contactful Co", List.of(contact("Gamma", true))))); 
+                withContacts("Contactful Co", List.of(contact("Gamma", true)))));
 
         // replaced, not merged — the previous two are gone
         assertThat(namesOf(id)).containsExactly("Gamma");
@@ -224,6 +225,87 @@ class CustomerCrudTest {
                     assertThat(c.getEmail()).isEqualTo("c@acme.vn");
                     assertThat(c.getPhone()).isEqualTo("0900000001");
                 });
+    }
+
+    @Test
+    void updateAuditNamesEveryChangedFieldWithItsOldAndNewValue() {
+        Customer created = tx.execute(s -> customers.create(new CustomerRequest(
+                "Old Name", "ON", "0100000000", "1 Nguyen Hue", "Tran Van A", "Director",
+                "SME", List.of())));
+
+        tx.executeWithoutResult(s -> customers.update(created.getId(), new CustomerRequest(
+                "Old Name", "NN", "0209999999", "99 Le Loi", "Le Thi B", "CEO",
+                "ENTERPRISE", List.of())));
+
+        String payload = newestAuditFor(created.getId());
+        assertThat(payload).containsPattern(field("action", "UPDATE"));
+        // every field that moved, not just the name
+        assertThat(payload).contains("taxCode").contains("0100000000").contains("0209999999");
+        assertThat(payload).contains("address").contains("1 Nguyen Hue").contains("99 Le Loi");
+        assertThat(payload).contains("representativeName").contains("Tran Van A").contains("Le Thi B");
+        assertThat(payload).contains("representativePosition").contains("Director").contains("CEO");
+        assertThat(payload).contains("segment").contains("SME").contains("ENTERPRISE");
+        assertThat(payload).contains("shortName").contains("ON").contains("NN");
+        // and the name, which did not move, is absent
+        assertThat(payload).doesNotContain("\"name\"");
+    }
+
+    @Test
+    void replacingTheContactSetIsAudited() {
+        // Who the counterparty actually talks to is part of the customer record; an audit trail
+        // that shows only scalar fields hides a contact handover completely.
+        UUID id = tx.execute(s -> customers.create(withContacts("Contacted Co",
+                List.of(contact("Outgoing", true)))).getId());
+
+        tx.executeWithoutResult(s -> customers.update(id,
+                withContacts("Contacted Co", List.of(contact("Incoming", true)))));
+
+        String payload = newestAuditFor(id);
+        assertThat(payload).contains("contacts").contains("Outgoing").contains("Incoming");
+    }
+
+    @Test
+    void anUnchangedCustomerAuditsNoFieldChanges() {
+        Customer created = tx.execute(s -> customers.create(request("Static Co", "0100000000")));
+
+        tx.executeWithoutResult(s -> customers.update(created.getId(),
+                request("Static Co", "0100000000")));
+
+        String payload = newestAuditFor(created.getId());
+        assertThat(payload).containsPattern(field("action", "UPDATE"));
+        assertThat(payload).containsPattern("\"changes\"\\s*:\\s*\\{\\s*\\}");
+    }
+
+    @Test
+    void aReorderedContactSetIsNotAChange() {
+        // The set is what matters, not the order it arrived in.
+        UUID id = tx.execute(s -> customers.create(withContacts("Ordered Co",
+                List.of(contact("Alpha", true), contact("Beta", false)))).getId());
+
+        tx.executeWithoutResult(s -> customers.update(id,
+                withContacts("Ordered Co", List.of(contact("Beta", false), contact("Alpha", true)))));
+
+        assertThat(newestAuditFor(id)).doesNotContain("contacts");
+    }
+
+    // ---- filter parsing --------------------------------------------------------------------
+
+    @Test
+    void theStatusFilterIsCaseInsensitive() {
+        Customer created = tx.execute(s -> customers.create(request("Lowercase Co")));
+
+        assertThat(ids(search(null, "active"))).contains(created.getId());
+        assertThat(ids(search(null, " Active "))).contains(created.getId());
+    }
+
+    @Test
+    void anUnknownStatusFilterIsA422NamingWhatIsAllowed() {
+        // A bare valueOf here is an IllegalArgumentException -- a 500 for a typo'd query
+        // parameter, and inconsistent with how the contract filters answer.
+        assertThatThrownBy(() -> search(null, "DORMANT"))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("status")
+                .hasMessageContaining("SUSPENDED");
     }
 
     // ---- suspend / activate --------------------------------------------------------------

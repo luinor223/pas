@@ -15,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -104,6 +106,9 @@ public class AttachmentService {
         if (file == null || file.isEmpty()) {
             throw new UnprocessableEntityException("An empty file cannot be attached");
         }
+        // file_name is NOT NULL, and a nameless attachment is unusable in the UI anyway. Refusing
+        // here is a 422; letting it through is a constraint violation at flush time.
+        String fileName = requireFileName(file.getOriginalFilename());
         requireEditableOwner(ownerType, ownerId);
 
         UUID id = UUID.randomUUID();
@@ -117,13 +122,12 @@ public class AttachmentService {
         deleteOnRollback(destination);
 
         Attachment attachment = Attachment.create(ownerType, ownerId,
-                file.getOriginalFilename(), file.getContentType(), file.getSize(),
+                fileName, safeContentType(file.getContentType()), file.getSize(),
                 destination.toString(), SecurityUtils.currentUserId());
         attachments.save(attachment);
 
         audit.record(ownerType.name(), ownerId, null, "ATTACH", null, null, null,
-                Map.of("fileName", String.valueOf(file.getOriginalFilename()),
-                        "sizeBytes", file.getSize()));
+                Map.of("fileName", fileName, "sizeBytes", file.getSize()));
         return attachment;
     }
 
@@ -138,6 +142,30 @@ public class AttachmentService {
 
         audit.record(attachment.getOwnerType().name(), attachment.getOwnerId(), null, "DETACH",
                 null, null, null, Map.of("fileName", attachment.getFileName()));
+    }
+
+    private static String requireFileName(String original) {
+        String fileName = original == null ? null : original.trim();
+        if (fileName == null || fileName.isEmpty()) {
+            throw new UnprocessableEntityException("An attachment must have a file name");
+        }
+        return fileName;
+    }
+
+    /**
+     * The content type is client-supplied and only ever read back on download. An unparseable one
+     * stored verbatim makes a successfully uploaded file impossible to retrieve, so it is
+     * normalised on the way in — octet-stream is always a truthful answer for bytes.
+     */
+    public static String safeContentType(String declared) {
+        if (declared == null || declared.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+        try {
+            return MediaType.parseMediaType(declared).toString();
+        } catch (InvalidMediaTypeException e) {
+            return MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
     }
 
     private void requireEditableOwner(EntityType ownerType, UUID ownerId) {
@@ -190,7 +218,7 @@ public class AttachmentService {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             // Both callers are @Transactional, so this means someone bypassed the proxy. Leaving
             // the file is the safe half of the trade: an orphan is inert, a lost file is not.
-            log.warn("No transaction synchronization active; leaving {} for a cleanup sweep", file);
+            log.warn("No transaction synchronization active; leaving {} to the cleanup sweep", file);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -201,12 +229,16 @@ public class AttachmentService {
         });
     }
 
+    /**
+     * After completion there is no transaction left to fail, so a failed delete cannot be
+     * escalated here. It is not dropped either: {@link AttachmentCleanupSweep} finds the file
+     * again because no row references it.
+     */
     private void quietlyDelete(Path file) {
         try {
             Files.deleteIfExists(file);
         } catch (IOException e) {
-            // After completion there is no transaction left to fail. An undeleted file is inert.
-            log.warn("Failed to delete attachment file {}", file, e);
+            log.warn("Failed to delete attachment file {}; the cleanup sweep will retry it", file, e);
         }
     }
 }

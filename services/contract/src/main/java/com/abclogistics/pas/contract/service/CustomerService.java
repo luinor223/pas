@@ -17,8 +17,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -47,11 +48,11 @@ public class CustomerService {
 
     @Transactional(readOnly = true)
     public Page<Customer> search(String query, String status, Pageable pageable) {
-        CustomerStatus parsed = status == null || status.isBlank()
-                ? null : CustomerStatus.valueOf(status);
-        String pattern = query == null || query.isBlank()
-                ? null : "%" + query.trim().toLowerCase(Locale.ROOT) + "%";
-        return customers.search(pattern, parsed, pageable);
+        return customers.search(
+                RequestValues.likePattern(query),
+                RequestValues.parseOptional("status", status,
+                        CustomerStatus::valueOf, CustomerStatus.values()),
+                pageable);
     }
 
     @Transactional(readOnly = true)
@@ -76,21 +77,24 @@ public class CustomerService {
 
         audit.record(ENTITY, customer.getId(), customer.getCode(), "CREATE",
                 null, customer.getStatus().name(), null,
-                Map.of("name", customer.getName()));
+                Map.of("name", customer.getName(),
+                        "taxCode", String.valueOf(customer.getTaxCode()),
+                        "segment", String.valueOf(customer.getSegment())));
         return customer;
     }
 
     @Transactional
     public Customer update(UUID id, CustomerRequest request) {
         Customer customer = get(id);
-        String previousName = customer.getName();
+        // Taken before anything is applied: the audit row is the only record of the prior value.
+        Map<String, Object> was = snapshot(customer, contactsOf(id));
         applyFields(customer, request);
         stampEditor(customer);
-        replaceContacts(customer, request.contacts());
+        List<CustomerContact> contactsAfter = replaceContacts(customer, request.contacts());
 
         audit.record(ENTITY, customer.getId(), customer.getCode(), "UPDATE",
                 null, null, null,
-                Map.of("name", Map.of("from", previousName, "to", customer.getName())));
+                FieldDiff.between(was, snapshot(customer, contactsAfter)));
         return customer;
     }
 
@@ -136,9 +140,10 @@ public class CustomerService {
      * Replaces the contact set wholesale. Null means "not supplied" and leaves contacts alone;
      * an empty list means "remove them all" — the two are not the same request.
      */
-    private void replaceContacts(Customer customer, List<CustomerContactRequest> requested) {
+    private List<CustomerContact> replaceContacts(Customer customer,
+                                                  List<CustomerContactRequest> requested) {
         if (requested == null) {
-            return;
+            return contactsOf(customer.getId());
         }
         long primaries = requested.stream().filter(CustomerContactRequest::primary).count();
         if (primaries > 1) {
@@ -147,13 +152,43 @@ public class CustomerService {
         }
         contacts.deleteAll(contacts.findByCustomerId(customer.getId()));
         contacts.flush(); // the partial unique index is checked per statement, not at commit
+        List<CustomerContact> saved = new ArrayList<>();
         for (CustomerContactRequest r : requested) {
             CustomerContact contact = CustomerContact.create(customer, r.fullName(), r.primary());
             contact.setTitle(r.title());
             contact.setEmail(r.email());
             contact.setPhone(r.phone());
             contacts.save(contact);
+            saved.add(contact);
         }
+        return saved;
+    }
+
+    /**
+     * The audited fields. Contacts are folded in as a rendered, order-independent list: replacing
+     * the set wholesale is a real change to the customer record, and an audit trail that shows
+     * only the name moving hides who the counterparty actually talks to.
+     */
+    private static Map<String, Object> snapshot(Customer customer, List<CustomerContact> contacts) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("name", customer.getName());
+        fields.put("shortName", customer.getShortName());
+        fields.put("taxCode", customer.getTaxCode());
+        fields.put("address", customer.getAddress());
+        fields.put("representativeName", customer.getRepresentativeName());
+        fields.put("representativePosition", customer.getRepresentativePosition());
+        fields.put("segment", customer.getSegment());
+        fields.put("contacts", render(contacts));
+        return fields;
+    }
+
+    /** Sorted so a reordered but otherwise identical set does not read as a change. */
+    private static List<String> render(List<CustomerContact> contacts) {
+        return contacts.stream()
+                .map(c -> "%s|%s|%s|%s|%s".formatted(c.getFullName(), c.getTitle(),
+                        c.getEmail(), c.getPhone(), c.isPrimary() ? "primary" : "secondary"))
+                .sorted()
+                .toList();
     }
 
     private void stampCreator(Customer customer) {

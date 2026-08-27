@@ -3,7 +3,10 @@ package com.abclogistics.pas.contract.repository;
 import com.abclogistics.pas.contract.domain.Attachment;
 import com.abclogistics.pas.contract.domain.EntityType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,4 +16,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, UUID> {
 
     /** CTR-02's ">= 1 attachment" submit check. */
     boolean existsByOwnerTypeAndOwnerId(EntityType ownerType, UUID ownerId);
+
+    /** Orphan sweep: which of these files on disk still have a row pointing at them. */
+    @Query("select a.storagePath from Attachment a where a.storagePath in :paths")
+    List<String> findStoragePathsIn(@Param("paths") Collection<String> paths);
 }
