@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Limit;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -58,7 +59,10 @@ class ContractOutboxRelayTest {
         outbox = mock(OutboxRepository.class);
         kafka = mock(KafkaTemplate.class);
         workflow = mock(WorkflowGrpcClient.class);
-        relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow, MAPPER);
+        // A template that just runs the callback: these tests are about routing, and the real
+        // transaction boundaries are pinned by libs:common's OutboxRelayDatabaseTest.
+        relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow,
+                MAPPER, directTransactions());
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
     }
@@ -255,6 +259,15 @@ class ContractOutboxRelayTest {
             when(outbox.findById(event.getId())).thenReturn(Optional.of(event));
         }
         return events[0];
+    }
+
+    private static TransactionTemplate directTransactions() {
+        return new TransactionTemplate(new org.springframework.transaction.support.AbstractPlatformTransactionManager() {
+            @Override protected Object doGetTransaction() { return new Object(); }
+            @Override protected void doBegin(Object transaction, org.springframework.transaction.TransactionDefinition definition) { }
+            @Override protected void doCommit(org.springframework.transaction.support.DefaultTransactionStatus status) { }
+            @Override protected void doRollback(org.springframework.transaction.support.DefaultTransactionStatus status) { }
+        });
     }
 
     @SuppressWarnings("unchecked")

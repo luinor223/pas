@@ -50,7 +50,10 @@ import java.util.UUID;
  *
  * <p>Throughout, the document keeps its current status. It is never flipped to CANCELLED on an
  * inconclusive read — that is exactly what closes the window in which a workflow instance could
- * start against a document that was already cancelled.
+ * start against a document that was already cancelled. It may legitimately move from SUBMITTED to
+ * UNDER_REVIEW while the handoff is in flight, which is why {@link #applyCancellation} re-reads
+ * the status inside the writing transaction and why registry §9 carries the UNDER_REVIEW ->
+ * CANCELLED edge its footnote 1 always implied.
  *
  * <p>Transaction boundaries are explicit rather than annotated: the forced dispatch has to commit
  * {@code published_at} on its own, before the second {@code CancelInstance} is attempted, and a
@@ -92,13 +95,15 @@ public class ContractCancellationService {
     public Outcome cancel(UUID id, String reason) {
         DocumentStatus status = tx.execute(s -> requireCancellable(id));
 
-        // DRAFT has never had a dispatch intent, and ACTIVE's instance completed long ago — in
-        // neither case is there a race to resolve, so the cancellation commits directly.
-        if (status != DocumentStatus.SUBMITTED) {
-            tx.executeWithoutResult(s -> applyCancellation(id, reason));
-            return Outcome.CANCELLED;
+        // SUBMITTED may have a dispatch in flight; UNDER_REVIEW certainly has a live instance.
+        // Both go through the handoff. DRAFT never had a dispatch intent and ACTIVE's instance
+        // completed long ago, so for those there is no race to resolve and the cancel commits
+        // directly.
+        if (status == DocumentStatus.SUBMITTED || status == DocumentStatus.UNDER_REVIEW) {
+            return handoff(id, reason);
         }
-        return handoff(id, reason);
+        tx.executeWithoutResult(s -> applyCancellation(id, reason));
+        return Outcome.CANCELLED;
     }
 
     /** @return the current status, once it is established that a user may cancel from it. */
@@ -124,7 +129,8 @@ public class ContractCancellationService {
     private Outcome handoff(UUID id, String reason) {
         OutboxEvent row = latestStartRequest(id);
         if (row == null) {
-            // Submitted before this row existed, or its intent already cancelled: nothing to race.
+            // No dispatch intent to race, and no stored idempotency key either — CancelInstance is
+            // keyed on it, so there is nothing this service could ask workflow-service about.
             tx.executeWithoutResult(s -> applyCancellation(id, reason));
             return Outcome.CANCELLED;
         }

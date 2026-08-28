@@ -191,7 +191,7 @@ Status badge (label mapping §3) · workflow progress stepper (doc detail right 
 | From | Trigger | To |
 |---|---|---|
 | DRAFT | U submit (CTR-02 checks) | SUBMITTED |
-| DRAFT, SUBMITTED | U cancel | CANCELLED |
+| DRAFT, SUBMITTED, UNDER_REVIEW | U cancel¹ | CANCELLED |
 | SUBMITTED | W first step activated¹ | UNDER_REVIEW |
 | UNDER_REVIEW | W APPROVED / REJECTED / REVISION_REQUESTED | APPROVED / REJECTED / REVISION_REQUESTED |
 | REVISION_REQUESTED | U update | DRAFT |

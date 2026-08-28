@@ -53,6 +53,13 @@ public enum DocumentStatus {
             new Edge(DRAFT, CANCELLED, EnumSet.of(TriggerKind.U)),
             new Edge(SUBMITTED, CANCELLED, EnumSet.of(TriggerKind.U)),
             new Edge(SUBMITTED, UNDER_REVIEW, EnumSet.of(TriggerKind.W)),
+            // registry §9's table listed only DRAFT and SUBMITTED, but §9 footnote 1 states the
+            // M2 cancel keeps the document "SUBMITTED/UNDER_REVIEW until one branch definitively
+            // resolves" and then "the owner sets CANCELLED". The two disagreed, and the table was
+            // the half that could not be true: the handoff spans a gRPC round trip, during which
+            // instance_started legitimately lands, so without this edge a cancel that workflow
+            // has already accepted has nowhere to land and the instance is orphaned.
+            new Edge(UNDER_REVIEW, CANCELLED, EnumSet.of(TriggerKind.U)),
             new Edge(UNDER_REVIEW, APPROVED, EnumSet.of(TriggerKind.W)),
             new Edge(UNDER_REVIEW, REJECTED, EnumSet.of(TriggerKind.W)),
             new Edge(UNDER_REVIEW, REVISION_REQUESTED, EnumSet.of(TriggerKind.W)),

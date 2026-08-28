@@ -247,6 +247,84 @@ class WorkflowCompletedOrderTolerantTest {
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
     }
 
+    @Test
+    void aDirectPublishedEventWithNoEventIdIsIgnoredNotDeadLettered() {
+        // pas.events also carries the three direct-publish events (D9), which have no outbox row
+        // and therefore no event_id. Demanding the header before deciding the record is even ours
+        // would dead-letter every one of them.
+        UUID id = submittedContract();
+
+        tx.executeWithoutResult(s -> listener.onEvent(
+                "{\"document_id\":\"%s\",\"days_remaining\":30}".formatted(id),
+                "document.expiring", "CONTRACT", null, id.toString()));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void anotherServicesEventWithNoEventIdIsAlsoIgnored() {
+        UUID id = submittedContract();
+
+        tx.executeWithoutResult(s -> listener.onEvent(
+                "{}", "operations.period_locked", null, null, "2026-01"));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void aCompletedForAnotherOwnersDocumentIsIgnoredBeforeItsHeadersAreDemanded() {
+        // All three owner services consume workflow.completed; only one owns a given document.
+        UUID id = submittedContract();
+
+        tx.executeWithoutResult(s -> listener.onEvent(
+                completedPayload(UUID.randomUUID(), "APPROVED"),
+                "workflow.completed", "PRICE_LIST", null, UUID.randomUUID().toString()));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void oneOfOursWithNoEventIdIsRejectedSoItCannotBeAppliedTwice() {
+        // Now it IS ours, and dedup is impossible without the header -- that one goes to the DLT.
+        UUID id = submittedContract();
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> listener.onEvent(
+                completedPayload(UUID.randomUUID(), "APPROVED"),
+                "workflow.completed", "CONTRACT", null, id.toString())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("event_id");
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void oneOfOursWithAKeyThatIsNotADocumentIdIsRejected() {
+        UUID id = submittedContract();
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> listener.onEvent(
+                completedPayload(UUID.randomUUID(), "APPROVED"), "workflow.completed",
+                "CONTRACT", UUID.randomUUID().toString(), "not-a-uuid")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not a document id");
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void theFullEnvelopeRouteAppliesTheSameTransition() {
+        // onEvent is what Kafka actually calls; the handlers being right is not enough.
+        UUID id = submittedContract();
+        UUID instanceId = UUID.randomUUID();
+
+        tx.executeWithoutResult(s -> listener.onEvent(
+                completedPayload(instanceId, "APPROVED"), "workflow.completed", "CONTRACT",
+                UUID.randomUUID().toString(), id.toString()));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(edgesAfterSubmit(id)).containsExactly(
+                "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->APPROVED");
+    }
+
     // --- helpers ----------------------------------------------------------------------------
 
     private void started(UUID contractId, UUID instanceId, UUID eventId) {

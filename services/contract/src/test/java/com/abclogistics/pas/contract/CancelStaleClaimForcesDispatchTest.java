@@ -8,6 +8,7 @@ import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.controller.ContractController;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
+import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.dto.CancelRequest;
 import com.abclogistics.pas.contract.dto.CancelResponse;
 import com.abclogistics.pas.contract.dto.ContractRequest;
@@ -305,6 +306,58 @@ class CancelStaleClaimForcesDispatchTest {
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
     }
 
+    @Test
+    void aDocumentThatEntersReviewMidHandoffStillLandsOnCancelled() {
+        // The handoff spans a gRPC round trip, so instance_started can flip SUBMITTED ->
+        // UNDER_REVIEW while CancelInstance is in flight. Once workflow has accepted the cancel
+        // there is no taking it back, so the local edge has to exist -- otherwise the instance is
+        // cancelled and the contract is stranded UNDER_REVIEW.
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key))).thenAnswer(invocation -> {
+            force(id, DocumentStatus.UNDER_REVIEW);
+            return CancelOutcome.CANCELLED;
+        });
+
+        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
+        assertThat(edgeInto(id, DocumentStatus.CANCELLED)).isEqualTo(DocumentStatus.UNDER_REVIEW);
+    }
+
+    @Test
+    void cancellingAnUnderReviewContractGoesThroughWorkflow() {
+        // An UNDER_REVIEW document has a live instance by definition. Cancelling it locally
+        // without telling workflow-service would leave that instance running with assignees on it.
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        force(id, DocumentStatus.UNDER_REVIEW);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
+                .thenReturn(CancelOutcome.CANCELLED);
+
+        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+
+        verify(workflow).cancelInstance(eq(id), eq("CONTRACT"), eq(key));
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
+    }
+
+    @Test
+    void anUnderReviewCancelStillFailsOutrightOnAnActionedStep() {
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        force(id, DocumentStatus.UNDER_REVIEW);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
+                .thenReturn(CancelOutcome.ALREADY_ACTIONED);
+
+        assertThatThrownBy(() -> cancellation.cancel(id, "customer withdrew"))
+                .isInstanceOf(ConflictException.class);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
+    }
+
     // --- status guards and audit ------------------------------------------------------------
 
     @Test
@@ -391,6 +444,17 @@ class CancelStaleClaimForcesDispatchTest {
     private void publish(UUID contractId) {
         jdbc.update("update contract.outbox set published_at = ? where id = ?",
                 Timestamp.from(Instant.now()), startRequest(contractId).getId());
+    }
+
+    /** The status the document was in when it reached {@code to}, per its status_history. */
+    private DocumentStatus edgeInto(UUID contractId, DocumentStatus to) {
+        List<StatusHistory> rows = tx.execute(s ->
+                history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(EntityType.CONTRACT, contractId));
+        return rows.stream()
+                .filter(row -> row.getToStatus() == to)
+                .map(StatusHistory::getFromStatus)
+                .reduce((first, second) -> second)
+                .orElseThrow(() -> new AssertionError("no transition into " + to));
     }
 
     private void force(UUID contractId, DocumentStatus status) {

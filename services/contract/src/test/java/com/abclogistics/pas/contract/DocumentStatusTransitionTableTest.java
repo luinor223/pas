@@ -17,6 +17,7 @@ class DocumentStatusTransitionTableTest {
         assertThat(DocumentStatus.DRAFT.canTransitionTo(DocumentStatus.SUBMITTED, TriggerKind.U)).isTrue();
         assertThat(DocumentStatus.DRAFT.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)).isTrue();
         assertThat(DocumentStatus.SUBMITTED.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)).isTrue();
+        assertThat(DocumentStatus.UNDER_REVIEW.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)).isTrue();
         assertThat(DocumentStatus.SUBMITTED.canTransitionTo(DocumentStatus.UNDER_REVIEW, TriggerKind.W)).isTrue();
         assertThat(DocumentStatus.UNDER_REVIEW.canTransitionTo(DocumentStatus.APPROVED, TriggerKind.W)).isTrue();
         assertThat(DocumentStatus.UNDER_REVIEW.canTransitionTo(DocumentStatus.REJECTED, TriggerKind.W)).isTrue();
@@ -26,6 +27,20 @@ class DocumentStatusTransitionTableTest {
         assertThat(DocumentStatus.APPROVED.canTransitionTo(DocumentStatus.ACTIVE, TriggerKind.S)).isTrue();
         assertThat(DocumentStatus.ACTIVE.canTransitionTo(DocumentStatus.EXPIRED, TriggerKind.S)).isTrue();
         assertThat(DocumentStatus.ACTIVE.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)).isTrue();
+    }
+
+    @Test
+    void cancelIsReachableFromUnderReviewBecauseTheM2HandoffTakesTime() {
+        // registry §9's table originally stopped at SUBMITTED while its own footnote 1 said the
+        // document stays "SUBMITTED/UNDER_REVIEW until one branch definitively resolves" and then
+        // "the owner sets CANCELLED". The cancel spans a gRPC round trip, so instance_started can
+        // land mid-handoff; without this edge, a CancelInstance workflow has already accepted has
+        // nowhere to land locally and the remote instance is orphaned.
+        assertThat(DocumentStatus.UNDER_REVIEW.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)).isTrue();
+
+        // Still a user action only: no workflow outcome and no scheduler may cancel by this edge.
+        assertThat(DocumentStatus.UNDER_REVIEW.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.W)).isFalse();
+        assertThat(DocumentStatus.UNDER_REVIEW.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.S)).isFalse();
     }
 
     @Test

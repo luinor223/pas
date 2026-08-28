@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
@@ -54,8 +55,8 @@ public class ContractOutboxRelay extends OutboxRelay {
 
     public ContractOutboxRelay(OutboxRepository outbox, OutboxRelayProperties props,
                                KafkaTemplate<String, String> kafka, WorkflowGrpcClient workflow,
-                               ObjectMapper objectMapper) {
-        super(outbox, props);
+                               ObjectMapper objectMapper, TransactionTemplate tx) {
+        super(outbox, props, tx);
         this.kafka = kafka;
         this.workflow = workflow;
         this.objectMapper = objectMapper;

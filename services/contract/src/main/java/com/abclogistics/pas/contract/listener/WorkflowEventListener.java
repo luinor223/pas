@@ -77,15 +77,36 @@ public class WorkflowEventListener {
                         @Header(name = "document_type", required = false) String documentType,
                         @Header(name = "event_id", required = false) String eventId,
                         @Header(KafkaHeaders.RECEIVED_KEY) String key) {
+        String type = eventType == null ? "" : eventType;
+        // Decide it is ours BEFORE demanding anything of its shape. pas.events carries every
+        // service's traffic, including the three direct-published events (D9) that have no outbox
+        // row and therefore no event_id at all — insisting on the header first would dead-letter
+        // perfectly good records this service was never meant to read.
+        if (!INSTANCE_STARTED.equals(type) && !COMPLETED.equals(type)) {
+            return;
+        }
+        if (!EntityType.CONTRACT.name().equals(documentType)) {
+            return;   // a PRICE_LIST or PAYMENT_STATEMENT approval; another owner's document
+        }
         if (eventId == null) {
-            // Without it a redelivery is indistinguishable from a new event, so applying the
-            // record would risk a duplicate transition. Fail loudly rather than half-process it.
+            // Now it IS ours, and without the header a redelivery is indistinguishable from a new
+            // event. Applying it would risk a duplicate transition, so it goes to the DLT.
             throw new IllegalStateException("Record on pas.events has no event_id header, key=" + key);
         }
-        switch (eventType == null ? "" : eventType) {
-            case INSTANCE_STARTED -> onInstanceStarted(payload, documentType, eventId, UUID.fromString(key));
-            case COMPLETED -> onCompleted(payload, documentType, eventId, UUID.fromString(key));
-            default -> { }   // another service's event, or one we do not act on (step_assigned, …)
+        UUID documentId = documentId(key);
+        switch (type) {
+            case INSTANCE_STARTED -> onInstanceStarted(payload, documentType, eventId, documentId);
+            case COMPLETED -> onCompleted(payload, documentType, eventId, documentId);
+            default -> { }   // unreachable: the guard above already narrowed the type
+        }
+    }
+
+    /** The record key is the document id (registry §4). A record of ours without one is malformed. */
+    private static UUID documentId(String key) {
+        try {
+            return UUID.fromString(key);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new IllegalStateException("Record key is not a document id: " + key, e);
         }
     }
 
