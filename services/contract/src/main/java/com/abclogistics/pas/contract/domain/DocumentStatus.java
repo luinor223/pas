@@ -59,6 +59,15 @@ public enum DocumentStatus {
             // the half that could not be true: the handoff spans a gRPC round trip, during which
             // instance_started legitimately lands, so without this edge a cancel that workflow
             // has already accepted has nowhere to land and the instance is orphaned.
+            //
+            // RESTRICTED, and this table cannot express the restriction: the edge is reachable
+            // ONLY through the M2 handoff, and only once WorkflowInternal.CancelInstance has
+            // succeeded — that is, before any approval action was taken on the instance. It is
+            // NOT an unconditional manual transition. ContractCancellationService is the sole
+            // caller and enforces it: an actioned step comes back FAILED_PRECONDITION and fails
+            // the cancel outright, an unresolved dispatch stays pending, and a document with no
+            // dispatch intent to verify against is refused rather than cancelled locally. Any
+            // new caller reaching this edge without that round trip is a bug.
             new Edge(UNDER_REVIEW, CANCELLED, EnumSet.of(TriggerKind.U)),
             new Edge(UNDER_REVIEW, APPROVED, EnumSet.of(TriggerKind.W)),
             new Edge(UNDER_REVIEW, REJECTED, EnumSet.of(TriggerKind.W)),

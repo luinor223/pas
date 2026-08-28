@@ -55,6 +55,13 @@ import java.util.UUID;
  * the status inside the writing transaction and why registry §9 carries the UNDER_REVIEW ->
  * CANCELLED edge its footnote 1 always implied.
  *
+ * <p><b>This class is the only legitimate route to that edge.</b> UNDER_REVIEW -> CANCELLED is not
+ * an unconditional manual transition: it is applied only after {@code CancelInstance} has actually
+ * succeeded, which workflow-service permits only while no step has been actioned. An actioned step
+ * fails the cancel outright, an unresolved dispatch stays pending, and a document with no dispatch
+ * intent to verify against is refused. Anything that reaches the edge without that round trip has
+ * skipped the guarantee the edge exists to carry.
+ *
  * <p>Transaction boundaries are explicit rather than annotated: the forced dispatch has to commit
  * {@code published_at} on its own, before the second {@code CancelInstance} is attempted, and a
  * gRPC round trip must not be made while holding the connection that will write the cancellation.
@@ -100,7 +107,7 @@ public class ContractCancellationService {
         // completed long ago, so for those there is no race to resolve and the cancel commits
         // directly.
         if (status == DocumentStatus.SUBMITTED || status == DocumentStatus.UNDER_REVIEW) {
-            return handoff(id, reason);
+            return handoff(id, reason, status);
         }
         tx.executeWithoutResult(s -> applyCancellation(id, reason));
         return Outcome.CANCELLED;
@@ -126,11 +133,20 @@ public class ContractCancellationService {
         return status;
     }
 
-    private Outcome handoff(UUID id, String reason) {
+    private Outcome handoff(UUID id, String reason, DocumentStatus status) {
         OutboxEvent row = latestStartRequest(id);
         if (row == null) {
-            // No dispatch intent to race, and no stored idempotency key either — CancelInstance is
+            // No dispatch intent, and therefore no stored idempotency key — CancelInstance is
             // keyed on it, so there is nothing this service could ask workflow-service about.
+            if (status == DocumentStatus.UNDER_REVIEW) {
+                // UNDER_REVIEW means an instance exists and is running. Cancelling locally would
+                // apply the restricted edge with no round trip behind it and strand a live
+                // instance with assignees on it, so this is refused rather than guessed at.
+                throw new ConflictException(
+                        ("Contract %s is UNDER_REVIEW but has no dispatch intent to cancel against; "
+                         + "its workflow instance cannot be cancelled from here (registry §9¹)")
+                                .formatted(id));
+            }
             tx.executeWithoutResult(s -> applyCancellation(id, reason));
             return Outcome.CANCELLED;
         }

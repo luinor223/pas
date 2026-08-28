@@ -358,6 +358,38 @@ class CancelStaleClaimForcesDispatchTest {
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
     }
 
+    @Test
+    void anUnderReviewContractIsNeverCancelledWithoutTheRoundTrip() {
+        // The UNDER_REVIEW -> CANCELLED edge is restricted to the M2 handoff. With no dispatch
+        // intent there is no idempotency_key to cancel against, so the edge must not be applied
+        // on trust -- doing so would strand a live instance with assignees on it.
+        UUID id = submittedContract();
+        dropStartRequest(id);
+        force(id, DocumentStatus.UNDER_REVIEW);
+
+        assertThatThrownBy(() -> cancellation.cancel(id, "customer withdrew"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("no dispatch intent");
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
+        verify(workflow, never()).cancelInstance(any(), anyString(), any());
+    }
+
+    @Test
+    void anUnderReviewCancelStaysPendingWhileTheInstanceIsUnconfirmed() {
+        // NOT_FOUND is inconclusive, and inconclusive must not reach the restricted edge either.
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        force(id, DocumentStatus.UNDER_REVIEW);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
+                .thenReturn(CancelOutcome.NOT_FOUND);
+
+        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.PENDING);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
+    }
+
     // --- status guards and audit ------------------------------------------------------------
 
     @Test
@@ -455,6 +487,11 @@ class CancelStaleClaimForcesDispatchTest {
                 .map(StatusHistory::getFromStatus)
                 .reduce((first, second) -> second)
                 .orElseThrow(() -> new AssertionError("no transition into " + to));
+    }
+
+    /** Simulates a document under review whose dispatch intent is not recoverable. */
+    private void dropStartRequest(UUID contractId) {
+        jdbc.update("delete from contract.outbox where id = ?", startRequest(contractId).getId());
     }
 
     private void force(UUID contractId, DocumentStatus status) {
