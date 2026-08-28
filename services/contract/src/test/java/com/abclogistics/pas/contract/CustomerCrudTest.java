@@ -19,9 +19,16 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -37,6 +44,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Phase B item 1 — customer master data (4.1).
@@ -74,6 +84,13 @@ class CustomerCrudTest {
             UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
 
     @Autowired CustomerService customers;
+    @Autowired WebApplicationContext webContext;
+    @Autowired FilterChainProxy securityFilterChain;
+    @Autowired StringRedisTemplate redisTemplate;
+
+    /** Built by hand rather than @AutoConfigureMockMvc: the security filter chain has to be in
+     *  front of the controller, since that is what turns the edge's headers into permissions. */
+    private MockMvc mvc;
     @Autowired OutboxRepository outbox;
     @Autowired StatusHistoryRepository history;
     @Autowired TransactionTemplate tx;
@@ -82,6 +99,10 @@ class CustomerCrudTest {
     void authenticate() {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(SALES, null, List.of()));
+        // The HTTP tests go through HeaderAuthenticationFilter, which resolves permissions from
+        // this key — without it customer:write is absent and every write would 403.
+        mvc = MockMvcBuilders.webAppContextSetup(webContext).addFilters(securityFilterChain).build();
+        redisTemplate.opsForValue().set("perm:role:SALES", "[\"customer:read\",\"customer:write\"]");
     }
 
     @AfterEach
@@ -151,7 +172,7 @@ class CustomerCrudTest {
 
         Customer updated = tx.execute(s -> customers.update(created.getId(),
                 new CustomerRequest("New Name", "NN", "0100000000", "12 Le Loi",
-                        "Tran Van B", "Director", "ENTERPRISE", null)));
+                        "Tran Van B", "Director", "ENTERPRISE", List.of())));
 
         assertThat(updated.getCode()).isEqualTo(code);
         assertThat(updated.getName()).isEqualTo("New Name");
@@ -175,15 +196,57 @@ class CustomerCrudTest {
     }
 
     @Test
-    void nullContactsLeavesThemAloneAndEmptyRemovesThemAll() {
+    void nullContactsOnUpdateIsRejected() {
+        UUID id = tx.execute(s -> customers.create(withContacts("Careful Co", List.of(contact("Keep Me", true)))).getId());
+        CustomerRequest noContacts = withContacts("Careful Co", null);
+
+        // PUT is full replacement, so an omitted contacts is an incomplete request — not a
+        // licence to wipe the set behind the caller's back
+        assertThatThrownBy(() -> tx.execute(s -> customers.update(id, noContacts)))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("contacts is required");
+        assertThat(namesOf(id)).containsExactly("Keep Me");
+    }
+
+    @Test
+    void emptyContactsOnUpdateRemovesThemAll() {
         UUID id = tx.execute(s -> customers.create(withContacts("Careful Co", List.of(contact("Keep Me", true)))).getId());
 
-        // null = "not supplied": a caller updating only the address must not wipe the contacts
-        tx.executeWithoutResult(s -> customers.update(id, withContacts("Careful Co", null)));
-        assertThat(namesOf(id)).containsExactly("Keep Me");
-
-        // empty list = "remove them all" — a different request, deliberately
+        // [] is how you ask for the removal deliberately
         tx.executeWithoutResult(s -> customers.update(id, withContacts("Careful Co", List.of())));
+        assertThat(namesOf(id)).isEmpty();
+    }
+
+    // The service-level tests above call CustomerService directly; these two go through the
+    // controller so the published contract — status code and message a client actually sees —
+    // is pinned, not just the service's behaviour.
+
+    @Test
+    void putWithoutContactsIs422OverHttp() throws Exception {
+        UUID id = tx.execute(s -> customers.create(withContacts("Wire Co", List.of(contact("Keep Me", true)))).getId());
+
+        mvc.perform(put("/customers/{id}", id)
+                        .headers(salesHeaders())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Wire Co\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value(
+                        "contacts is required on update; send [] to remove all contacts"));
+
+        assertThat(namesOf(id)).containsExactly("Keep Me");
+    }
+
+    @Test
+    void putWithEmptyContactsIs200OverHttp() throws Exception {
+        UUID id = tx.execute(s -> customers.create(withContacts("Wire Co", List.of(contact("Drop Me", true)))).getId());
+
+        mvc.perform(put("/customers/{id}", id)
+                        .headers(salesHeaders())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Wire Co\",\"contacts\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contacts").isEmpty());
+
         assertThat(namesOf(id)).isEmpty();
     }
 
@@ -270,7 +333,7 @@ class CustomerCrudTest {
         Customer created = tx.execute(s -> customers.create(request("Static Co", "0100000000")));
 
         tx.executeWithoutResult(s -> customers.update(created.getId(),
-                request("Static Co", "0100000000")));
+                updateOf("Static Co", "0100000000")));
 
         String payload = newestAuditFor(created.getId());
         assertThat(payload).containsPattern(field("action", "UPDATE"));
@@ -356,7 +419,7 @@ class CustomerCrudTest {
     void everyCustomerActionWritesOneAuditRow() {
         long before = tx.execute(s -> outbox.count());
         UUID id = tx.execute(s -> customers.create(request("Busy Co")).getId());
-        tx.executeWithoutResult(s -> customers.update(id, request("Busy Co Ltd")));
+        tx.executeWithoutResult(s -> customers.update(id, updateOf("Busy Co Ltd", null)));
         tx.executeWithoutResult(s -> customers.suspend(id, "pause"));
         tx.executeWithoutResult(s -> customers.activate(id));
 
@@ -431,7 +494,23 @@ class CustomerCrudTest {
         return new CustomerRequest(name, null, taxCode, null, null, null, null, null);
     }
 
-    /** Null contacts means "not supplied"; these tests rely on that distinction. */
+    /** The identity headers the edge injects; the filter turns these into the SALES principal. */
+    private static HttpHeaders salesHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-User-Id", SALES.userId().toString());
+        headers.set("X-Username", SALES.username());
+        headers.set("X-Full-Name", SALES.fullName());
+        headers.set("X-Department", SALES.department());
+        headers.set("X-Roles", "[\"SALES\"]");
+        return headers;
+    }
+
+    /** An update payload must carry contacts; these tests are about the scalar fields. */
+    private static CustomerRequest updateOf(String name, String taxCode) {
+        return new CustomerRequest(name, null, taxCode, null, null, null, null, List.of());
+    }
+
+    /** Null contacts is legal on create ("none supplied") and rejected on update. */
     private static CustomerRequest withContacts(String name, List<CustomerContactRequest> contacts) {
         return new CustomerRequest(name, null, null, null, null, null, null, contacts);
     }

@@ -75,6 +75,11 @@ public class CustomerController {
         return CustomerResponse.of(customer, customers.contactsOf(customer.getId()));
     }
 
+    /**
+     * Full replacement: the body is the new state of the customer, so {@code contacts} must be
+     * present — {@code []} to clear the set, a list to replace it. An omitted {@code contacts} is
+     * a 422, never a silent deletion.
+     */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('customer:write')")
     public CustomerResponse update(@PathVariable UUID id, @Valid @RequestBody CustomerRequest request) {

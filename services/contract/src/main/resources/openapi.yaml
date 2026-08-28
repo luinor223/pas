@@ -42,16 +42,23 @@ paths:
       responses: { '200': { description: OK }, '404': { description: Not found } }
       security: [{ bearerAuth: [] }]
     put:
-      summary: Update customer
+      summary: Update customer (full replacement — send the complete new state)
+      description: >
+        Full-replacement semantics: the body is the customer's new state in its entirety, so an
+        omitted scalar field clears it and `contacts` must be present. `[]` removes every contact,
+        a list replaces the set wholesale. A missing `contacts` is rejected (422) rather than read
+        as "leave them alone" — a client that forgot the field would otherwise lose the set.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerRequest' }
+            schema: { $ref: '#/components/schemas/CustomerUpdateRequest' }
       responses:
         '200': { description: OK }
         '403': { description: Requires customer:write }
+        '409': { description: More than one primary contact }
+        '422': { description: "`contacts` missing — send [] to remove all contacts" }
   /customers/{id}/suspend:
     post:
       summary: Suspend customer (4.1 "tạm ngưng") — ACTIVE -> SUSPENDED
@@ -80,7 +87,7 @@ paths:
     get:
       summary: >
         List contacts. Read-only sub-resource: contacts are written through the `contacts` array
-        on PUT /customers/{id}, which replaces the set wholesale. Per-contact writes are
+        on PUT /customers/{id}, which replaces the set wholesale (and requires it). Per-contact writes are
         deliberately absent — with two write paths the "at most one primary" rule would depend on
         the order requests arrive in.
       responses: { '200': { description: OK }, '404': { description: Unknown customer } }
@@ -367,6 +374,28 @@ components:
         representativeName: { type: string }
         representativePosition: { type: string }
         segment: { type: string }
+        contacts:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerContactRequest' }
+          description: >
+            The whole contact set, replaced wholesale. Optional on create ("none supplied");
+            required on update, where a missing array is a 422 rather than a silent deletion.
+            At most one entry may be `primary`.
+    CustomerUpdateRequest:
+      description: CustomerRequest with `contacts` required — PUT replaces the customer in full.
+      allOf:
+        - $ref: '#/components/schemas/CustomerRequest'
+        - type: object
+          required: [contacts]
+    CustomerContactRequest:
+      type: object
+      required: [fullName]
+      properties:
+        fullName: { type: string }
+        title: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        primary: { type: boolean, default: false }
     ContractRequest:
       type: object
       required: [customerId, serviceGroup, validFrom, validTo]

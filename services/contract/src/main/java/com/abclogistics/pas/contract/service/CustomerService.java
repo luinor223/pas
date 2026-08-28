@@ -10,6 +10,7 @@ import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.CustomerContactRepository;
 import com.abclogistics.pas.contract.repository.CustomerRepository;
 import org.springframework.data.domain.Page;
@@ -83,8 +84,18 @@ public class CustomerService {
         return customer;
     }
 
+    /**
+     * PUT is full replacement: the body is the customer's new state in its entirety, contacts
+     * included. A missing {@code contacts} is therefore an incomplete request, not an instruction —
+     * rejecting it is what keeps a caller who forgot the field from silently dropping the set.
+     * Sending {@code []} is how you ask for that deliberately.
+     */
     @Transactional
     public Customer update(UUID id, CustomerRequest request) {
+        if (request.contacts() == null) {
+            throw new UnprocessableEntityException(
+                    "contacts is required on update; send [] to remove all contacts");
+        }
         Customer customer = get(id);
         // Taken before anything is applied: the audit row is the only record of the prior value.
         Map<String, Object> was = snapshot(customer, contactsOf(id));
@@ -137,8 +148,9 @@ public class CustomerService {
     }
 
     /**
-     * Replaces the contact set wholesale. Null means "not supplied" and leaves contacts alone;
-     * an empty list means "remove them all" — the two are not the same request.
+     * Replaces the contact set wholesale. An empty list means "remove them all". Null reaches here
+     * only from {@link #create}, where there is nothing to replace and it is simply "none supplied";
+     * {@link #update} rejects a null before it gets this far.
      */
     private List<CustomerContact> replaceContacts(Customer customer,
                                                   List<CustomerContactRequest> requested) {
