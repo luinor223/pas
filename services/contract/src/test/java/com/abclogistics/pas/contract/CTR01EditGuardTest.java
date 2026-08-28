@@ -59,6 +59,7 @@ class CTR01EditGuardTest {
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("outbox.relay.enabled", () -> "false");
+        registry.add("contract.kafka.listener-enabled", () -> "false");
     }
 
     @Autowired ContractService contracts;

@@ -10,6 +10,7 @@ import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
+import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.domain.TriggerKind;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
@@ -31,6 +32,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -63,12 +65,13 @@ public class ContractService {
     private final OutboxRepository outbox;
     private final ObjectMapper objectMapper;
     private final AuditRecorder audit;
+    private final ContractCancellationService cancellation;
 
     public ContractService(ContractRepository contracts, CustomerService customers,
                            DocumentNumberService numbers, StatusTransitionService transitions,
                            AttachmentRepository attachments, WorkflowGrpcClient workflow,
                            OutboxRepository outbox, ObjectMapper objectMapper,
-                           AuditRecorder audit) {
+                           AuditRecorder audit, ContractCancellationService cancellation) {
         this.contracts = contracts;
         this.customers = customers;
         this.numbers = numbers;
@@ -78,6 +81,7 @@ public class ContractService {
         this.outbox = outbox;
         this.objectMapper = objectMapper;
         this.audit = audit;
+        this.cancellation = cancellation;
     }
 
     /**
@@ -374,11 +378,18 @@ public class ContractService {
         boolean live = instance != null && WORKFLOW_IN_PROGRESS.equals(instance.getStatus());
 
         if (contract.getStatus() == DocumentStatus.SUBMITTED && !live) {
-            return new ApprovalProgress(INITIALIZATION_PENDING, null);
+            return new ApprovalProgress(contract.getStatus(), INITIALIZATION_PENDING, null);
         }
         return instance == null
-                ? new ApprovalProgress(contract.getStatus().name(), null)
-                : new ApprovalProgress(instance.getStatus(), instance);
+                ? new ApprovalProgress(contract.getStatus(), contract.getStatus().name(), null)
+                : new ApprovalProgress(contract.getStatus(), instance.getStatus(), instance);
+    }
+
+    /** The local D17 timeline, oldest first. Synchronous and authoritative, unlike audit-service. */
+    @Transactional(readOnly = true)
+    public List<StatusHistory> history(UUID id) {
+        get(id);   // an unknown contract is a 404, not an empty timeline
+        return transitions.history(EntityType.CONTRACT, id);
     }
 
     /**
@@ -386,7 +397,8 @@ public class ContractService {
      * terminal instance was discarded. Item 10 maps this to a response DTO for REST; the proto
      * message does not leave the service layer before then.
      */
-    public record ApprovalProgress(String state, GetInstanceByDocumentResponse instance) { }
+    public record ApprovalProgress(DocumentStatus documentStatus, String state,
+                                   GetInstanceByDocumentResponse instance) { }
 
     /**
      * The M2 cancel-vs-dispatch handoff. A timestamp lease has no fencing token, so only a row
@@ -397,15 +409,32 @@ public class ContractService {
      * SUBMITTED/UNDER_REVIEW until one branch definitively resolves, so there is no window where
      * a workflow instance starts after the document was already cancelled.
      */
-    @Transactional
-    public void cancel(UUID id, String reason) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+    public ContractCancellationService.Outcome cancel(UUID id, String reason) {
+        return cancellation.cancel(id, reason);
     }
 
-    /** CTR-04: a REJECTED contract is not silently editable; this is the audited opt-in back to DRAFT. */
+    /**
+     * CTR-04: a REJECTED contract is not silently editable; this is the audited opt-in back to
+     * DRAFT.
+     *
+     * <p>It changes only the status, never the content — the edit that follows goes through the
+     * ordinary {@link #update} path and its CTR-01 guard. Folding the two together would make the
+     * opt-in invisible, which is the whole thing CTR-04 is there to prevent.
+     */
     @Transactional
-    public void revise(UUID id) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+    public Contract revise(UUID id) {
+        Contract contract = get(id);
+        DocumentStatus before = contract.getStatus();
+        if (before != DocumentStatus.REJECTED) {
+            throw new ConflictException(
+                    "Contract %s is %s; only a REJECTED contract is revised (CTR-04)"
+                            .formatted(contract.getContractNo(), before));
+        }
+        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+                before, DocumentStatus.DRAFT, TriggerKind.U, null,
+                "Reopened for revision after rejection (CTR-04)");
+        contract.setStatus(DocumentStatus.DRAFT);
+        return contract;
     }
 
     /**

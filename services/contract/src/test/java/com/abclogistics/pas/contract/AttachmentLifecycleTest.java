@@ -90,6 +90,7 @@ class AttachmentLifecycleTest {
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("outbox.relay.enabled", () -> "false");
+        registry.add("contract.kafka.listener-enabled", () -> "false");
         registry.add("contract.attachment-storage-path", STORAGE::toString);
         // The sweep must never fire on its own here; each test drives it explicitly.
         registry.add("contract.attachment-cleanup-enabled", () -> "false");

@@ -18,6 +18,18 @@ public final class SecurityUtils {
         return Optional.empty();
     }
 
+    /**
+     * Permission check for a rule a method-level {@code @PreAuthorize} cannot express — one that
+     * depends on the entity's state, such as CTR-06's "cancelling an ACTIVE contract needs
+     * {@code contract:cancel_active}, cancelling a DRAFT does not". Authorities are permissions,
+     * never roles.
+     */
+    public static boolean hasPermission(String permission) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream()
+                .anyMatch(granted -> permission.equals(granted.getAuthority()));
+    }
+
     public static UUID currentUserId() {
         return currentUser().map(AuthenticatedUser::userId).orElse(null);
     }

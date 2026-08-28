@@ -45,11 +45,7 @@ class ApiSurfaceConsistencyTest {
 
     /** Documented but not built yet — Phase B items 6-14. Delete a line as its item lands. */
     private static final Set<String> PENDING = Set.of(
-            "POST /contracts/{id}/cancel",            // item 7  — M2 cancel-vs-dispatch
-            "POST /contracts/{id}/revise",            // item 8  — CTR-04
             "POST /contracts/{id}/send-for-signing",  // item 13 — D10 / D14e
-            "GET /contracts/{id}/progress",           // item 10 — proxy + response DTO
-            "GET /contracts/{id}/history",            // item 10 — status_history read
             "GET /addenda",                           // item 11 — addendum lifecycle
             "POST /addenda",
             "GET /addenda/{id}",

@@ -68,7 +68,28 @@ public class StatusTransitionService {
     public void transitionOrderTolerant(EntityType entityType, UUID entityId, String entityNo,
                                         DocumentStatus current, DocumentStatus outcome,
                                         UUID instanceId) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+        // A redelivery of an outcome already applied. Not an error and not a second history row.
+        if (current == outcome) {
+            return;
+        }
+        DocumentStatus from = current;
+        if (from == DocumentStatus.SUBMITTED) {
+            // The edge instance_started would have applied, filled in rather than skipped: the
+            // history has to show the document actually passed through review, and §9 has no
+            // SUBMITTED -> APPROVED row to apply directly even if we wanted one.
+            transition(entityType, entityId, entityNo, from, DocumentStatus.UNDER_REVIEW,
+                    TriggerKind.W, instanceId,
+                    "Approval instance started (applied out of order, registry §9 footnote 1)");
+            from = DocumentStatus.UNDER_REVIEW;
+        }
+        transition(entityType, entityId, entityNo, from, outcome, TriggerKind.W, instanceId,
+                "Approval %s".formatted(outcome.name().toLowerCase(java.util.Locale.ROOT)));
+    }
+
+    /** The entity's transitions, oldest first (D17). Read-only by construction — this log is append-only. */
+    @Transactional(readOnly = true)
+    public java.util.List<StatusHistory> history(EntityType entityType, UUID entityId) {
+        return history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(entityType, entityId);
     }
 
     private void record(EntityType entityType, UUID entityId, String entityNo,

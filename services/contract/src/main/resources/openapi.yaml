@@ -172,8 +172,16 @@ paths:
               type: object
               properties: { reason: { type: string } }
       responses:
-        '200': { description: Cancelled }
-        '202': { description: Cancellation pending — dispatch in flight, retry (M2) }
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancelResponse' }
+        '202':
+          description: Cancellation pending — dispatch in flight, retry the same call (M2)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancelResponse' }
         '403': { description: ACTIVE cancel requires contract:cancel_active }
         '409': { description: A workflow step was already actioned, or status not cancellable }
   /contracts/{id}/revise:
@@ -182,7 +190,7 @@ paths:
       description: CTR-04 forbids silently editing a rejected contract; this is the audited opt-in.
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { description: Back to DRAFT }
+        '200': { description: Back to DRAFT — the contract, unchanged apart from its status }
         '403': { description: Requires contract:write }
         '409': { description: Not REJECTED }
   /contracts/{id}/send-for-signing:
@@ -220,7 +228,14 @@ paths:
     get:
       summary: Local status timeline (D17 status_history, synchronous)
       description: Domain data. The eventual-consistency half of the History tab comes from audit-service.
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK — oldest transition first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/StatusHistoryEntry' }
       security: [{ bearerAuth: [] }]
 
   # ---------------------------------------------------------------- addenda 4.3
@@ -417,6 +432,26 @@ components:
           type: string
           enum: [INITIALIZATION_PENDING, IN_PROGRESS]
           description: INITIALIZATION_PENDING is D4's dispatch window, not an error
+    CancelResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [CANCELLED, PENDING] }
+        detail:
+          type: string
+          nullable: true
+          description: Present only for PENDING — why the M2 handoff has not resolved yet
+    StatusHistoryEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fromStatus: { type: string, nullable: true, description: null on the entity's first row }
+        toStatus: { type: string }
+        trigger: { type: string, enum: [U, W, S, E] }
+        triggerRef: { type: string, format: uuid, nullable: true }
+        actorId: { type: string, format: uuid, nullable: true }
+        actorName: { type: string }
+        note: { type: string, nullable: true }
+        occurredAt: { type: string, format: date-time }
     ProgressResponse:
       type: object
       properties:

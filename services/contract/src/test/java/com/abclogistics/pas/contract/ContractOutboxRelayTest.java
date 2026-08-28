@@ -1,0 +1,271 @@
+package com.abclogistics.pas.contract;
+
+import com.abclogistics.pas.common.outbox.OutboxEvent;
+import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
+import com.abclogistics.pas.common.outbox.OutboxRepository;
+import com.abclogistics.pas.contract.event.WorkflowStartRequested;
+import com.abclogistics.pas.contract.outbox.ContractOutboxRelay;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Limit;
+import org.springframework.kafka.core.KafkaTemplate;
+import tools.jackson.databind.ObjectMapper;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * Item 6 — the relay's routing table. No Spring context and no Docker: the point under test is
+ * which destination an event type reaches, not the M2 claim SQL, which the shared
+ * {@code OutboxRelay} owns and its own service tests cover.
+ *
+ * <p>The failure that matters here is silent: a gRPC intent published to Kafka is accepted by the
+ * broker, marked published, and read by nobody. So every test asserts the destination it did NOT
+ * go to as well as the one it did.
+ */
+class ContractOutboxRelayTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private OutboxRepository outbox;
+    private KafkaTemplate<String, String> kafka;
+    private WorkflowGrpcClient workflow;
+    private ContractOutboxRelay relay;
+
+    @BeforeEach
+    @SuppressWarnings("unchecked")
+    void setUp() {
+        outbox = mock(OutboxRepository.class);
+        kafka = mock(KafkaTemplate.class);
+        workflow = mock(WorkflowGrpcClient.class);
+        relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow, MAPPER);
+        when(kafka.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+    }
+
+    // --- audit.recorded → Kafka -------------------------------------------------------------
+
+    @Test
+    void anAuditRowIsPublishedToTheAuditTopic() {
+        OutboxEvent event = queued(OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{\"action\":\"CREATE\"}"));
+
+        relay.pollAndDispatch();
+
+        ProducerRecord<String, String> record = captureSend();
+        assertThat(record.topic()).isEqualTo("pas.audit");
+        assertThat(record.key()).isEqualTo(event.getAggregateId().toString());
+        assertThat(record.value()).isEqualTo("{\"action\":\"CREATE\"}");
+        verifyNoInteractions(workflow);
+    }
+
+    @Test
+    void theAuditRecordCarriesRoutingHeaders() {
+        OutboxEvent event = queued(OutboxEvent.audit("CUSTOMER", UUID.randomUUID(), "{}"));
+
+        relay.pollAndDispatch();
+
+        ProducerRecord<String, String> record = captureSend();
+        assertThat(header(record, "event_type")).isEqualTo("audit.recorded");
+        assertThat(header(record, "document_type")).isEqualTo("CUSTOMER");
+        // The consumer's dedup key. Without it on the wire a redelivery is indistinguishable
+        // from a new event, so processed_event cannot do its job.
+        assertThat(header(record, "event_id")).isEqualTo(event.getId().toString());
+    }
+
+    @Test
+    void aPublishedAuditRowIsStampedOnlyAfterTheAck() {
+        OutboxEvent event = queued(OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{}"));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getPublishedAt()).isNotNull();
+        assertThat(event.getRetryCount()).isZero();
+    }
+
+    @Test
+    void aBrokerFailureLeavesTheRowPendingForRetry() {
+        OutboxEvent event = queued(OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{}"));
+        when(kafka.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getPublishedAt()).isNull();
+        assertThat(event.getClaimedAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+    }
+
+    // --- workflow.start_requested → gRPC ----------------------------------------------------
+
+    @Test
+    void aStartRequestIsDispatchedOverGrpcNotKafka() {
+        UUID key = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        UUID requestedBy = UUID.randomUUID();
+        queued(startRequested(new WorkflowStartRequested(key, "CONTRACT", documentId, "HD-2026-0001",
+                "ACME Co", "NORMAL", requestedBy, "Sales One")));
+
+        relay.pollAndDispatch();
+
+        verify(workflow).startInstance(key, "CONTRACT", documentId, "HD-2026-0001",
+                "ACME Co", "NORMAL", requestedBy, "Sales One");
+        verify(kafka, never()).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    void everyRetrySendsTheIdempotencyKeyGeneratedAtSubmit() {
+        UUID key = UUID.randomUUID();
+        OutboxEvent event = queued(startRequested(new WorkflowStartRequested(key, "CONTRACT",
+                UUID.randomUUID(), "HD-2026-0002", "ACME Co", "NORMAL", null, "system")));
+        when(workflow.startInstance(any(), anyString(), any(), anyString(), any(), any(), any(), any()))
+                .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE))
+                .thenReturn(UUID.randomUUID());
+
+        relay.pollAndDispatch();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+        assertThat(event.getPublishedAt()).isNull();
+
+        relay.pollAndDispatch();
+
+        // Same key both times: a lost ack must resolve to the instance that already exists.
+        verify(workflow, times(2)).startInstance(eq(key), anyString(), any(), anyString(),
+                any(), any(), any(), any());
+        assertThat(event.getPublishedAt()).isNotNull();
+    }
+
+    @Test
+    void anUnreachableWorkflowServiceNeverFallsBackToKafka() {
+        queued(startRequested(new WorkflowStartRequested(UUID.randomUUID(), "CONTRACT",
+                UUID.randomUUID(), "HD-2026-0003", "ACME Co", "NORMAL", null, "system")));
+        when(workflow.startInstance(any(), anyString(), any(), anyString(), any(), any(), any(), any()))
+                .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
+
+        relay.pollAndDispatch();
+
+        verify(kafka, never()).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    void anAbsentRequesterSurvivesTheRoundTripAsNull() {
+        // Submitted by the scheduler rather than a user — the payload's null must not become the
+        // string "null" on the way through the outbox.
+        UUID key = UUID.randomUUID();
+        queued(startRequested(new WorkflowStartRequested(key, "CONTRACT", UUID.randomUUID(),
+                "HD-2026-0004", null, "NORMAL", null, "system")));
+
+        relay.pollAndDispatch();
+
+        verify(workflow).startInstance(eq(key), eq("CONTRACT"), any(), eq("HD-2026-0004"),
+                eq(null), eq("NORMAL"), eq(null), eq("system"));
+    }
+
+    // --- events with no route ---------------------------------------------------------------
+
+    @Test
+    void anEsignRequestIsParkedRatherThanPublishedToATopicNobodyReads() {
+        OutboxEvent event = queued(OutboxEvent.event(ContractOutboxRelay.ESIGN_SESSION_REQUESTED,
+                "CONTRACT", UUID.randomUUID(), "{}"));
+
+        relay.pollAndDispatch();
+
+        verify(kafka, never()).send(any(ProducerRecord.class));
+        assertThat(event.getPublishedAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+    }
+
+    @Test
+    void anUnknownEventTypeIsNotSilentlyPublished() {
+        OutboxEvent event = queued(OutboxEvent.event("contract.something_new",
+                "CONTRACT", UUID.randomUUID(), "{}"));
+
+        relay.pollAndDispatch();
+
+        verify(kafka, never()).send(any(ProducerRecord.class));
+        verifyNoInteractions(workflow);
+        assertThat(event.getPublishedAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+    }
+
+    // --- mixed batch ------------------------------------------------------------------------
+
+    @Test
+    void aMixedBatchSplitsBetweenBothDestinations() {
+        UUID key = UUID.randomUUID();
+        OutboxEvent audit = OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{}");
+        OutboxEvent start = startRequested(new WorkflowStartRequested(key, "CONTRACT",
+                UUID.randomUUID(), "HD-2026-0005", "ACME Co", "NORMAL", null, "system"));
+        queued(audit, start);
+
+        relay.pollAndDispatch();
+
+        verify(kafka, times(1)).send(any(ProducerRecord.class));
+        verify(workflow, times(1)).startInstance(eq(key), anyString(), any(), anyString(),
+                any(), any(), any(), any());
+        assertThat(audit.getPublishedAt()).isNotNull();
+        assertThat(start.getPublishedAt()).isNotNull();
+    }
+
+    @Test
+    void aRowLostToAConcurrentClaimIsSkippedEntirely() {
+        OutboxEvent event = OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{}");
+        when(outbox.findUnpublishedForRelay(any(Instant.class), any(Limit.class)))
+                .thenReturn(List.of(event));
+        when(outbox.claim(any(UUID.class), any(Instant.class), any(Instant.class))).thenReturn(0);
+
+        relay.pollAndDispatch();
+
+        verify(kafka, never()).send(any(ProducerRecord.class));
+        verifyNoInteractions(workflow);
+        assertThat(event.getPublishedAt()).isNull();
+    }
+
+    // --- helpers ----------------------------------------------------------------------------
+
+    private OutboxEvent startRequested(WorkflowStartRequested payload) {
+        return OutboxEvent.event(WorkflowStartRequested.EVENT_TYPE, "CONTRACT",
+                payload.documentId(), MAPPER.writeValueAsString(payload));
+    }
+
+    /** Wires the mocks so {@code pollAndDispatch} sees these rows and wins every claim. */
+    private OutboxEvent queued(OutboxEvent... events) {
+        when(outbox.findUnpublishedForRelay(any(Instant.class), any(Limit.class)))
+                .thenReturn(List.of(events));
+        when(outbox.claim(any(UUID.class), any(Instant.class), any(Instant.class))).thenReturn(1);
+        for (OutboxEvent event : events) {
+            when(outbox.findById(event.getId())).thenReturn(Optional.of(event));
+        }
+        return events[0];
+    }
+
+    @SuppressWarnings("unchecked")
+    private ProducerRecord<String, String> captureSend() {
+        ArgumentCaptor<ProducerRecord<String, String>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafka).send(captor.capture());
+        return captor.getValue();
+    }
+
+    private static String header(ProducerRecord<String, String> record, String name) {
+        return new String(record.headers().lastHeader(name).value(), StandardCharsets.UTF_8);
+    }
+}

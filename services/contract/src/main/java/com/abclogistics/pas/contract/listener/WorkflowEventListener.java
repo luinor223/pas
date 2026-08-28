@@ -1,6 +1,25 @@
 package com.abclogistics.pas.contract.listener;
 
+import com.abclogistics.pas.contract.domain.Contract;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
+import com.abclogistics.pas.contract.domain.EntityType;
+import com.abclogistics.pas.contract.domain.ProcessedEvent;
+import com.abclogistics.pas.contract.domain.TriggerKind;
+import com.abclogistics.pas.contract.repository.ContractRepository;
+import com.abclogistics.pas.contract.repository.ProcessedEventRepository;
+import com.abclogistics.pas.contract.service.StatusTransitionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.UUID;
 
 /**
  * Consumes {@code workflow.instance_started} and {@code workflow.completed} from
@@ -20,13 +39,134 @@ import org.springframework.stereotype.Component;
 @Component
 public class WorkflowEventListener {
 
+    static final String INSTANCE_STARTED = "workflow.instance_started";
+    static final String COMPLETED = "workflow.completed";
+
+    private static final Logger log = LoggerFactory.getLogger(WorkflowEventListener.class);
+
+    private final ContractRepository contracts;
+    private final StatusTransitionService transitions;
+    private final ProcessedEventRepository processed;
+    private final ObjectMapper objectMapper;
+
+    public WorkflowEventListener(ContractRepository contracts, StatusTransitionService transitions,
+                                 ProcessedEventRepository processed, ObjectMapper objectMapper) {
+        this.contracts = contracts;
+        this.transitions = transitions;
+        this.processed = processed;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * One listener, dispatched on {@code event_type}. {@code pas.events} carries every service's
+     * events, so the great majority of records are not ours and are dropped on the header alone.
+     *
+     * <p>{@code documentId} comes from the record key, not the payload: {@code workflow.completed}
+     * carries no document id of its own, and the key is what actually orders a document's events
+     * within a partition.
+     *
+     * <p>The transaction starts here rather than on each handler, so that the dedup row and the
+     * effect it guards commit or roll back together even though the handlers are reached by a
+     * plain call rather than through the proxy.
+     */
+    @Transactional
+    @KafkaListener(topics = "pas.events", groupId = "contract-service",
+            autoStartup = "${contract.kafka.listener-enabled:true}")
+    public void onEvent(@Payload String payload,
+                        @Header(name = "event_type", required = false) String eventType,
+                        @Header(name = "document_type", required = false) String documentType,
+                        @Header(name = "event_id", required = false) String eventId,
+                        @Header(KafkaHeaders.RECEIVED_KEY) String key) {
+        if (eventId == null) {
+            // Without it a redelivery is indistinguishable from a new event, so applying the
+            // record would risk a duplicate transition. Fail loudly rather than half-process it.
+            throw new IllegalStateException("Record on pas.events has no event_id header, key=" + key);
+        }
+        switch (eventType == null ? "" : eventType) {
+            case INSTANCE_STARTED -> onInstanceStarted(payload, documentType, eventId, UUID.fromString(key));
+            case COMPLETED -> onCompleted(payload, documentType, eventId, UUID.fromString(key));
+            default -> { }   // another service's event, or one we do not act on (step_assigned, …)
+        }
+    }
+
     /** {@code workflow.instance_started} → SUBMITTED → UNDER_REVIEW. */
-    public void onInstanceStarted(String payload, String documentType, String eventId) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+    @Transactional
+    public void onInstanceStarted(String payload, String documentType, String eventId, UUID documentId) {
+        Contract contract = target(documentType, eventId, documentId);
+        if (contract == null) {
+            return;
+        }
+        if (contract.getStatus() != DocumentStatus.SUBMITTED) {
+            // completed already arrived and filled this edge in. Recording the dedup row and doing
+            // nothing else is the whole point of order tolerance.
+            log.debug("instance_started for {} ignored: already {}", documentId, contract.getStatus());
+            return;
+        }
+        UUID instanceId = uuid(payload, "instance_id");
+        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+                DocumentStatus.SUBMITTED, DocumentStatus.UNDER_REVIEW, TriggerKind.W, instanceId,
+                "Approval instance started");
+        contract.setStatus(DocumentStatus.UNDER_REVIEW);
     }
 
     /** {@code workflow.completed} → APPROVED / REJECTED / REVISION_REQUESTED. */
-    public void onCompleted(String payload, String documentType, String eventId) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+    @Transactional
+    public void onCompleted(String payload, String documentType, String eventId, UUID documentId) {
+        Contract contract = target(documentType, eventId, documentId);
+        if (contract == null) {
+            return;
+        }
+        DocumentStatus outcome = outcomeOf(payload);
+        UUID instanceId = uuid(payload, "instance_id");
+        transitions.transitionOrderTolerant(EntityType.CONTRACT, contract.getId(),
+                contract.getContractNo(), contract.getStatus(), outcome, instanceId);
+        contract.setStatus(outcome);
+    }
+
+    /**
+     * The three guards every handler shares: is it ours, have we already applied it, and does the
+     * document still exist. Claiming the event id here — in the handler's transaction — is what
+     * makes a rolled-back effect release its claim too.
+     *
+     * @return the contract to act on, or null when there is nothing to do.
+     */
+    private Contract target(String documentType, String eventId, UUID documentId) {
+        if (!EntityType.CONTRACT.name().equals(documentType)) {
+            return null;
+        }
+        UUID id = UUID.fromString(eventId);
+        if (processed.existsById(id)) {
+            log.debug("Event {} already applied, skipping", id);
+            return null;
+        }
+        processed.save(ProcessedEvent.of(id));
+
+        Contract contract = contracts.findById(documentId).orElse(null);
+        if (contract == null) {
+            // Nothing to apply and nothing to retry: another service's CONTRACT, or a document
+            // this database never had. The dedup row stops it coming back.
+            log.warn("Workflow event {} references unknown contract {}", id, documentId);
+        }
+        return contract;
+    }
+
+    private DocumentStatus outcomeOf(String payload) {
+        String outcome = text(payload, "outcome");
+        try {
+            return DocumentStatus.valueOf(outcome);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new IllegalStateException(
+                    "workflow.completed carries an outcome this service has no status for: " + outcome);
+        }
+    }
+
+    private UUID uuid(String payload, String field) {
+        String value = text(payload, field);
+        return value == null ? null : UUID.fromString(value);
+    }
+
+    private String text(String payload, String field) {
+        JsonNode node = objectMapper.readTree(payload).get(field);
+        return node == null || node.isNull() || node.asString().isEmpty() ? null : node.asString();
     }
 }

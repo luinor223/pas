@@ -86,15 +86,43 @@ public class WorkflowGrpcClient {
     }
 
     /**
-     * Retried on NOT_FOUND — the instance may not exist yet (M2). The reason is not sent: the
-     * proto carries no field for it, and it belongs in this service's own audit trail anyway.
+     * The three M2 outcomes, kept as a value rather than as exceptions because two of the three are
+     * expected results the cancel handoff branches on, not failures.
      */
-    public void cancelInstance(UUID documentId, String documentTypeCode, UUID idempotencyKey) {
-        deadlined().cancelInstance(CancelInstanceRequest.newBuilder()
-                .setDocumentType(documentTypeCode)
-                .setDocumentId(documentId.toString())
-                .setIdempotencyKey(idempotencyKey.toString())
-                .build());
+    public enum CancelOutcome {
+        /** The instance is cancelled, or was already. */
+        CANCELLED,
+        /** A step was already actioned — the cancel fails outright and is not retried (M2). */
+        ALREADY_ACTIONED,
+        /**
+         * No instance under that document. INCONCLUSIVE, not terminal: the dispatch may simply not
+         * have landed yet. Never read as "nothing to cancel".
+         */
+        NOT_FOUND
+    }
+
+    /**
+     * The reason is not sent: the proto carries no field for it, and it belongs in this service's
+     * own audit trail anyway.
+     */
+    public CancelOutcome cancelInstance(UUID documentId, String documentTypeCode, UUID idempotencyKey) {
+        try {
+            deadlined().cancelInstance(CancelInstanceRequest.newBuilder()
+                    .setDocumentType(documentTypeCode)
+                    .setDocumentId(documentId.toString())
+                    .setIdempotencyKey(idempotencyKey.toString())
+                    .build());
+            return CancelOutcome.CANCELLED;
+        } catch (StatusRuntimeException e) {
+            return switch (e.getStatus().getCode()) {
+                case NOT_FOUND -> CancelOutcome.NOT_FOUND;
+                case FAILED_PRECONDITION -> CancelOutcome.ALREADY_ACTIONED;
+                // UNAVAILABLE, DEADLINE_EXCEEDED and the rest are transport failures, not answers:
+                // swallowing them here would let a cancel that never reached workflow-service look
+                // like a definitive result.
+                default -> throw e;
+            };
+        }
     }
 
     /**

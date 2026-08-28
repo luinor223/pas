@@ -1,17 +1,50 @@
 package com.abclogistics.pas.contract;
 
+import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
+import com.abclogistics.pas.contract.domain.EntityType;
+import com.abclogistics.pas.contract.domain.StatusHistory;
+import com.abclogistics.pas.contract.domain.TriggerKind;
+import com.abclogistics.pas.contract.dto.ContractRequest;
+import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.listener.WorkflowEventListener;
+import com.abclogistics.pas.contract.repository.ProcessedEventRepository;
+import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
+import com.abclogistics.pas.contract.service.AttachmentService;
+import com.abclogistics.pas.contract.service.ContractService;
+import com.abclogistics.pas.contract.service.CustomerService;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-import com.abclogistics.pas.contract.listener.WorkflowEventListener;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * registry §9 footnote ¹ — order tolerance.
@@ -35,6 +68,16 @@ class WorkflowCompletedOrderTolerantTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7"))
             .withExposedPorts(6379);
 
+    static final Path STORAGE = createTempStorage();
+
+    private static Path createTempStorage() {
+        try {
+            return Files.createTempDirectory("pas-consume").toRealPath();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
@@ -44,29 +87,228 @@ class WorkflowCompletedOrderTolerantTest {
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("outbox.relay.enabled", () -> "false");
+        registry.add("contract.kafka.listener-enabled", () -> "false");
+        registry.add("contract.attachment-storage-path", STORAGE::toString);
     }
 
-    @Autowired
-    WorkflowEventListener listener;
+    private static final AuthenticatedUser SALES = new AuthenticatedUser(
+            UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
+
+    @MockitoBean WorkflowGrpcClient workflow;
+
+    @Autowired WorkflowEventListener listener;
+    @Autowired ContractService contracts;
+    @Autowired CustomerService customers;
+    @Autowired AttachmentService attachments;
+    @Autowired StatusHistoryRepository history;
+    @Autowired ProcessedEventRepository processed;
+    @Autowired TransactionTemplate tx;
+
+    @BeforeEach
+    void authenticate() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(SALES, null, List.of()));
+    }
+
+    @AfterEach
+    void clearContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void completedArrivingWhileSubmittedAppliesBothEdges() {
         // Final status APPROVED, and TWO history rows: SUBMITTED->UNDER_REVIEW then
         // UNDER_REVIEW->APPROVED. Collapsing them into one row loses the audit trail D17 exists for.
-        throw new UnsupportedOperationException("session-3 Phase B — order-tolerant apply");
+        UUID id = submittedContract();
+        UUID instanceId = UUID.randomUUID();
+
+        completed(id, instanceId, "APPROVED", UUID.randomUUID());
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(edgesAfterSubmit(id)).containsExactly(
+                "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->APPROVED");
+        // both rows attribute the change to the workflow, and to the instance that made it
+        assertThat(rows(id)).allSatisfy(row -> {
+            if (row.getFromStatus() != DocumentStatus.DRAFT) {
+                assertThat(row.getTriggerKind()).isEqualTo(TriggerKind.W);
+                assertThat(row.getTriggerRef()).isEqualTo(instanceId);
+            }
+        });
+    }
+
+    @Test
+    void theOrdinaryOrderAppliesOneEdgeEach() {
+        UUID id = submittedContract();
+        UUID instanceId = UUID.randomUUID();
+
+        started(id, instanceId, UUID.randomUUID());
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
+
+        completed(id, instanceId, "REJECTED", UUID.randomUUID());
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.REJECTED);
+        assertThat(edgesAfterSubmit(id)).containsExactly(
+                "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->REJECTED");
     }
 
     @Test
     void bothEventsAreIdempotentInEitherOrder() {
         // instance_started arriving late, after completed already applied its edge, must be a
         // no-op via processed_event -- not a second UNDER_REVIEW row and not an error.
-        throw new UnsupportedOperationException("session-3 Phase B — dedup both orders");
+        UUID id = submittedContract();
+        UUID instanceId = UUID.randomUUID();
+        completed(id, instanceId, "REVISION_REQUESTED", UUID.randomUUID());
+
+        started(id, instanceId, UUID.randomUUID());
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.REVISION_REQUESTED);
+        assertThat(edgesAfterSubmit(id)).containsExactly(
+                "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->REVISION_REQUESTED");
     }
 
     @Test
     void redeliveryAfterOffsetLossIsANoOp() {
         // Offsets commit after processing, so a mid-batch death re-reads applied records.
-        throw new UnsupportedOperationException("session-3 Phase B — processed_event dedup");
+        UUID id = submittedContract();
+        UUID instanceId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        completed(id, instanceId, "APPROVED", eventId);
+        long rowsAfterFirst = historyRows();
+
+        completed(id, instanceId, "APPROVED", eventId);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(historyRows()).isEqualTo(rowsAfterFirst);
     }
 
+    @Test
+    void aRedeliveryWithAFreshEventIdIsStillNotAppliedTwice() {
+        // Dedup is the first line, not the only one: a genuinely new event id carrying an outcome
+        // the document already has must still leave the timeline alone.
+        UUID id = submittedContract();
+        UUID instanceId = UUID.randomUUID();
+        completed(id, instanceId, "APPROVED", UUID.randomUUID());
+        long rowsAfterFirst = historyRows();
+
+        completed(id, instanceId, "APPROVED", UUID.randomUUID());
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(historyRows()).isEqualTo(rowsAfterFirst);
+    }
+
+    @Test
+    void everyAppliedEventLeavesADedupRow() {
+        UUID id = submittedContract();
+        UUID eventId = UUID.randomUUID();
+
+        started(id, UUID.randomUUID(), eventId);
+
+        assertThat(dedupped(eventId)).isTrue();
+    }
+
+    @Test
+    void anEventForAnotherServicesDocumentIsIgnoredEntirely() {
+        // pas.events carries every service's traffic; a PRICE_LIST record must not even be parsed.
+        UUID id = submittedContract();
+        UUID eventId = UUID.randomUUID();
+
+        tx.executeWithoutResult(s -> listener.onCompleted(
+                completedPayload(UUID.randomUUID(), "APPROVED"), "PRICE_LIST", eventId.toString(), id));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+        // and it leaves no dedup row either: it was never ours to process
+        assertThat(dedupped(eventId)).isFalse();
+    }
+
+    @Test
+    void anEventForAnUnknownContractIsDeduppedRatherThanRetried() {
+        // Nothing to apply and nothing a retry would fix, so the dedup row stops it coming back
+        // round the partition forever.
+        UUID unknown = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+
+        tx.executeWithoutResult(s -> listener.onCompleted(
+                completedPayload(UUID.randomUUID(), "APPROVED"), "CONTRACT", eventId.toString(), unknown));
+
+        assertThat(dedupped(eventId)).isTrue();
+    }
+
+    @Test
+    void anOutcomeThisServiceHasNoStatusForIsRejectedNotGuessed() {
+        // Better a dead-lettered record than a document silently left in the wrong state.
+        UUID id = submittedContract();
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> listener.onCompleted(
+                completedPayload(UUID.randomUUID(), "ESCALATED"), "CONTRACT",
+                UUID.randomUUID().toString(), id)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ESCALATED");
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    // --- helpers ----------------------------------------------------------------------------
+
+    private void started(UUID contractId, UUID instanceId, UUID eventId) {
+        String payload = """
+                {"instance_id":"%s","document_no":"HD-2026-0001","priority":"NORMAL",
+                 "document_type":"CONTRACT","document_id":"%s"}"""
+                .formatted(instanceId, contractId);
+        tx.executeWithoutResult(s ->
+                listener.onInstanceStarted(payload, "CONTRACT", eventId.toString(), contractId));
+    }
+
+    private void completed(UUID contractId, UUID instanceId, String outcome, UUID eventId) {
+        tx.executeWithoutResult(s -> listener.onCompleted(
+                completedPayload(instanceId, outcome), "CONTRACT", eventId.toString(), contractId));
+    }
+
+    /** Exactly what workflow-service emits — note it carries no document id; the record key does. */
+    private String completedPayload(UUID instanceId, String outcome) {
+        return """
+                {"instance_id":"%s","outcome":"%s","document_no":"HD-2026-0001",
+                 "requested_by":"Nguyen Thi Lan"}""".formatted(instanceId, outcome);
+    }
+
+    private List<StatusHistory> rows(UUID contractId) {
+        return tx.execute(s -> history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(
+                EntityType.CONTRACT, contractId));
+    }
+
+    /** The edges after DRAFT -> SUBMITTED, as {@code FROM->TO} strings, oldest first. */
+    private List<String> edgesAfterSubmit(UUID contractId) {
+        return rows(contractId).stream()
+                .filter(row -> row.getFromStatus() != DocumentStatus.DRAFT)
+                .map(row -> row.getFromStatus() + "->" + row.getToStatus())
+                .toList();
+    }
+
+    /** Bound to a typed local: {@code assertThat} has an overload for almost everything. */
+    private boolean dedupped(UUID eventId) {
+        Boolean exists = tx.execute(s -> processed.existsById(eventId));
+        return Boolean.TRUE.equals(exists);
+    }
+
+    private long historyRows() {
+        Long count = tx.execute(s -> history.count());
+        return count == null ? 0 : count;
+    }
+
+    private DocumentStatus statusOf(UUID id) {
+        return tx.execute(s -> contracts.get(id).getStatus());
+    }
+
+    private UUID submittedContract() {
+        UUID customerId = tx.execute(s -> customers.create(new CustomerRequest(
+                "ACME Logistics", null, null, null, null, null, null, List.of())).getId());
+        UUID id = tx.execute(s -> contracts.create(new ContractRequest(
+                customerId, "initial", "TRANSPORTATION", new BigDecimal("1000000"), "VND",
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31),
+                "NET30", "MONTHLY", new BigDecimal("10"), null, null, null)).getId());
+        tx.execute(s -> attachments.upload(EntityType.CONTRACT, id,
+                new MockMultipartFile("file", "signed.pdf", "application/pdf",
+                        "contract terms".getBytes(StandardCharsets.UTF_8))));
+        tx.executeWithoutResult(s -> contracts.submit(id));
+        return id;
+    }
 }
