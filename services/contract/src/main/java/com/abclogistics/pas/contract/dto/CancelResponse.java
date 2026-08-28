@@ -1,6 +1,6 @@
 package com.abclogistics.pas.contract.dto;
 
-import com.abclogistics.pas.contract.service.ContractCancellationService.Outcome;
+import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 
 /**
  * {@code CANCELLED} (200) or {@code PENDING} (202). A bare 202 would leave the client guessing;

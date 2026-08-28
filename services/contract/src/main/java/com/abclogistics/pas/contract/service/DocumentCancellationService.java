@@ -7,11 +7,12 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.SecurityUtils;
-import com.abclogistics.pas.contract.domain.Contract;
+import com.abclogistics.pas.contract.domain.ApprovableDocument;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.TriggerKind;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
+import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelOutcome;
 import org.slf4j.Logger;
@@ -67,7 +68,7 @@ import java.util.UUID;
  * gRPC round trip must not be made while holding the connection that will write the cancellation.
  */
 @Service
-public class ContractCancellationService {
+public class DocumentCancellationService {
 
     /** {@code CANCELLED} maps to 200, {@code PENDING} to 202 — the caller retries the same call. */
     public enum Outcome { CANCELLED, PENDING }
@@ -75,9 +76,10 @@ public class ContractCancellationService {
     /** CTR-06: cancelling a live contract is its own permission, not part of {@code contract:write}. */
     public static final String CANCEL_ACTIVE = "contract:cancel_active";
 
-    private static final Logger log = LoggerFactory.getLogger(ContractCancellationService.class);
+    private static final Logger log = LoggerFactory.getLogger(DocumentCancellationService.class);
 
     private final ContractRepository contracts;
+    private final AddendumRepository addenda;
     private final OutboxRepository outbox;
     private final StatusTransitionService transitions;
     private final WorkflowGrpcClient workflow;
@@ -85,12 +87,14 @@ public class ContractCancellationService {
     private final ObjectMapper objectMapper;
     private final TransactionTemplate tx;
 
-    public ContractCancellationService(ContractRepository contracts, OutboxRepository outbox,
+    public DocumentCancellationService(ContractRepository contracts, AddendumRepository addenda,
+                                       OutboxRepository outbox,
                                        StatusTransitionService transitions,
                                        WorkflowGrpcClient workflow,
                                        OutboxRelayProperties relayProperties,
                                        ObjectMapper objectMapper, TransactionTemplate tx) {
         this.contracts = contracts;
+        this.addenda = addenda;
         this.outbox = outbox;
         this.transitions = transitions;
         this.workflow = workflow;
@@ -99,41 +103,50 @@ public class ContractCancellationService {
         this.tx = tx;
     }
 
-    public Outcome cancel(UUID id, String reason) {
-        DocumentStatus status = tx.execute(s -> requireCancellable(id));
+    public Outcome cancel(EntityType type, UUID id, String reason) {
+        DocumentStatus status = tx.execute(s -> requireCancellable(type, id));
 
         // SUBMITTED may have a dispatch in flight; UNDER_REVIEW certainly has a live instance.
         // Both go through the handoff. DRAFT never had a dispatch intent and ACTIVE's instance
         // completed long ago, so for those there is no race to resolve and the cancel commits
         // directly.
         if (status == DocumentStatus.SUBMITTED || status == DocumentStatus.UNDER_REVIEW) {
-            return handoff(id, reason, status);
+            return handoff(type, id, reason, status);
         }
-        tx.executeWithoutResult(s -> applyCancellation(id, reason));
+        tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
         return Outcome.CANCELLED;
     }
 
     /** @return the current status, once it is established that a user may cancel from it. */
-    private DocumentStatus requireCancellable(UUID id) {
-        Contract contract = contracts.findById(id)
-                .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(id)));
-        DocumentStatus status = contract.getStatus();
+    private DocumentStatus requireCancellable(EntityType type, UUID id) {
+        ApprovableDocument document = load(type, id);
+        DocumentStatus status = document.getStatus();
 
         // Checked here and not with @PreAuthorize because the rule depends on the document's
         // state: the same endpoint cancels a DRAFT under contract:write alone.
         if (status == DocumentStatus.ACTIVE && !SecurityUtils.hasPermission(CANCEL_ACTIVE)) {
             throw new ForbiddenException(
-                    "Cancelling an ACTIVE contract requires %s (CTR-06)".formatted(CANCEL_ACTIVE));
+                    "Cancelling an ACTIVE %s requires %s (CTR-06)"
+                            .formatted(type.name().toLowerCase(java.util.Locale.ROOT), CANCEL_ACTIVE));
         }
         if (!status.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)) {
             throw new ConflictException(
-                    "Contract %s is %s and cannot be cancelled (registry §9)"
-                            .formatted(contract.getContractNo(), status));
+                    "%s %s is %s and cannot be cancelled (registry §9)"
+                            .formatted(type, document.getDocumentNo(), status));
         }
         return status;
     }
 
-    private Outcome handoff(UUID id, String reason, DocumentStatus status) {
+    /** The two document types this service cancels; both submit under their own EntityType name. */
+    private ApprovableDocument load(EntityType type, UUID id) {
+        java.util.Optional<? extends ApprovableDocument> found = switch (type) {
+            case CONTRACT -> contracts.findById(id);
+            case ADDENDUM -> addenda.findById(id);
+        };
+        return found.orElseThrow(() -> new NotFoundException("%s %s not found".formatted(type, id)));
+    }
+
+    private Outcome handoff(EntityType type, UUID id, String reason, DocumentStatus status) {
         OutboxEvent row = latestStartRequest(id);
         if (row == null) {
             // No dispatch intent, and therefore no stored idempotency key — CancelInstance is
@@ -143,11 +156,11 @@ public class ContractCancellationService {
                 // apply the restricted edge with no round trip behind it and strand a live
                 // instance with assignees on it, so this is refused rather than guessed at.
                 throw new ConflictException(
-                        ("Contract %s is UNDER_REVIEW but has no dispatch intent to cancel against; "
+                        ("%s %s is UNDER_REVIEW but has no dispatch intent to cancel against; "
                          + "its workflow instance cannot be cancelled from here (registry §9¹)")
-                                .formatted(id));
+                                .formatted(type, id));
             }
-            tx.executeWithoutResult(s -> applyCancellation(id, reason));
+            tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
             return Outcome.CANCELLED;
         }
 
@@ -157,33 +170,33 @@ public class ContractCancellationService {
             if (outbox.cancelIfNotClaimed(row.getId(), Instant.now()) != 1) {
                 return false;
             }
-            applyCancellation(id, reason);
+            applyCancellation(type, id, reason);
             return true;
         });
         if (Boolean.TRUE.equals(cancelledOutright)) {
-            log.debug("Cancelled contract {} by cancelling its unclaimed outbox row {}", id, row.getId());
+            log.debug("Cancelled {} {} by cancelling its unclaimed outbox row {}", type, id, row.getId());
             return Outcome.CANCELLED;
         }
 
-        return afterDispatchAttempted(id, row.getId(), reason);
+        return afterDispatchAttempted(type, id, row.getId(), reason);
     }
 
     /** Step 2, and the forced-dispatch branch that step 2's inconclusive answer leads to. */
-    private Outcome afterDispatchAttempted(UUID id, UUID rowId, String reason) {
+    private Outcome afterDispatchAttempted(EntityType type, UUID id, UUID rowId, String reason) {
         OutboxEvent row = reload(rowId);
         UUID idempotencyKey = payloadOf(row).idempotencyKey();
 
-        CancelOutcome first = workflow.cancelInstance(id, ContractService.DOCUMENT_TYPE, idempotencyKey);
+        CancelOutcome first = workflow.cancelInstance(id, type.name(), idempotencyKey);
         if (first != CancelOutcome.NOT_FOUND) {
-            return resolve(id, reason, first);
+            return resolve(type, id, reason, first);
         }
 
         // INCONCLUSIVE. A published row means the instance exists and workflow-service simply has
         // not caught up; a still-fresh claim means the dispatch may land at any moment. Neither is
         // a licence to cancel the document.
         if (row.getPublishedAt() != null || !isStale(row)) {
-            log.debug("Cancel of contract {} inconclusive (published={}, claimedAt={}), staying pending",
-                    id, row.getPublishedAt(), row.getClaimedAt());
+            log.debug("Cancel of {} {} inconclusive (published={}, claimedAt={}), staying pending",
+                    type, id, row.getPublishedAt(), row.getClaimedAt());
             return Outcome.PENDING;
         }
 
@@ -193,19 +206,18 @@ public class ContractCancellationService {
         if (!forceDispatch(row)) {
             return Outcome.PENDING;
         }
-        return resolve(id, reason,
-                workflow.cancelInstance(id, ContractService.DOCUMENT_TYPE, idempotencyKey));
+        return resolve(type, id, reason, workflow.cancelInstance(id, type.name(), idempotencyKey));
     }
 
-    private Outcome resolve(UUID id, String reason, CancelOutcome outcome) {
+    private Outcome resolve(EntityType type, UUID id, String reason, CancelOutcome outcome) {
         return switch (outcome) {
             case CANCELLED -> {
-                tx.executeWithoutResult(s -> applyCancellation(id, reason));
+                tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
                 yield Outcome.CANCELLED;
             }
             case ALREADY_ACTIONED -> throw new ConflictException(
-                    "A workflow step for contract %s was already actioned; it can no longer be cancelled (M2)"
-                            .formatted(id));
+                    "A workflow step for %s %s was already actioned; it can no longer be cancelled (M2)"
+                            .formatted(type, id));
             // Still nothing after we forced the dispatch: not terminal, so the document stays put.
             case NOT_FOUND -> Outcome.PENDING;
         };
@@ -250,14 +262,13 @@ public class ContractCancellationService {
      * {@link #requireCancellable}: the handoff spans a gRPC round trip, and the document may have
      * moved to UNDER_REVIEW meanwhile. An edge registry §9 has no row for then fails here.
      */
-    private void applyCancellation(UUID id, String reason) {
-        Contract contract = contracts.findById(id)
-                .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(id)));
-        DocumentStatus before = contract.getStatus();
-        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+    private void applyCancellation(EntityType type, UUID id, String reason) {
+        ApprovableDocument document = load(type, id);
+        DocumentStatus before = document.getStatus();
+        transitions.transition(type, document.getId(), document.getDocumentNo(),
                 before, DocumentStatus.CANCELLED, TriggerKind.U, null,
                 RequestValues.blankToNull(reason));
-        contract.setStatus(DocumentStatus.CANCELLED);
+        document.setStatus(DocumentStatus.CANCELLED);
     }
 
     private boolean isStale(OutboxEvent row) {
@@ -265,9 +276,9 @@ public class ContractCancellationService {
         return claimedAt != null && claimedAt.isBefore(Instant.now().minus(relayProperties.claimLease()));
     }
 
-    private OutboxEvent latestStartRequest(UUID contractId) {
+    private OutboxEvent latestStartRequest(UUID documentId) {
         List<OutboxEvent> rows = tx.execute(s -> outbox.findForAggregate(
-                contractId, WorkflowStartRequested.EVENT_TYPE, Limit.of(1)));
+                documentId, WorkflowStartRequested.EVENT_TYPE, Limit.of(1)));
         return rows == null || rows.isEmpty() ? null : rows.getFirst();
     }
 

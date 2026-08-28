@@ -51,7 +51,7 @@ public class ContractService {
     public static final String INITIALIZATION_PENDING = "INITIALIZATION_PENDING";
 
     /** workflow_instance.status — the one non-terminal value (workflow V1 CHECK). */
-    private static final String WORKFLOW_IN_PROGRESS = "IN_PROGRESS";
+    static final String WORKFLOW_IN_PROGRESS = "IN_PROGRESS";
 
     private static final BigDecimal MIN_VAT = BigDecimal.ZERO;
     private static final BigDecimal MAX_VAT = new BigDecimal("100");
@@ -65,13 +65,13 @@ public class ContractService {
     private final OutboxRepository outbox;
     private final ObjectMapper objectMapper;
     private final AuditRecorder audit;
-    private final ContractCancellationService cancellation;
+    private final DocumentCancellationService cancellation;
 
     public ContractService(ContractRepository contracts, CustomerService customers,
                            DocumentNumberService numbers, StatusTransitionService transitions,
                            AttachmentRepository attachments, WorkflowGrpcClient workflow,
                            OutboxRepository outbox, ObjectMapper objectMapper,
-                           AuditRecorder audit, ContractCancellationService cancellation) {
+                           AuditRecorder audit, DocumentCancellationService cancellation) {
         this.contracts = contracts;
         this.customers = customers;
         this.numbers = numbers;
@@ -154,9 +154,11 @@ public class ContractService {
         DocumentStatus before = contract.getStatus();
 
         if (!before.isEditable()) {
+            // Parenthesised deliberately: .formatted binds to the last operand of a concatenation,
+            // so without these the placeholders would reach the user unsubstituted.
             throw new ConflictException(
-                    "Contract %s is %s and cannot be edited (CTR-01). A change to an approved or "
-                            + "active contract must be made through an addendum (CTR-07)."
+                    ("Contract %s is %s and cannot be edited (CTR-01). A change to an approved or "
+                            + "active contract must be made through an addendum (CTR-07).")
                             .formatted(contract.getContractNo(), before));
         }
         if (request.version() == null) {
@@ -409,8 +411,8 @@ public class ContractService {
      * SUBMITTED/UNDER_REVIEW until one branch definitively resolves, so there is no window where
      * a workflow instance starts after the document was already cancelled.
      */
-    public ContractCancellationService.Outcome cancel(UUID id, String reason) {
-        return cancellation.cancel(id, reason);
+    public DocumentCancellationService.Outcome cancel(UUID id, String reason) {
+        return cancellation.cancel(EntityType.CONTRACT, id, reason);
     }
 
     /**

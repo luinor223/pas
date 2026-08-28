@@ -11,7 +11,37 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.contract.domain.Addendum;
+import com.abclogistics.pas.contract.domain.AddendumServiceLine;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
+import com.abclogistics.pas.contract.domain.ServiceGroup;
+import com.abclogistics.pas.contract.dto.AddendumRequest;
+import com.abclogistics.pas.contract.dto.ContractRequest;
+import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.service.AddendumService;
+import com.abclogistics.pas.contract.service.ContractService;
+import com.abclogistics.pas.contract.service.CustomerService;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+
 
 /**
  * registry §9 footnote ² — when an addendum flips APPROVED → ACTIVE at its {@code effective_from},
@@ -43,39 +73,205 @@ class AddendumActiveAppliesToParentTxTest {
         registry.add("contract.kafka.listener-enabled", () -> "false");
     }
 
-    @Autowired
-    AddendumService addenda;
+    private static final AuthenticatedUser SALES = new AuthenticatedUser(
+            UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
+
+    @MockitoBean WorkflowGrpcClient workflow;
+
+    @Autowired AddendumService addenda;
+    @Autowired ContractService contracts;
+    @Autowired CustomerService customers;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired TransactionTemplate tx;
+
+    @BeforeEach
+    void authenticate() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(SALES, null, List.of()));
+    }
+
+    @AfterEach
+    void clearContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void termExtensionMovesParentValidTo() {
         // D14b: renewal IS a TERM_EXTENSION addendum. contract.valid_to becomes new_valid_to.
-        throw new UnsupportedOperationException("session-3 Phase B — TERM_EXTENSION effect");
+        UUID contractId = activeContract();
+        UUID id = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2027, 6, 30));
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.ACTIVE);
     }
 
     @Test
     void paymentTermsOverwritesParentPaymentTerm() {
-        throw new UnsupportedOperationException("session-3 Phase B — PAYMENT_TERMS effect");
+        UUID contractId = activeContract();
+        UUID id = approved(paymentTerms(contractId, "NET60"));
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+
+        assertThat(parentPaymentTerm(contractId)).isEqualTo("NET60");
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2026, 12, 31));
     }
 
     @Test
     void effectAndStatusFlipShareOneTransaction() {
         // A failure applying the effect must roll back the addendum's ACTIVE flip too, or the
         // parent silently keeps its old terms while the addendum claims to be in force.
-        throw new UnsupportedOperationException("session-3 Phase B — single-tx effect");
+        UUID contractId = activeContract();
+        UUID id = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+        // Reach past validation to make the effect itself fail: contract.valid_to is NOT NULL, so
+        // applying a null new_valid_to dies on flush.
+        jdbc.update("update contract.addendum set new_valid_to = null where id = ?", id);
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> addenda.activate(id)))
+                .isInstanceOf(Exception.class);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2026, 12, 31));
+    }
+
+    @Test
+    void applyingEffectsOutsideATransactionIsRefused() {
+        // The single-transaction guarantee is the point of the method, so it refuses to run
+        // without one rather than half-applying an addendum. From outside the class the proxy
+        // enforces MANDATORY and gets there first; the method's own assertion covers the route
+        // the proxy cannot see, a call from inside this service.
+        UUID contractId = activeContract();
+        UUID id = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+        Addendum detached = tx.execute(s -> addenda.get(id));
+
+        assertThatThrownBy(() -> addenda.applyEffectsToParent(detached))
+                .isInstanceOf(IllegalTransactionStateException.class);
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2026, 12, 31));
     }
 
     @Test
     void unitPriceChangeAppliesNothingLocally() {
         // D8: the addendum carries no price data. The new figures are a pricing version Sales
         // creates afterwards -- nothing on the contract row changes here.
-        throw new UnsupportedOperationException("session-3 Phase B — UNIT_PRICE_CHANGE no-op");
+        UUID contractId = activeContract();
+        UUID id = approved(basic(contractId, "UNIT_PRICE_CHANGE"));
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.ACTIVE);
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2026, 12, 31));
+        assertThat(parentPaymentTerm(contractId)).isEqualTo("NET30");
     }
 
     @Test
     void addedServiceDoesNotWidenEnforcedScope() {
         // addendum_service is record/display data. contract.service_group is unchanged, and
         // GetContract keeps returning it as the single enforced scope value.
-        throw new UnsupportedOperationException("session-3 Phase B — ADDED_SERVICE record-only");
+        UUID contractId = activeContract();
+        UUID id = approved(addedService(contractId));
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+
+        assertThat(parentServiceGroup(contractId)).isEqualTo(ServiceGroup.TRANSPORTATION);
+        // Copied inside the transaction: the mapping is lazy, and the list would other-
+        // wise be touched after the session that could initialise it has gone.
+        List<AddendumServiceLine> lines = tx.execute(s -> List.copyOf(addenda.get(id).getServices()));
+        assertThat(lines).hasSize(1);
     }
 
+    @Test
+    void anAppliedEffectIsAuditedAgainstTheParentContract() {
+        // A system action that changes a contract's terms without anyone editing it needs to be
+        // visible as such, or the change looks like it came from nowhere.
+        UUID contractId = activeContract();
+        UUID id = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+
+        String payload = auditPayload(contractId, "ADDENDUM_APPLIED");
+        assertThat(payload).contains("validTo").contains("2027-06-30");
+    }
+
+    @Test
+    void anAddendumThatChangesNothingWritesNoFalseAuditRow() {
+        UUID contractId = activeContract();
+        UUID id = approved(basic(contractId, "UNIT_PRICE_CHANGE"));
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+
+        assertThat(auditRows(contractId, "ADDENDUM_APPLIED")).isZero();
+    }
+
+    // --- helpers ----------------------------------------------------------------------------
+
+    private AddendumRequest termExtension(UUID contractId, LocalDate newValidTo) {
+        return new AddendumRequest(contractId, "TERM_EXTENSION", "renewal",
+                LocalDate.of(2026, 6, 1), newValidTo, null, null, null);
+    }
+
+    private AddendumRequest paymentTerms(UUID contractId, String override) {
+        return new AddendumRequest(contractId, "PAYMENT_TERMS", "terms change",
+                LocalDate.of(2026, 6, 1), null, override, null, null);
+    }
+
+    private AddendumRequest addedService(UUID contractId) {
+        return new AddendumRequest(contractId, "ADDED_SERVICE", "new service",
+                LocalDate.of(2026, 6, 1), null, null,
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", "m2", null)),
+                null);
+    }
+
+    private AddendumRequest basic(UUID contractId, String changeType) {
+        return new AddendumRequest(contractId, changeType, "prices move",
+                LocalDate.of(2026, 6, 1), null, null, null, null);
+    }
+
+    /** Creates the addendum and forces it to APPROVED, which is where the D14d sweep picks it up. */
+    private UUID approved(AddendumRequest request) {
+        UUID id = tx.execute(s -> addenda.create(request).getId());
+        tx.executeWithoutResult(s -> addenda.get(id).setStatus(DocumentStatus.APPROVED));
+        return id;
+    }
+
+    private UUID activeContract() {
+        UUID customerId = tx.execute(s -> customers.create(new CustomerRequest(
+                "ACME Logistics", null, null, null, null, null, null, List.of())).getId());
+        UUID id = tx.execute(s -> contracts.create(new ContractRequest(
+                customerId, "initial", "TRANSPORTATION", new BigDecimal("1000000"), "VND",
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31),
+                "NET30", "MONTHLY", new BigDecimal("10"), null, null, null)).getId());
+        tx.executeWithoutResult(s -> contracts.get(id).setStatus(DocumentStatus.ACTIVE));
+        return id;
+    }
+
+    private DocumentStatus statusOf(UUID addendumId) {
+        return tx.execute(s -> addenda.get(addendumId).getStatus());
+    }
+
+    private LocalDate parentValidTo(UUID contractId) {
+        return tx.execute(s -> contracts.get(contractId).getValidTo());
+    }
+
+    private String parentPaymentTerm(UUID contractId) {
+        return tx.execute(s -> contracts.get(contractId).getPaymentTerm());
+    }
+
+    private ServiceGroup parentServiceGroup(UUID contractId) {
+        return tx.execute(s -> contracts.get(contractId).getServiceGroup());
+    }
+
+    private int auditRows(UUID entityId, String action) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from contract.outbox where aggregate_id = ? and payload::text like ?",
+                Integer.class, entityId, "%" + action + "%");
+        return count == null ? 0 : count;
+    }
+
+    private String auditPayload(UUID entityId, String action) {
+        return jdbc.queryForObject(
+                "select payload::text from contract.outbox where aggregate_id = ? "
+                        + "and payload::text like ? limit 1",
+                String.class, entityId, "%" + action + "%");
+    }
 }

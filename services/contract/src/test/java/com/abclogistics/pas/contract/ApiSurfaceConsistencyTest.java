@@ -1,6 +1,7 @@
 package com.abclogistics.pas.contract;
 
 import com.abclogistics.pas.contract.controller.AttachmentController;
+import com.abclogistics.pas.contract.controller.AddendumController;
 import com.abclogistics.pas.contract.controller.ContractController;
 import com.abclogistics.pas.contract.controller.CustomerController;
 import org.junit.jupiter.api.Test;
@@ -41,19 +42,12 @@ class ApiSurfaceConsistencyTest {
             List.of("/customers", "/contracts", "/addenda", "/attachments");
 
     private static final List<Class<?>> CONTROLLERS = List.of(
-            CustomerController.class, ContractController.class, AttachmentController.class);
+            CustomerController.class, ContractController.class, AttachmentController.class,
+            AddendumController.class);
 
     /** Documented but not built yet — Phase B items 6-14. Delete a line as its item lands. */
     private static final Set<String> PENDING = Set.of(
-            "POST /contracts/{id}/send-for-signing",  // item 13 — D10 / D14e
-            "GET /addenda",                           // item 11 — addendum lifecycle
-            "POST /addenda",
-            "GET /addenda/{id}",
-            "PUT /addenda/{id}",
-            "POST /addenda/{id}/submit",
-            "POST /addenda/{id}/cancel",
-            "POST /addenda/{id}/revise",
-            "GET /addenda/{id}/progress");
+            "POST /contracts/{id}/send-for-signing");  // item 13 — D10 / D14e
 
     @Test
     void everyDocumentedRouteIsServedUnlessItIsListedAsPending() {

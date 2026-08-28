@@ -31,7 +31,7 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "contract", schema = "contract")
-public class Contract extends BaseEntity {
+public class Contract extends BaseEntity implements ApprovableDocument {
 
     @Id
     @UuidGenerator
@@ -117,6 +117,12 @@ public class Contract extends BaseEntity {
 
     public UUID getId() { return id; }
     public String getContractNo() { return contractNo; }
+
+    @Override
+    public String getDocumentNo() { return contractNo; }
+
+    @Override
+    public EntityType entityType() { return EntityType.CONTRACT; }
     public Customer getCustomer() { return customer; }
     public String getDescription() { return description; }
     public ServiceGroup getServiceGroup() { return serviceGroup; }

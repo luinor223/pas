@@ -15,8 +15,8 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
 import com.abclogistics.pas.contract.service.AttachmentService;
-import com.abclogistics.pas.contract.service.ContractCancellationService;
-import com.abclogistics.pas.contract.service.ContractCancellationService.Outcome;
+import com.abclogistics.pas.contract.service.DocumentCancellationService;
+import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
@@ -121,7 +121,7 @@ class CancelStaleClaimForcesDispatchTest {
     @MockitoBean WorkflowGrpcClient workflow;
 
     @Autowired ContractService contracts;
-    @Autowired ContractCancellationService cancellation;
+    @Autowired DocumentCancellationService cancellation;
     @Autowired ContractController controller;
     @Autowired CustomerService customers;
     @Autowired AttachmentService attachments;
@@ -149,7 +149,7 @@ class CancelStaleClaimForcesDispatchTest {
         // and StartInstance is never called.
         UUID id = submittedContract();
 
-        Outcome outcome = cancellation.cancel(id, "customer withdrew");
+        Outcome outcome = cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew");
 
         assertThat(outcome).isEqualTo(Outcome.CANCELLED);
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
@@ -165,7 +165,7 @@ class CancelStaleClaimForcesDispatchTest {
         // Nothing was ever dispatched for a DRAFT, so there is no race to resolve.
         UUID id = submittableContract();
 
-        assertThat(cancellation.cancel(id, "created by mistake")).isEqualTo(Outcome.CANCELLED);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "created by mistake")).isEqualTo(Outcome.CANCELLED);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
         verifyNoInteractions(workflow);
@@ -185,7 +185,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.startInstance(eq(key), anyString(), any(), anyString(), any(), any(), any(), any()))
                 .thenReturn(UUID.randomUUID());
 
-        Outcome outcome = cancellation.cancel(id, "customer withdrew");
+        Outcome outcome = cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew");
 
         assertThat(outcome).isEqualTo(Outcome.CANCELLED);
         // the dispatch was completed, using the key minted at submit — not a fresh one
@@ -208,7 +208,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.CANCELLED);
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
         // the row keeps its claim: cancelling it would race the worker that holds it
@@ -225,7 +225,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.NOT_FOUND);
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.PENDING);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
         // a fresh claim is not ours to take over
@@ -245,7 +245,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.NOT_FOUND);
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.PENDING);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
         verify(workflow, never()).startInstance(any(), anyString(), any(), anyString(),
@@ -260,7 +260,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.ALREADY_ACTIONED);
 
-        assertThatThrownBy(() -> cancellation.cancel(id, "customer withdrew"))
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already actioned");
 
@@ -281,7 +281,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.startInstance(eq(key), anyString(), any(), anyString(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.PENDING);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
         OutboxEvent row = startRequest(id);
         assertThat(row.getClaimedAt()).isNull();
@@ -300,7 +300,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
-        assertThatThrownBy(() -> cancellation.cancel(id, "customer withdrew"))
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
                 .isInstanceOf(StatusRuntimeException.class);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
@@ -320,7 +320,7 @@ class CancelStaleClaimForcesDispatchTest {
             return CancelOutcome.CANCELLED;
         });
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
         assertThat(edgeInto(id, DocumentStatus.CANCELLED)).isEqualTo(DocumentStatus.UNDER_REVIEW);
@@ -337,7 +337,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.CANCELLED);
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
 
         verify(workflow).cancelInstance(eq(id), eq("CONTRACT"), eq(key));
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
@@ -352,7 +352,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.ALREADY_ACTIONED);
 
-        assertThatThrownBy(() -> cancellation.cancel(id, "customer withdrew"))
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
                 .isInstanceOf(ConflictException.class);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
@@ -367,7 +367,7 @@ class CancelStaleClaimForcesDispatchTest {
         dropStartRequest(id);
         force(id, DocumentStatus.UNDER_REVIEW);
 
-        assertThatThrownBy(() -> cancellation.cancel(id, "customer withdrew"))
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("no dispatch intent");
 
@@ -385,7 +385,7 @@ class CancelStaleClaimForcesDispatchTest {
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
                 .thenReturn(CancelOutcome.NOT_FOUND);
 
-        assertThat(cancellation.cancel(id, "customer withdrew")).isEqualTo(Outcome.PENDING);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
     }
@@ -395,9 +395,9 @@ class CancelStaleClaimForcesDispatchTest {
     @Test
     void anAlreadyCancelledContractCannotBeCancelledAgain() {
         UUID id = submittedContract();
-        cancellation.cancel(id, "customer withdrew");
+        cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew");
 
-        assertThatThrownBy(() -> cancellation.cancel(id, "again"))
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "again"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("CANCELLED");
     }
@@ -408,13 +408,13 @@ class CancelStaleClaimForcesDispatchTest {
         UUID id = submittableContract();
         force(id, DocumentStatus.ACTIVE);
 
-        assertThatThrownBy(() -> cancellation.cancel(id, "terminated early"))
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "terminated early"))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("contract:cancel_active");
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.ACTIVE);
 
         grant("contract:write", "contract:cancel_active");
-        assertThat(cancellation.cancel(id, "terminated early")).isEqualTo(Outcome.CANCELLED);
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "terminated early")).isEqualTo(Outcome.CANCELLED);
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
     }
 
@@ -423,7 +423,7 @@ class CancelStaleClaimForcesDispatchTest {
         UUID id = submittedContract();
         long before = historyRows();
 
-        cancellation.cancel(id, "customer withdrew");
+        cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew");
 
         assertThat(historyRows()).isEqualTo(before + 1);
     }

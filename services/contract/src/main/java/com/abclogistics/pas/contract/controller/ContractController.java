@@ -8,7 +8,7 @@ import com.abclogistics.pas.contract.dto.ContractResponse;
 import com.abclogistics.pas.contract.dto.ProgressResponse;
 import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
-import com.abclogistics.pas.contract.service.ContractCancellationService.Outcome;
+import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import com.abclogistics.pas.contract.service.ContractService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
