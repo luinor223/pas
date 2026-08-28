@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -132,6 +133,16 @@ public class AddendumService {
         }
         if (request.version() != addendum.getVersion()) {
             throw new ObjectOptimisticLockingFailureException(Addendum.class, id);
+        }
+        // The parent is immutable. Silently ignoring a different contractId would answer 200 to
+        // a reassignment request that did not happen, and an addendum belongs to the contract it
+        // amends — moving it would change which contract's terms it applies to on activation.
+        if (!Objects.equals(addendum.getContract().getId(), request.contractId())) {
+            throw new UnprocessableEntityException(
+                    ("Addendum %s belongs to contract %s and cannot be moved to %s; "
+                            + "create a new addendum against the other contract instead")
+                            .formatted(addendum.getAddendumNo(),
+                                    addendum.getContract().getId(), request.contractId()));
         }
         ChangeType changeType = RequestValues.parseRequired("changeType", request.changeType(),
                 ChangeType::valueOf, ChangeType.values());
@@ -259,6 +270,12 @@ public class AddendumService {
                     "applyEffectsToParent must run in the addendum's own transaction (registry §9²)");
         }
         Contract parent = addendum.getContract();
+        // Last possible moment, and the one that matters most: approval takes days, and a
+        // contract cancelled or expired in the meantime must not have its terms rewritten by an
+        // addendum that outlived it. Refusing here rolls the ACTIVE flip back with it, so the
+        // addendum stays APPROVED and the next sweep reports the same refusal.
+        requireAmendable(parent);
+
         Map<String, Object> was = Map.of(
                 "validTo", parent.getValidTo(),
                 "paymentTerm", String.valueOf(parent.getPaymentTerm()));
@@ -289,6 +306,7 @@ public class AddendumService {
 
     // --- validation ---------------------------------------------------------------------------
 
+    /** APPROVED or ACTIVE — checked at create, again at submit, and again before effects land. */
     private void requireAmendable(Contract parent) {
         DocumentStatus status = parent.getStatus();
         if (status != DocumentStatus.APPROVED && status != DocumentStatus.ACTIVE) {
@@ -311,6 +329,16 @@ public class AddendumService {
                     throw new UnprocessableEntityException(
                             "newValidTo is required for a TERM_EXTENSION addendum (D14b renewal)");
                 }
+                // Checked before the extension rule below: a request whose own two dates
+                // contradict each other is answered on its own terms, rather than by comparing
+                // one of them to the contract. Activation would otherwise set valid_to to a date
+                // already past, and the D14d sweep would expire the contract on its next run.
+                if (request.effectiveFrom().isAfter(request.newValidTo())) {
+                    throw new UnprocessableEntityException(
+                            ("effectiveFrom (%s) must not be after newValidTo (%s); an addendum "
+                                    + "cannot take effect after the expiry date it sets")
+                                    .formatted(request.effectiveFrom(), request.newValidTo()));
+                }
                 if (!request.newValidTo().isAfter(parent.getValidTo())) {
                     throw new UnprocessableEntityException(
                             ("newValidTo (%s) must be after the contract's current validTo (%s); "
@@ -332,19 +360,47 @@ public class AddendumService {
             }
             case UNIT_PRICE_CHANGE -> { }   // records only that prices change, and from when (D8)
         }
+        requireWithinParentValidity(request.effectiveFrom(), parent);
     }
 
-    /** CTR-02's analogue: an addendum is a document, so it needs its evidence before submission. */
+    /**
+     * An addendum amends a contract that is in force, so it must take effect while that is still
+     * true. The upper bound is the parent's CURRENT validTo, before any extension this addendum
+     * proposes — a TERM_EXTENSION effective after the old expiry would activate against a contract
+     * the D14d sweep had already moved to EXPIRED, and EXPIRED → ACTIVE is deliberately not a
+     * registry §9 edge in this session (the deferred expired-renewal decision). If that edge is
+     * ever added, this bound is the thing to revisit.
+     */
+    private void requireWithinParentValidity(LocalDate effectiveFrom, Contract parent) {
+        if (effectiveFrom.isBefore(parent.getValidFrom())) {
+            throw new UnprocessableEntityException(
+                    ("effectiveFrom (%s) precedes the contract's validFrom (%s)")
+                            .formatted(effectiveFrom, parent.getValidFrom()));
+        }
+        if (effectiveFrom.isAfter(parent.getValidTo())) {
+            throw new UnprocessableEntityException(
+                    ("effectiveFrom (%s) is after the contract's current validTo (%s); the "
+                            + "contract would already have expired, and renewing an EXPIRED "
+                            + "contract is not a registry §9 edge")
+                            .formatted(effectiveFrom, parent.getValidTo()));
+        }
+    }
+
+    /**
+     * CTR-02's analogue: an addendum is a document, so it needs its evidence before submission.
+     *
+     * <p>The parent is re-checked here rather than trusted from create, for the same reason
+     * {@code ContractService} re-reads the customer at submit: the world moves in between. A
+     * contract can be cancelled, or expire, while its addendum sits in DRAFT for a week.
+     */
     private void requireSubmittable(Addendum addendum) {
         if (!attachments.existsByOwnerTypeAndOwnerId(EntityType.ADDENDUM, addendum.getId())) {
             throw new UnprocessableEntityException(
                     "Addendum %s has no attachment; at least one is required to submit (CTR-02)"
                             .formatted(addendum.getAddendumNo()));
         }
-        if (addendum.getEffectiveFrom().isBefore(addendum.getContract().getValidFrom())) {
-            throw new UnprocessableEntityException(
-                    "effectiveFrom must not precede the contract's validFrom");
-        }
+        requireAmendable(addendum.getContract());
+        requireWithinParentValidity(addendum.getEffectiveFrom(), addendum.getContract());
     }
 
     // --- mapping ------------------------------------------------------------------------------
@@ -359,7 +415,11 @@ public class AddendumService {
         addendum.setNewValidTo(changeType == ChangeType.TERM_EXTENSION ? request.newValidTo() : null);
         addendum.setPaymentTermOverride(changeType == ChangeType.PAYMENT_TERMS
                 ? RequestValues.blankToNull(request.paymentTermOverride()) : null);
-        replaceServices(addendum, request.services());
+        // Only ADDED_SERVICE carries service lines. Retyping an addendum away from it has to drop
+        // them, exactly as the scalar overrides above are dropped — otherwise the rows stay
+        // attached, invisible to the new type's validation, and reappear if it is retyped back.
+        replaceServices(addendum,
+                changeType == ChangeType.ADDED_SERVICE ? request.services() : List.of());
     }
 
     /** Wholesale replacement, as for customer contacts: the list is the request's, not a delta. */
@@ -368,6 +428,10 @@ public class AddendumService {
             return;
         }
         addendum.getServices().clear();
+        // Flushed between the delete and the inserts. Without it Hibernate is free to order the
+        // inserts first within the one flush, and re-adding a line with the same service_code
+        // collides with the row that is about to be removed (uq_addendum_service_code).
+        addenda.flush();
         for (AddendumRequest.ServiceLine line : requested) {
             AddendumServiceLine service =
                     AddendumServiceLine.create(line.serviceCode(), line.serviceName());
@@ -385,8 +449,15 @@ public class AddendumService {
         fields.put("effectiveFrom", addendum.getEffectiveFrom());
         fields.put("newValidTo", addendum.getNewValidTo());
         fields.put("paymentTermOverride", addendum.getPaymentTermOverride());
+        // Every persisted field, or an edit to a unit or a scope note produces an audit row that
+        // claims nothing changed. Sorted so a reorder is not itself a change.
         fields.put("services", addendum.getServices().stream()
-                .map(s -> s.getServiceCode() + "|" + s.getServiceName())
+                .map(line -> String.join("|",
+                        String.valueOf(line.getServiceItemId()),
+                        line.getServiceCode(),
+                        line.getServiceName(),
+                        String.valueOf(line.getUnit()),
+                        String.valueOf(line.getScopeNote())))
                 .sorted()
                 .toList());
         return fields;

@@ -1,10 +1,11 @@
 package com.abclogistics.pas.contract.listener;
 
-import com.abclogistics.pas.contract.domain.Contract;
+import com.abclogistics.pas.contract.domain.ApprovableDocument;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.ProcessedEvent;
 import com.abclogistics.pas.contract.domain.TriggerKind;
+import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.repository.ProcessedEventRepository;
 import com.abclogistics.pas.contract.service.StatusTransitionService;
@@ -26,6 +27,11 @@ import java.util.UUID;
  * {@code pas.events} (group {@code contract-service}), discriminating on the
  * {@code document_type} header so records for other owners are skipped before deserialization.
  *
+ * <p>Both of this service's document types are handled. An addendum starts its own workflow
+ * instance under document type {@code ADDENDUM} (4.3), so consuming only {@code CONTRACT} would
+ * leave every submitted addendum stuck at SUBMITTED for ever — never reviewed, never approved,
+ * and therefore never activated to apply its effects to the parent.
+ *
  * <p>Every handler is idempotent via {@code processed_event}, inserted in the same transaction
  * as the effect: offsets commit after processing, so a mid-batch death re-reads records that were
  * already applied.
@@ -45,13 +51,16 @@ public class WorkflowEventListener {
     private static final Logger log = LoggerFactory.getLogger(WorkflowEventListener.class);
 
     private final ContractRepository contracts;
+    private final AddendumRepository addenda;
     private final StatusTransitionService transitions;
     private final ProcessedEventRepository processed;
     private final ObjectMapper objectMapper;
 
-    public WorkflowEventListener(ContractRepository contracts, StatusTransitionService transitions,
+    public WorkflowEventListener(ContractRepository contracts, AddendumRepository addenda,
+                                 StatusTransitionService transitions,
                                  ProcessedEventRepository processed, ObjectMapper objectMapper) {
         this.contracts = contracts;
+        this.addenda = addenda;
         this.transitions = transitions;
         this.processed = processed;
         this.objectMapper = objectMapper;
@@ -85,7 +94,7 @@ public class WorkflowEventListener {
         if (!INSTANCE_STARTED.equals(type) && !COMPLETED.equals(type)) {
             return;
         }
-        if (!EntityType.CONTRACT.name().equals(documentType)) {
+        if (ownedType(documentType) == null) {
             return;   // a PRICE_LIST or PAYMENT_STATEMENT approval; another owner's document
         }
         if (eventId == null) {
@@ -110,38 +119,38 @@ public class WorkflowEventListener {
         }
     }
 
-    /** {@code workflow.instance_started} → SUBMITTED → UNDER_REVIEW. */
+    /** {@code workflow.instance_started} → SUBMITTED → UNDER_REVIEW, for either document type. */
     @Transactional
     public void onInstanceStarted(String payload, String documentType, String eventId, UUID documentId) {
-        Contract contract = target(documentType, eventId, documentId);
-        if (contract == null) {
+        ApprovableDocument document = target(documentType, eventId, documentId);
+        if (document == null) {
             return;
         }
-        if (contract.getStatus() != DocumentStatus.SUBMITTED) {
+        if (document.getStatus() != DocumentStatus.SUBMITTED) {
             // completed already arrived and filled this edge in. Recording the dedup row and doing
             // nothing else is the whole point of order tolerance.
-            log.debug("instance_started for {} ignored: already {}", documentId, contract.getStatus());
+            log.debug("instance_started for {} ignored: already {}", documentId, document.getStatus());
             return;
         }
         UUID instanceId = uuid(payload, "instance_id");
-        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+        transitions.transition(document.entityType(), document.getId(), document.getDocumentNo(),
                 DocumentStatus.SUBMITTED, DocumentStatus.UNDER_REVIEW, TriggerKind.W, instanceId,
                 "Approval instance started");
-        contract.setStatus(DocumentStatus.UNDER_REVIEW);
+        document.setStatus(DocumentStatus.UNDER_REVIEW);
     }
 
     /** {@code workflow.completed} → APPROVED / REJECTED / REVISION_REQUESTED. */
     @Transactional
     public void onCompleted(String payload, String documentType, String eventId, UUID documentId) {
-        Contract contract = target(documentType, eventId, documentId);
-        if (contract == null) {
+        ApprovableDocument document = target(documentType, eventId, documentId);
+        if (document == null) {
             return;
         }
         DocumentStatus outcome = outcomeOf(payload);
         UUID instanceId = uuid(payload, "instance_id");
-        transitions.transitionOrderTolerant(EntityType.CONTRACT, contract.getId(),
-                contract.getContractNo(), contract.getStatus(), outcome, instanceId);
-        contract.setStatus(outcome);
+        transitions.transitionOrderTolerant(document.entityType(), document.getId(),
+                document.getDocumentNo(), document.getStatus(), outcome, instanceId);
+        document.setStatus(outcome);
     }
 
     /**
@@ -149,10 +158,11 @@ public class WorkflowEventListener {
      * document still exist. Claiming the event id here — in the handler's transaction — is what
      * makes a rolled-back effect release its claim too.
      *
-     * @return the contract to act on, or null when there is nothing to do.
+     * @return the document to act on, or null when there is nothing to do.
      */
-    private Contract target(String documentType, String eventId, UUID documentId) {
-        if (!EntityType.CONTRACT.name().equals(documentType)) {
+    private ApprovableDocument target(String documentType, String eventId, UUID documentId) {
+        EntityType type = ownedType(documentType);
+        if (type == null) {
             return null;
         }
         UUID id = UUID.fromString(eventId);
@@ -162,13 +172,26 @@ public class WorkflowEventListener {
         }
         processed.save(ProcessedEvent.of(id));
 
-        Contract contract = contracts.findById(documentId).orElse(null);
-        if (contract == null) {
-            // Nothing to apply and nothing to retry: another service's CONTRACT, or a document
-            // this database never had. The dedup row stops it coming back.
-            log.warn("Workflow event {} references unknown contract {}", id, documentId);
+        ApprovableDocument document = switch (type) {
+            case CONTRACT -> contracts.findById(documentId).orElse(null);
+            case ADDENDUM -> addenda.findById(documentId).orElse(null);
+        };
+        if (document == null) {
+            // Nothing to apply and nothing to retry: a document this database never had. The
+            // dedup row stops it coming back round the partition for ever.
+            log.warn("Workflow event {} references unknown {} {}", id, type, documentId);
         }
-        return contract;
+        return document;
+    }
+
+    /** The document types this service owns, or null for another owner's (registry §4). */
+    private static EntityType ownedType(String documentType) {
+        for (EntityType type : EntityType.values()) {
+            if (type.name().equals(documentType)) {
+                return type;
+            }
+        }
+        return null;
     }
 
     private DocumentStatus outcomeOf(String payload) {

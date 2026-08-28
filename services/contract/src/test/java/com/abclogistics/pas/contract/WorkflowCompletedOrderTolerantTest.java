@@ -5,11 +5,13 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.domain.TriggerKind;
+import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.listener.WorkflowEventListener;
 import com.abclogistics.pas.contract.repository.ProcessedEventRepository;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
+import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
@@ -97,6 +99,7 @@ class WorkflowCompletedOrderTolerantTest {
     @MockitoBean WorkflowGrpcClient workflow;
 
     @Autowired WorkflowEventListener listener;
+    @Autowired AddendumService addenda;
     @Autowired ContractService contracts;
     @Autowired CustomerService customers;
     @Autowired AttachmentService attachments;
@@ -325,6 +328,83 @@ class WorkflowCompletedOrderTolerantTest {
                 "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->APPROVED");
     }
 
+    // --- addenda: the same machine, under their own document type ---------------------------
+
+    @Test
+    void anAddendumReachesUnderReviewOnItsOwnInstanceStarted() {
+        // An addendum starts its own workflow instance (4.3). A consumer that only handled
+        // CONTRACT would leave it at SUBMITTED for ever -- never reviewed, never approved, and
+        // therefore never activated to apply its effects to the parent.
+        UUID id = submittedAddendum();
+
+        tx.executeWithoutResult(s -> listener.onEvent(
+                startedPayload(UUID.randomUUID(), id), "workflow.instance_started", "ADDENDUM",
+                UUID.randomUUID().toString(), id.toString()));
+
+        assertThat(addendumStatus(id)).isEqualTo(DocumentStatus.UNDER_REVIEW);
+    }
+
+    @Test
+    void anAddendumReachesApprovedAndIsThenActivatable() {
+        // The end of the chain the P0 gap cut: approved by workflow, then activated by the D14d
+        // sweep, which is what applies TERM_EXTENSION to the parent.
+        UUID contractId = activeContract();
+        UUID id = submittedAddendum(contractId);
+        UUID instanceId = UUID.randomUUID();
+
+        tx.executeWithoutResult(s -> listener.onEvent(
+                completedPayload(instanceId, "APPROVED"), "workflow.completed", "ADDENDUM",
+                UUID.randomUUID().toString(), id.toString()));
+
+        assertThat(addendumStatus(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(addendumEdges(id)).containsExactly(
+                "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->APPROVED");
+
+        tx.executeWithoutResult(s -> addenda.activate(id));
+        assertThat(addendumStatus(id)).isEqualTo(DocumentStatus.ACTIVE);
+        LocalDate parentValidTo = tx.execute(s -> contracts.get(contractId).getValidTo());
+        assertThat(parentValidTo).isEqualTo(LocalDate.of(2027, 6, 30));
+    }
+
+    @Test
+    void anAddendumIsOrderTolerantToo() {
+        UUID id = submittedAddendum();
+
+        completedFor(id, UUID.randomUUID(), "REVISION_REQUESTED");
+
+        assertThat(addendumStatus(id)).isEqualTo(DocumentStatus.REVISION_REQUESTED);
+        assertThat(addendumEdges(id)).containsExactly(
+                "SUBMITTED->UNDER_REVIEW", "UNDER_REVIEW->REVISION_REQUESTED");
+    }
+
+    @Test
+    void anAddendumEventDoesNotDisturbItsParentContract() {
+        // The record key is the addendum's id, and the two documents have separate status
+        // machines -- approving an addendum says nothing about the contract it amends.
+        UUID contractId = activeContract();
+        UUID id = submittedAddendum(contractId);
+
+        completedFor(id, UUID.randomUUID(), "APPROVED");
+
+        DocumentStatus parentStatus = tx.execute(s -> contracts.get(contractId).getStatus());
+        assertThat(parentStatus).isEqualTo(DocumentStatus.ACTIVE);
+    }
+
+    @Test
+    void addendumEventsDedupOnTheirOwnEventIds() {
+        UUID id = submittedAddendum();
+        UUID eventId = UUID.randomUUID();
+        UUID instanceId = UUID.randomUUID();
+        tx.executeWithoutResult(s -> listener.onCompleted(
+                completedPayload(instanceId, "APPROVED"), "ADDENDUM", eventId.toString(), id));
+        long rows = historyRows();
+
+        tx.executeWithoutResult(s -> listener.onCompleted(
+                completedPayload(instanceId, "APPROVED"), "ADDENDUM", eventId.toString(), id));
+
+        assertThat(historyRows()).isEqualTo(rows);
+    }
+
     // --- helpers ----------------------------------------------------------------------------
 
     private void started(UUID contractId, UUID instanceId, UUID eventId) {
@@ -346,6 +426,53 @@ class WorkflowCompletedOrderTolerantTest {
         return """
                 {"instance_id":"%s","outcome":"%s","document_no":"HD-2026-0001",
                  "requested_by":"Nguyen Thi Lan"}""".formatted(instanceId, outcome);
+    }
+
+    private void completedFor(UUID documentId, UUID instanceId, String outcome) {
+        tx.executeWithoutResult(s -> listener.onEvent(
+                completedPayload(instanceId, outcome), "workflow.completed", "ADDENDUM",
+                UUID.randomUUID().toString(), documentId.toString()));
+    }
+
+    private String startedPayload(UUID instanceId, UUID documentId) {
+        return """
+                {"instance_id":"%s","document_no":"ADD-2026-0001","priority":"NORMAL",
+                 "document_type":"ADDENDUM","document_id":"%s"}"""
+                .formatted(instanceId, documentId);
+    }
+
+    private DocumentStatus addendumStatus(UUID id) {
+        return tx.execute(s -> addenda.get(id).getStatus());
+    }
+
+    private List<String> addendumEdges(UUID id) {
+        List<StatusHistory> all = tx.execute(s ->
+                history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(EntityType.ADDENDUM, id));
+        return all.stream()
+                .filter(row -> row.getFromStatus() != DocumentStatus.DRAFT)
+                .map(row -> row.getFromStatus() + "->" + row.getToStatus())
+                .toList();
+    }
+
+    private UUID submittedAddendum() {
+        return submittedAddendum(activeContract());
+    }
+
+    private UUID submittedAddendum(UUID contractId) {
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(
+                contractId, "TERM_EXTENSION", "renewal", LocalDate.of(2026, 6, 1),
+                LocalDate.of(2027, 6, 30), null, null, null)).getId());
+        tx.execute(s -> attachments.upload(EntityType.ADDENDUM, id,
+                new MockMultipartFile("file", "annex.pdf", "application/pdf",
+                        "annex".getBytes(StandardCharsets.UTF_8))));
+        tx.executeWithoutResult(s -> addenda.submit(id));
+        return id;
+    }
+
+    private UUID activeContract() {
+        UUID id = submittedContract();
+        tx.executeWithoutResult(s -> contracts.get(id).setStatus(DocumentStatus.ACTIVE));
+        return id;
     }
 
     private List<StatusHistory> rows(UUID contractId) {

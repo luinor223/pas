@@ -20,13 +20,17 @@ import com.abclogistics.pas.contract.domain.ServiceGroup;
 import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.domain.EntityType;
+import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.service.AddendumService;
+import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -61,6 +65,16 @@ class AddendumActiveAppliesToParentTxTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7"))
             .withExposedPorts(6379);
 
+    static final java.nio.file.Path STORAGE = createTempStorage();
+
+    private static java.nio.file.Path createTempStorage() {
+        try {
+            return java.nio.file.Files.createTempDirectory("pas-addendum").toRealPath();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
@@ -71,6 +85,7 @@ class AddendumActiveAppliesToParentTxTest {
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("outbox.relay.enabled", () -> "false");
         registry.add("contract.kafka.listener-enabled", () -> "false");
+        registry.add("contract.attachment-storage-path", STORAGE::toString);
     }
 
     private static final AuthenticatedUser SALES = new AuthenticatedUser(
@@ -81,6 +96,7 @@ class AddendumActiveAppliesToParentTxTest {
     @Autowired AddendumService addenda;
     @Autowired ContractService contracts;
     @Autowired CustomerService customers;
+    @Autowired AttachmentService attachments;
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate tx;
 
@@ -203,6 +219,152 @@ class AddendumActiveAppliesToParentTxTest {
         assertThat(auditRows(contractId, "ADDENDUM_APPLIED")).isZero();
     }
 
+    // --- the parent moves under the addendum's feet ------------------------------------------
+
+    @Test
+    void aCancelledParentIsRefusedAtSubmit() {
+        // Create validates the parent, but approval takes days and a contract can be cancelled
+        // while its addendum sits in DRAFT.
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        attach(id);
+        tx.executeWithoutResult(s -> contracts.get(contractId).setStatus(DocumentStatus.CANCELLED));
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> addenda.submit(id)))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("APPROVED or ACTIVE");
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.DRAFT);
+    }
+
+    @Test
+    void anExpiredParentIsRefusedAtActivation() {
+        // The last and most important check: an approved addendum must not rewrite the terms of a
+        // contract that expired while it was being approved.
+        UUID contractId = activeContract();
+        UUID id = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+        tx.executeWithoutResult(s -> contracts.get(contractId).setStatus(DocumentStatus.EXPIRED));
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> addenda.activate(id)))
+                .isInstanceOf(UnprocessableEntityException.class);
+
+        // and the refusal takes the ACTIVE flip with it, so the next sweep reports the same thing
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2026, 12, 31));
+    }
+
+    // --- validation --------------------------------------------------------------------------
+
+    @Test
+    void anAddendumMayNotTakeEffectAfterTheExpiryItSets() {
+        // effectiveFrom 2026-09-01 with newValidTo 2026-08-01 would activate onto a date already
+        // past, and the D14d sweep would expire the contract on its very next run.
+        UUID contractId = activeContract();
+        AddendumRequest request = new AddendumRequest(contractId, "TERM_EXTENSION", "renewal",
+                LocalDate.of(2026, 12, 1), LocalDate.of(2026, 11, 30), null, null, null);
+
+        assertThatThrownBy(() -> tx.execute(s -> addenda.create(request)))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("effectiveFrom");
+    }
+
+    @Test
+    void anAddendumMayNotTakeEffectAfterTheParentHasExpired() {
+        // Renewing an already-EXPIRED contract is not a §9 edge in this session, so an addendum
+        // cannot be scheduled to land after the parent's current expiry.
+        UUID contractId = activeContract();
+        AddendumRequest request = new AddendumRequest(contractId, "TERM_EXTENSION", "renewal",
+                LocalDate.of(2027, 1, 15), LocalDate.of(2027, 6, 30), null, null, null);
+
+        assertThatThrownBy(() -> tx.execute(s -> addenda.create(request)))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("already have expired");
+    }
+
+    @Test
+    void aShorteningTermExtensionIsStillRefused() {
+        UUID contractId = activeContract();
+        // effectiveFrom before newValidTo, so the request is internally coherent and it is the
+        // comparison against the contract that has to refuse it.
+        AddendumRequest request = new AddendumRequest(contractId, "TERM_EXTENSION", "renewal",
+                LocalDate.of(2026, 1, 15), LocalDate.of(2026, 3, 31), null, null, null);
+
+        assertThatThrownBy(() -> tx.execute(s -> addenda.create(request)))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("does not shorten");
+    }
+
+    // --- update -------------------------------------------------------------------------------
+
+    @Test
+    void retypingAnAddendumDropsTheServiceLinesTheOldTypeCarried() {
+        // The scalar overrides are already cleared on a retype; the rows have to go the same way,
+        // or they stay attached, invisible to the new type, and reappear if it is retyped back.
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(addedService(contractId)).getId());
+        Integer version = tx.execute(s -> addenda.get(id).getVersion());
+
+        tx.executeWithoutResult(s -> addenda.update(id, new AddendumRequest(
+                contractId, "PAYMENT_TERMS", "terms change", LocalDate.of(2026, 6, 1),
+                null, "NET60", null, version)));
+
+        List<AddendumServiceLine> lines = tx.execute(s -> List.copyOf(addenda.get(id).getServices()));
+        assertThat(lines).isEmpty();
+        String override = tx.execute(s -> addenda.get(id).getPaymentTermOverride());
+        assertThat(override).isEqualTo("NET60");
+    }
+
+    @Test
+    void aNonAddedServiceTypeCannotSmuggleInServiceLines() {
+        UUID contractId = activeContract();
+        AddendumRequest request = new AddendumRequest(contractId, "PAYMENT_TERMS", "terms",
+                LocalDate.of(2026, 6, 1), null, "NET60",
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", null, null)),
+                null);
+
+        UUID id = tx.execute(s -> addenda.create(request).getId());
+
+        List<AddendumServiceLine> lines = tx.execute(s -> List.copyOf(addenda.get(id).getServices()));
+        assertThat(lines).isEmpty();
+    }
+
+    @Test
+    void anAddendumCannotBeMovedToAnotherContract() {
+        // Answering 200 to a reassignment that did not happen is worse than refusing it: the
+        // addendum would still apply its effects to the contract the client thinks it left.
+        UUID contractId = activeContract();
+        UUID otherContractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        Integer version = tx.execute(s -> addenda.get(id).getVersion());
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> addenda.update(id,
+                new AddendumRequest(otherContractId, "TERM_EXTENSION", "renewal",
+                        LocalDate.of(2026, 6, 1), LocalDate.of(2027, 6, 30), null, null, version))))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("cannot be moved");
+
+        UUID parentId = tx.execute(s -> addenda.get(id).getContract().getId());
+        assertThat(parentId).isEqualTo(contractId);
+    }
+
+    @Test
+    void aServiceLineEditIsAuditedDownToItsScopeNote() {
+        // Snapshotting only code and name would report "nothing changed" for an edit to a unit or
+        // a scope note, which is the one record of what the line used to say.
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(addedService(contractId)).getId());
+        Integer version = tx.execute(s -> addenda.get(id).getVersion());
+
+        tx.executeWithoutResult(s -> addenda.update(id, new AddendumRequest(
+                contractId, "ADDED_SERVICE", "new service", LocalDate.of(2026, 6, 1), null, null,
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", "pallet",
+                        "inbound only")),
+                version)));
+
+        String payload = auditPayload(id, "UPDATE");
+        assertThat(payload).contains("services").contains("pallet").contains("inbound only");
+    }
+
     // --- helpers ----------------------------------------------------------------------------
 
     private AddendumRequest termExtension(UUID contractId, LocalDate newValidTo) {
@@ -232,6 +394,12 @@ class AddendumActiveAppliesToParentTxTest {
         UUID id = tx.execute(s -> addenda.create(request).getId());
         tx.executeWithoutResult(s -> addenda.get(id).setStatus(DocumentStatus.APPROVED));
         return id;
+    }
+
+    private void attach(UUID addendumId) {
+        tx.execute(s -> attachments.upload(EntityType.ADDENDUM, addendumId,
+                new MockMultipartFile("file", "annex.pdf", "application/pdf",
+                        "annex".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
     }
 
     private UUID activeContract() {
