@@ -2,6 +2,7 @@ package com.abclogistics.pas.contract.service;
 
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.ForbiddenException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.Attachment;
@@ -11,10 +12,9 @@ import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
+import com.abclogistics.pas.contract.storage.AttachmentStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.core.io.Resource;
@@ -25,46 +25,46 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Attachment metadata + volume-backed storage. Bytes go to the mounted path configured by
- * {@code contract.attachment-storage-path}; only metadata is persisted.
+ * Attachment metadata and lifecycle. Bytes go to {@link AttachmentStorage} under a generated key;
+ * the client's filename is display-only and never used to build one.
  *
- * <p>Files are stored under a generated name, never the client's. An uploaded filename is
- * attacker-controlled text — {@code ../../etc/passwd} is a valid string — so it is kept for
- * display only and never used to build a path.
+ * <p>Permissions are per owner type ({@code contract:*} vs {@code addendum:*}, registry §10) and
+ * so cannot be a {@code @PreAuthorize} — download and delete know the owner only after the read.
  *
- * <p>The bytes and the row are two stores with no shared transaction, so every write registers a
- * transaction synchronization to reconcile them: a rolled-back upload deletes the file it wrote,
- * and a committed delete removes the bytes only after the row is actually gone. Doing either
- * eagerly is wrong in the opposite direction — deleting before commit loses the file if the
- * transaction rolls back.
+ * <p>Bytes and row are two stores with no shared transaction, so writes reconcile them in a
+ * transaction synchronization: rolled-back upload deletes its object, committed delete removes
+ * the bytes only once the row is really gone.
  */
 @Service
 public class AttachmentService {
 
     private static final Logger log = LoggerFactory.getLogger(AttachmentService.class);
 
+    private static final String READ = "read";
+    private static final String WRITE = "write";
+
     private final AttachmentRepository attachments;
     private final ContractRepository contracts;
     private final AddendumRepository addenda;
     private final AuditRecorder audit;
-    private final Path storageRoot;
+    private final AttachmentStorage storage;
 
     public AttachmentService(AttachmentRepository attachments, ContractRepository contracts,
                              AddendumRepository addenda, AuditRecorder audit,
-                             @Value("${contract.attachment-storage-path}") String storagePath) {
+                             AttachmentStorage storage) {
         this.attachments = attachments;
         this.contracts = contracts;
         this.addenda = addenda;
         this.audit = audit;
-        this.storageRoot = Path.of(storagePath).toAbsolutePath().normalize();
+        this.storage = storage;
     }
 
     /** Metadata plus the bytes to stream, resolved together so the two cannot disagree. */
@@ -72,6 +72,7 @@ public class AttachmentService {
 
     @Transactional(readOnly = true)
     public List<Attachment> list(EntityType ownerType, UUID ownerId) {
+        requirePermission(ownerType, READ);
         return attachments.findByOwnerTypeAndOwnerId(ownerType, ownerId);
     }
 
@@ -81,49 +82,48 @@ public class AttachmentService {
                 .orElseThrow(() -> new NotFoundException("Attachment %s not found".formatted(id)));
     }
 
-    /**
-     * Readable regardless of owner status — CTR-01 freezes the file set, it does not hide it.
-     * An approved contract's attachments are exactly what must stay readable.
-     */
+    /** Readable regardless of owner status: CTR-01 freezes the file set, it does not hide it. */
     @Transactional(readOnly = true)
     public AttachmentContent download(UUID id) {
         Attachment attachment = get(id);
-        Path file = containedPath(attachment);
-        if (!Files.isReadable(file)) {
-            // The row is the record of truth, so a missing file is a storage fault, not a 404.
-            throw new IllegalStateException(
-                    "Attachment %s has no readable file at its storage path".formatted(id));
+        // After the read: the id alone does not say which document type this belongs to.
+        requirePermission(attachment.getOwnerType(), READ);
+        Resource resource;
+        try {
+            resource = storage.load(attachment.getStoragePath());
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to load attachment %s".formatted(id), e);
         }
-        return new AttachmentContent(attachment, new FileSystemResource(file));
+        if (!resource.isReadable()) {
+            // The row is the record of truth, so a missing object is a storage fault, not a 404.
+            throw new IllegalStateException(
+                    "Attachment %s has no readable object at its storage key".formatted(id));
+        }
+        return new AttachmentContent(attachment, resource);
     }
 
-    /**
-     * Allowed only while the owner is editable (CTR-01) — an approved document's file set is fixed,
-     * or the thing that was approved is not the thing on file.
-     */
+    /** Only while the owner is editable (CTR-01): an approved document's file set is fixed. */
     @Transactional
     public Attachment upload(EntityType ownerType, UUID ownerId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new UnprocessableEntityException("An empty file cannot be attached");
         }
-        // file_name is NOT NULL, and a nameless attachment is unusable in the UI anyway. Refusing
-        // here is a 422; letting it through is a constraint violation at flush time.
         String fileName = requireFileName(file.getOriginalFilename());
+        requirePermission(ownerType, WRITE);
         requireEditableOwner(ownerType, ownerId);
 
         UUID id = UUID.randomUUID();
-        Path destination = storageRoot.resolve(ownerType.name().toLowerCase()).resolve(id.toString());
-        try {
-            Files.createDirectories(destination.getParent());
-            file.transferTo(destination);
+        String storageKey;
+        try (InputStream content = file.getInputStream()) {
+            storageKey = storage.store(ownerType, id, content, file.getSize());
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to store attachment for %s %s".formatted(ownerType, ownerId), e);
         }
-        deleteOnRollback(destination);
+        deleteOnRollback(storageKey);
 
         Attachment attachment = Attachment.create(ownerType, ownerId,
                 fileName, safeContentType(file.getContentType()), file.getSize(),
-                destination.toString(), SecurityUtils.currentUserId());
+                storageKey, SecurityUtils.currentUserId());
         attachments.save(attachment);
 
         audit.record(ownerType.name(), ownerId, null, "ATTACH", null, null, null,
@@ -134,11 +134,11 @@ public class AttachmentService {
     @Transactional
     public void delete(UUID id) {
         Attachment attachment = get(id);
+        requirePermission(attachment.getOwnerType(), WRITE);
         requireEditableOwner(attachment.getOwnerType(), attachment.getOwnerId());
 
-        Path file = containedPath(attachment);
         attachments.delete(attachment);
-        deleteOnCommit(file);
+        deleteOnCommit(attachment.getStoragePath());
 
         audit.record(attachment.getOwnerType().name(), attachment.getOwnerId(), null, "DETACH",
                 null, null, null, Map.of("fileName", attachment.getFileName()));
@@ -152,11 +152,7 @@ public class AttachmentService {
         return fileName;
     }
 
-    /**
-     * The content type is client-supplied and only ever read back on download. An unparseable one
-     * stored verbatim makes a successfully uploaded file impossible to retrieve, so it is
-     * normalised on the way in — octet-stream is always a truthful answer for bytes.
-     */
+    /** Client-supplied: an unparseable type stored verbatim makes the file undownloadable. */
     public static String safeContentType(String declared) {
         if (declared == null || declared.isBlank()) {
             return MediaType.APPLICATION_OCTET_STREAM_VALUE;
@@ -165,6 +161,15 @@ public class AttachmentService {
             return MediaType.parseMediaType(declared).toString();
         } catch (InvalidMediaTypeException e) {
             return MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+    }
+
+    /** Holding {@code contract:*} has never implied {@code addendum:*} (registry §10). */
+    private void requirePermission(EntityType ownerType, String verb) {
+        String permission = ownerType.name().toLowerCase(Locale.ROOT) + ":" + verb;
+        if (!SecurityUtils.hasPermission(permission)) {
+            throw new ForbiddenException(
+                    "%s is required to %s attachments of a %s".formatted(permission, verb, ownerType));
         }
     }
 
@@ -184,41 +189,26 @@ public class AttachmentService {
         }
     }
 
-    /**
-     * Every path that leaves this class is re-checked against the storage root. The stored path is
-     * server-generated today, but a read or delete driven by a database value must not be one bad
-     * row away from touching an arbitrary file.
-     */
-    private Path containedPath(Attachment attachment) {
-        Path file = Path.of(attachment.getStoragePath()).toAbsolutePath().normalize();
-        if (!file.startsWith(storageRoot)) {
-            throw new IllegalStateException(
-                    "Attachment %s points outside the storage root".formatted(attachment.getId()));
-        }
-        return file;
-    }
-
-    private void deleteOnRollback(Path file) {
+    private void deleteOnRollback(String storageKey) {
         onCompletion(status -> {
             if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
-                quietlyDelete(file);
+                quietlyDelete(storageKey);
             }
-        }, file);
+        }, storageKey);
     }
 
-    private void deleteOnCommit(Path file) {
+    private void deleteOnCommit(String storageKey) {
         onCompletion(status -> {
             if (status == TransactionSynchronization.STATUS_COMMITTED) {
-                quietlyDelete(file);
+                quietlyDelete(storageKey);
             }
-        }, file);
+        }, storageKey);
     }
 
-    private void onCompletion(java.util.function.IntConsumer action, Path file) {
+    private void onCompletion(java.util.function.IntConsumer action, String storageKey) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            // Both callers are @Transactional, so this means someone bypassed the proxy. Leaving
-            // the file is the safe half of the trade: an orphan is inert, a lost file is not.
-            log.warn("No transaction synchronization active; leaving {} to the cleanup sweep", file);
+            // Proxy bypassed. Leaving the object is the safe half: an orphan is inert.
+            log.warn("No transaction synchronization active; leaving {} to the cleanup sweep", storageKey);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -229,16 +219,12 @@ public class AttachmentService {
         });
     }
 
-    /**
-     * After completion there is no transaction left to fail, so a failed delete cannot be
-     * escalated here. It is not dropped either: {@link AttachmentCleanupSweep} finds the file
-     * again because no row references it.
-     */
-    private void quietlyDelete(Path file) {
+    /** Post-completion, so a failed delete cannot be escalated — the sweep retries it. */
+    private void quietlyDelete(String storageKey) {
         try {
-            Files.deleteIfExists(file);
+            storage.delete(storageKey);
         } catch (IOException e) {
-            log.warn("Failed to delete attachment file {}; the cleanup sweep will retry it", file, e);
+            log.warn("Failed to delete attachment object {}; the cleanup sweep will retry it", storageKey, e);
         }
     }
 }

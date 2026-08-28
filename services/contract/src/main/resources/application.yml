@@ -76,21 +76,12 @@ outbox:
 
 contract:
   kafka:
-    # registry §4: a record that can never be processed goes to <topic>.DLT so the offset can
-    # advance — without it a poison workflow.completed retries forever and blocks the partition.
     dlt-suffix: ".DLT"
     retry-attempts: 3
     retry-backoff: PT2S
-  # D14d status scheduler — APPROVED->ACTIVE at valid_from, ACTIVE->EXPIRED at valid_to
   status-sweep-interval: PT60S
-  # D9 expiry warning — DIRECT publish (no outbox row), swept on the same schedule as the
-  # D14d flips above but a separate mechanism: a lost warning simply re-fires next run.
   expiry-warning-days: 30
   attachment-storage-path: ${ATTACHMENT_STORAGE_PATH:/var/pas/attachments}
-  # Orphan sweep: the recovery path for the two cases a transaction synchronization cannot cover —
-  # a crash between writing the file and committing, and a post-commit delete that failed on IO.
-  # The grace period must exceed the longest plausible upload transaction, or the sweep would
-  # delete a file whose row is still being committed.
   attachment-cleanup-interval: PT1H
   attachment-cleanup-grace: PT1H
 

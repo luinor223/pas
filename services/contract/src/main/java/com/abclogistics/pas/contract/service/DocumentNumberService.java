@@ -1,8 +1,7 @@
 package com.abclogistics.pas.contract.service;
 
 import com.abclogistics.pas.contract.domain.EntityType;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import com.abclogistics.pas.contract.repository.CounterAllocationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,29 +20,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentNumberService {
 
     private static final String CUSTOMER_PREFIX = "CUS";
+    private final CounterAllocationRepository counters;
 
-    /**
-     * Inserts the counter at 2 (having handed out 1) or bumps the existing one, returning the
-     * value allocated to this caller.
-     */
-    private static final String ALLOCATE_DOCUMENT = """
-            insert into contract.document_counter (doc_type, year, next_seq)
-            values (:docType, :year, 2)
-            on conflict (doc_type, year)
-            do update set next_seq = contract.document_counter.next_seq + 1
-            returning next_seq - 1
-            """;
-
-    private static final String ALLOCATE_CUSTOMER = """
-            insert into contract.customer_counter (id, next_seq)
-            values (true, 2)
-            on conflict (id)
-            do update set next_seq = contract.customer_counter.next_seq + 1
-            returning next_seq - 1
-            """;
-
-    @PersistenceContext
-    private EntityManager em;
+    public DocumentNumberService(CounterAllocationRepository counters) {
+        this.counters = counters;
+    }
 
     /**
      * {@code CTR-{YYYY}-{seq}} or {@code ADD-{YYYY}-{seq}}, per type per year.
@@ -54,11 +35,8 @@ public class DocumentNumberService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public String nextDocumentNo(EntityType docType, int year) {
-        Number seq = (Number) em.createNativeQuery(ALLOCATE_DOCUMENT)
-                .setParameter("docType", docType.name())
-                .setParameter("year", year)
-                .getSingleResult();
-        return "%s-%d-%04d".formatted(prefixFor(docType), year, seq.longValue());
+        long sequence = counters.allocateDocument(docType, year);
+        return "%s-%d-%04d".formatted(prefixFor(docType), year, sequence);
     }
 
     /**
@@ -69,8 +47,8 @@ public class DocumentNumberService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public String nextCustomerCode() {
-        Number seq = (Number) em.createNativeQuery(ALLOCATE_CUSTOMER).getSingleResult();
-        return "%s-%04d".formatted(CUSTOMER_PREFIX, seq.longValue());
+        long sequence = counters.allocateCustomer();
+        return "%s-%04d".formatted(CUSTOMER_PREFIX, sequence);
     }
 
     private static String prefixFor(EntityType docType) {

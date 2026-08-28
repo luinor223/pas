@@ -27,6 +27,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -49,6 +51,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -110,6 +113,12 @@ class SubmitCommitThenDispatchPendingTest {
 
     private static final AuthenticatedUser SALES = new AuthenticatedUser(
             UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
+
+    /** SALES_OFFICER's grants, applied only for the fixture upload: the default stays empty. */
+    private static final List<GrantedAuthority> SALES_OFFICER_PERMISSIONS = Stream.of(
+            "customer:read", "customer:write", "contract:read", "contract:write",
+            "addendum:read", "addendum:write")
+            .<GrantedAuthority>map(SimpleGrantedAuthority::new).toList();
 
     /**
      * The workflow service is a separate process (D16). Mocked so these tests pin THIS service's
@@ -301,10 +310,18 @@ class SubmitCommitThenDispatchPendingTest {
                 "ACME Logistics", null, null, null, null, null, null, List.of())).getId());
     }
 
+    /** Granted just for the upload: the tests below assert on a caller holding nothing. */
     private void attach(UUID contractId) {
         MockMultipartFile file = new MockMultipartFile("file", "signed.pdf", "application/pdf",
                 "contract terms".getBytes(StandardCharsets.UTF_8));
-        tx.execute(s -> attachments.upload(EntityType.CONTRACT, contractId, file));
+        Authentication before = SecurityContextHolder.getContext().getAuthentication();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(SALES, null, SALES_OFFICER_PERMISSIONS));
+        try {
+            tx.execute(s -> attachments.upload(EntityType.CONTRACT, contractId, file));
+        } finally {
+            SecurityContextHolder.getContext().setAuthentication(before);
+        }
     }
 
     private DocumentStatus statusOf(UUID id) {

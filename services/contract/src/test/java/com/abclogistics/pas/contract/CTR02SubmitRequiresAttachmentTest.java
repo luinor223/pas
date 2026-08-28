@@ -24,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -44,6 +46,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -92,6 +95,12 @@ class CTR02SubmitRequiresAttachmentTest {
     private static final AuthenticatedUser SALES = new AuthenticatedUser(
             UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
 
+    /** SALES_OFFICER's grants: AttachmentService checks them, and these tests bypass the controller. */
+    private static final List<GrantedAuthority> SALES_OFFICER_PERMISSIONS = Stream.of(
+            "customer:read", "customer:write", "contract:read", "contract:write",
+            "addendum:read", "addendum:write")
+            .<GrantedAuthority>map(SimpleGrantedAuthority::new).toList();
+
     /**
      * The workflow service is a separate process (D16). Mocked so these tests pin THIS service's
      * ordering guarantees; the wire contract is covered by ContractContractTest against the proto.
@@ -108,7 +117,7 @@ class CTR02SubmitRequiresAttachmentTest {
     @BeforeEach
     void authenticate() {
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(SALES, null, List.of()));
+                new UsernamePasswordAuthenticationToken(SALES, null, SALES_OFFICER_PERMISSIONS));
     }
 
     @AfterEach

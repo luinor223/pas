@@ -1,5 +1,7 @@
 package com.abclogistics.pas.contract.dto;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
@@ -23,14 +25,20 @@ public record AddendumRequest(
         @NotNull LocalDate effectiveFrom,
         LocalDate newValidTo,
         String paymentTermOverride,
-        List<ServiceLine> services,
+        @Valid List<ServiceLine> services,
         Integer version) {
 
-    /** Record/display only — never an input to scope enforcement. */
+    /**
+     * Record/display only — never an input to scope enforcement.
+     *
+     * <p>These constraints only run because the list carries {@code @Valid}; without the cascade
+     * a missing {@code serviceCode} is a 500, not a 400. {@code @NotBlank} because the DDL only
+     * enforces NOT NULL, and {@code ""} would take the row's slot in uq_addendum_service_code.
+     */
     public record ServiceLine(
             UUID serviceItemId,
-            @NotNull String serviceCode,
-            @NotNull String serviceName,
+            @NotBlank String serviceCode,
+            @NotBlank String serviceName,
             String unit,
             String scopeNote) { }
 }

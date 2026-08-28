@@ -15,9 +15,10 @@ import java.util.UUID;
  * File attached to a contract or addendum. Polymorphic owner rather than two tables — one upload
  * UI, two owner kinds, and no FK (hence {@link EntityType} + a raw {@code ownerId}).
  *
- * <p>Bytes live on a mounted volume at {@code storagePath}; only metadata is stored here.
- * CTR-02's ">= 1 attachment" is an application check at submit, not a DB constraint — a DRAFT
- * is allowed to have none.
+ * <p>Bytes live behind the attachment-storage abstraction. The legacy {@code storagePath} column
+ * contains that implementation's opaque key (an absolute path for the mounted-volume
+ * implementation); only metadata is stored here. CTR-02's ">= 1 attachment" is an application
+ * check at submit, not a DB constraint — a DRAFT is allowed to have none.
  */
 @Entity
 @Table(name = "attachment", schema = "contract")

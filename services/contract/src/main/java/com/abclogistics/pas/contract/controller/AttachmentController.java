@@ -9,7 +9,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +26,9 @@ import java.util.UUID;
 /**
  * Attachments for contracts and addenda (CTR-02's ">= 1 file" prerequisite).
  * Size limits come from {@code spring.servlet.multipart}.
+ *
+ * <p>No {@code @PreAuthorize}: the permission depends on the owner type, which for download and
+ * delete is a column on the row. {@link AttachmentService} checks it once it knows the owner.
  */
 @RestController
 @RequestMapping("/attachments")
@@ -39,7 +41,6 @@ public class AttachmentController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('contract:read')")
     public List<AttachmentResponse> list(@RequestParam EntityType ownerType,
                                          @RequestParam UUID ownerId) {
         return attachments.list(ownerType, ownerId).stream().map(AttachmentResponse::of).toList();
@@ -47,7 +48,6 @@ public class AttachmentController {
 
     @PostMapping(consumes = "multipart/form-data")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('contract:write')")
     public AttachmentResponse upload(@RequestParam EntityType ownerType,
                                      @RequestParam UUID ownerId,
                                      @RequestPart("file") MultipartFile file) {
@@ -60,7 +60,6 @@ public class AttachmentController {
      * client-supplied text and never touches a path or an unescaped header value.
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('contract:read')")
     public ResponseEntity<Resource> download(@PathVariable UUID id) {
         AttachmentService.AttachmentContent content = attachments.download(id);
         // Normalised at upload, but re-checked here: a row written before that check exists, or
@@ -78,7 +77,6 @@ public class AttachmentController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAuthority('contract:write')")
     public void delete(@PathVariable UUID id) {
         attachments.delete(id);
     }
