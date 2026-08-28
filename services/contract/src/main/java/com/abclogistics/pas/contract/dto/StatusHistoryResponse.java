@@ -5,10 +5,6 @@ import com.abclogistics.pas.contract.domain.StatusHistory;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * One D17 transition. This is the synchronous, local half of the History tab; the eventually
- * consistent half comes from audit-service and is never read by a business rule.
- */
 public record StatusHistoryResponse(
         UUID id,
         String fromStatus,

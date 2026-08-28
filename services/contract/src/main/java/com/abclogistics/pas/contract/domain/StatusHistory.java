@@ -11,20 +11,7 @@ import org.hibernate.annotations.UuidGenerator;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Append-only transition log (D17). One row is written in the SAME transaction as every status
- * column change, so {@code Contract.status} / {@code Addendum.status} is a cache of the newest
- * row here and the two are reconcilable by construction — a status change with no history row is
- * a bug.
- *
- * <p>INSERT and SELECT only: never updated, never deleted. This is the only history a business
- * rule may read; audit-service is remote, eventually consistent and uninterpreted, so a rule must
- * never depend on it.
- *
- * <p>An order-tolerant apply (registry §9 footnote ¹) writes one row per edge — a
- * {@code workflow.completed} arriving while still SUBMITTED writes the skipped
- * SUBMITTED → UNDER_REVIEW row and then the outcome row, both in one transaction.
- */
+/** Append-only transition log (D17), one row per status change, in the same transaction. */
 @Entity
 @Table(name = "status_history", schema = "contract")
 public class StatusHistory {
@@ -40,7 +27,6 @@ public class StatusHistory {
     @Column(name = "entity_id", nullable = false, updatable = false)
     private UUID entityId;
 
-    /** null only for the very first row of an entity's life. */
     @Enumerated(EnumType.STRING)
     @Column(name = "from_status", updatable = false)
     private DocumentStatus fromStatus;
@@ -53,7 +39,6 @@ public class StatusHistory {
     @Column(name = "trigger_kind", nullable = false, updatable = false)
     private TriggerKind triggerKind;
 
-    /** Workflow instance id, esign session id, or null for a user/scheduler action. */
     @Column(name = "trigger_ref", updatable = false)
     private UUID triggerRef;
 

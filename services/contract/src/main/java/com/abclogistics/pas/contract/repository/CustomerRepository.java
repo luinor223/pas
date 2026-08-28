@@ -17,7 +17,6 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     boolean existsByCode(String code);
 
-    /** {@code q} arrives as a ready lower-cased {@code %pattern%} — see {@link ContractRepository#search}. */
     @Query("""
             select c from Customer c
             where (:q is null or lower(c.name) like :q

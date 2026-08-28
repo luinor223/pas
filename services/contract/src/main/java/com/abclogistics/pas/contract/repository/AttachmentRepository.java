@@ -14,10 +14,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, UUID> {
 
     List<Attachment> findByOwnerTypeAndOwnerId(EntityType ownerType, UUID ownerId);
 
-    /** CTR-02's ">= 1 attachment" submit check. */
     boolean existsByOwnerTypeAndOwnerId(EntityType ownerType, UUID ownerId);
 
-    /** Orphan sweep: which of these files on disk still have a row pointing at them. */
     @Query("select a.storagePath from Attachment a where a.storagePath in :paths")
     List<String> findStoragePathsIn(@Param("paths") Collection<String> paths);
 }

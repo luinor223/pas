@@ -11,10 +11,6 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.util.UUID;
 
-/**
- * Contact person on a customer (4.1 "thong tin lien he"). At most one primary per customer,
- * enforced by the partial unique index {@code uq_customer_contact_primary}.
- */
 @Entity
 @Table(name = "customer_contact", schema = "contract")
 public class CustomerContact {

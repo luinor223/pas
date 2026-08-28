@@ -25,10 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Customer endpoints (4.1). Authorisation is by named permission, never by role —
- * {@code customer:write}, not {@code hasRole('SALES')}.
- */
 @RestController
 @RequestMapping("/customers")
 public class CustomerController {
@@ -55,11 +51,6 @@ public class CustomerController {
         return CustomerResponse.of(customer, customers.contactsOf(id));
     }
 
-    /**
-     * Contacts are read on their own, but written only through the customer body: the set is
-     * replaced wholesale so the "at most one primary" rule is decided by one request, not by the
-     * order two per-contact calls happen to arrive in.
-     */
     @GetMapping("/{id}/contacts")
     @PreAuthorize("hasAuthority('customer:read')")
     public List<CustomerContactResponse> contacts(@PathVariable UUID id) {
@@ -75,11 +66,6 @@ public class CustomerController {
         return CustomerResponse.of(customer, customers.contactsOf(customer.getId()));
     }
 
-    /**
-     * Full replacement: the body is the new state of the customer, so {@code contacts} must be
-     * present — {@code []} to clear the set, a list to replace it. An omitted {@code contacts} is
-     * a 422, never a silent deletion.
-     */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('customer:write')")
     public CustomerResponse update(@PathVariable UUID id, @Valid @RequestBody CustomerRequest request) {

@@ -32,17 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Attachment metadata and lifecycle. Bytes go to {@link AttachmentStorage} under a generated key;
- * the client's filename is display-only and never used to build one.
- *
- * <p>Permissions are per owner type ({@code contract:*} vs {@code addendum:*}, registry §10) and
- * so cannot be a {@code @PreAuthorize} — download and delete know the owner only after the read.
- *
- * <p>Bytes and row are two stores with no shared transaction, so writes reconcile them in a
- * transaction synchronization: rolled-back upload deletes its object, committed delete removes
- * the bytes only once the row is really gone.
- */
+/** Attachment metadata and lifecycle; bytes go to {@link AttachmentStorage} under a generated key. */
 @Service
 public class AttachmentService {
 
@@ -67,7 +57,6 @@ public class AttachmentService {
         this.storage = storage;
     }
 
-    /** Metadata plus the bytes to stream, resolved together so the two cannot disagree. */
     public record AttachmentContent(Attachment metadata, Resource resource) { }
 
     @Transactional(readOnly = true)
@@ -82,11 +71,10 @@ public class AttachmentService {
                 .orElseThrow(() -> new NotFoundException("Attachment %s not found".formatted(id)));
     }
 
-    /** Readable regardless of owner status: CTR-01 freezes the file set, it does not hide it. */
     @Transactional(readOnly = true)
     public AttachmentContent download(UUID id) {
         Attachment attachment = get(id);
-        // After the read: the id alone does not say which document type this belongs to.
+        // after the read: the id alone does not say which document type this belongs to
         requirePermission(attachment.getOwnerType(), READ);
         Resource resource;
         try {
@@ -95,14 +83,13 @@ public class AttachmentService {
             throw new UncheckedIOException("Failed to load attachment %s".formatted(id), e);
         }
         if (!resource.isReadable()) {
-            // The row is the record of truth, so a missing object is a storage fault, not a 404.
+            // the row is the record of truth, so a missing object is a storage fault, not a 404
             throw new IllegalStateException(
                     "Attachment %s has no readable object at its storage key".formatted(id));
         }
         return new AttachmentContent(attachment, resource);
     }
 
-    /** Only while the owner is editable (CTR-01): an approved document's file set is fixed. */
     @Transactional
     public Attachment upload(EntityType ownerType, UUID ownerId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
@@ -152,7 +139,6 @@ public class AttachmentService {
         return fileName;
     }
 
-    /** Client-supplied: an unparseable type stored verbatim makes the file undownloadable. */
     public static String safeContentType(String declared) {
         if (declared == null || declared.isBlank()) {
             return MediaType.APPLICATION_OCTET_STREAM_VALUE;
@@ -164,7 +150,6 @@ public class AttachmentService {
         }
     }
 
-    /** Holding {@code contract:*} has never implied {@code addendum:*} (registry §10). */
     private void requirePermission(EntityType ownerType, String verb) {
         String permission = ownerType.name().toLowerCase(Locale.ROOT) + ":" + verb;
         if (!SecurityUtils.hasPermission(permission)) {
@@ -207,7 +192,7 @@ public class AttachmentService {
 
     private void onCompletion(java.util.function.IntConsumer action, String storageKey) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            // Proxy bypassed. Leaving the object is the safe half: an orphan is inert.
+            // proxy bypassed; leaving the object is the safe half, since an orphan is inert
             log.warn("No transaction synchronization active; leaving {} to the cleanup sweep", storageKey);
             return;
         }
@@ -219,7 +204,6 @@ public class AttachmentService {
         });
     }
 
-    /** Post-completion, so a failed delete cannot be escalated — the sweep retries it. */
     private void quietlyDelete(String storageKey) {
         try {
             storage.delete(storageKey);

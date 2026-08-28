@@ -18,7 +18,6 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-/** Mounted-volume implementation of {@link AttachmentStorage}. */
 @Component
 public class FileSystemAttachmentStorage implements AttachmentStorage {
 

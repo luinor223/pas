@@ -24,11 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Customer master data (4.1). Customers have no approval workflow — they are activated and
- * suspended directly, so nothing here writes {@code status_history} (D17 covers documents with a
- * state machine, and this is not one).
- */
+/** Customer master data (4.1). No approval workflow, so nothing here writes status_history. */
 @Service
 public class CustomerService {
 
@@ -67,7 +63,6 @@ public class CustomerService {
         return contacts.findByCustomerId(customerId);
     }
 
-    /** {@code code} is allocated here, never taken from the request. */
     @Transactional
     public Customer create(CustomerRequest request) {
         Customer customer = Customer.create(numbers.nextCustomerCode(), request.name());
@@ -84,12 +79,6 @@ public class CustomerService {
         return customer;
     }
 
-    /**
-     * PUT is full replacement: the body is the customer's new state in its entirety, contacts
-     * included. A missing {@code contacts} is therefore an incomplete request, not an instruction —
-     * rejecting it is what keeps a caller who forgot the field from silently dropping the set.
-     * Sending {@code []} is how you ask for that deliberately.
-     */
     @Transactional
     public Customer update(UUID id, CustomerRequest request) {
         if (request.contacts() == null) {
@@ -97,7 +86,7 @@ public class CustomerService {
                     "contacts is required on update; send [] to remove all contacts");
         }
         Customer customer = get(id);
-        // Taken before anything is applied: the audit row is the only record of the prior value.
+        // taken before anything is applied: the audit row is the only record of the prior value
         Map<String, Object> was = snapshot(customer, contactsOf(id));
         applyFields(customer, request);
         stampEditor(customer);
@@ -109,10 +98,6 @@ public class CustomerService {
         return customer;
     }
 
-    /**
-     * Suspending does not touch existing contracts — live obligations survive it. It blocks new
-     * submits, which CTR-02 enforces at submit time by re-reading the customer's status.
-     */
     @Transactional
     public void suspend(UUID id, String reason) {
         Customer customer = get(id);
@@ -147,11 +132,6 @@ public class CustomerService {
         customer.setSegment(request.segment());
     }
 
-    /**
-     * Replaces the contact set wholesale. An empty list means "remove them all". Null reaches here
-     * only from {@link #create}, where there is nothing to replace and it is simply "none supplied";
-     * {@link #update} rejects a null before it gets this far.
-     */
     private List<CustomerContact> replaceContacts(Customer customer,
                                                   List<CustomerContactRequest> requested) {
         if (requested == null) {
@@ -159,7 +139,7 @@ public class CustomerService {
         }
         long primaries = requested.stream().filter(CustomerContactRequest::primary).count();
         if (primaries > 1) {
-            // The partial unique index would reject this anyway; failing here names the problem.
+            // the partial unique index would reject this anyway; failing here names it
             throw new ConflictException("A customer may have at most one primary contact");
         }
         contacts.deleteAll(contacts.findByCustomerId(customer.getId()));
@@ -176,11 +156,6 @@ public class CustomerService {
         return saved;
     }
 
-    /**
-     * The audited fields. Contacts are folded in as a rendered, order-independent list: replacing
-     * the set wholesale is a real change to the customer record, and an audit trail that shows
-     * only the name moving hides who the counterparty actually talks to.
-     */
     private static Map<String, Object> snapshot(Customer customer, List<CustomerContact> contacts) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("name", customer.getName());
@@ -194,7 +169,6 @@ public class CustomerService {
         return fields;
     }
 
-    /** Sorted so a reordered but otherwise identical set does not read as a change. */
     private static List<String> render(List<CustomerContact> contacts) {
         return contacts.stream()
                 .map(c -> "%s|%s|%s|%s|%s".formatted(c.getFullName(), c.getTitle(),

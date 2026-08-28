@@ -28,6 +28,5 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
 
     List<Addendum> findByContractId(UUID contractId);
 
-    /** D14d sweep: APPROVED addenda whose effective date has arrived; effects apply on the flip. */
     List<Addendum> findByStatusAndEffectiveFromLessThanEqual(DocumentStatus status, LocalDate onOrBefore);
 }

@@ -16,18 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * The single place a CONTRACT or ADDENDUM status changes (D17).
- *
- * <p>Validates the edge against {@link DocumentStatus#canTransitionTo}, appends exactly one
- * {@code status_history} row and records the audit event — in the caller's transaction, which is
- * why every method is {@code Propagation.MANDATORY}: a transition committed apart from the state
- * change it describes is precisely the drift D17 exists to make impossible.
- *
- * <p>Callers set the status column themselves; this service refuses to be the only writer because
- * the entity is the caller's aggregate. What it guarantees is that no legal transition happens
- * without a history row, and no illegal one happens at all.
- */
+/** The single place a status changes (D17): validates the edge, writes one status_history row. */
 @Service
 public class StatusTransitionService {
 
@@ -39,11 +28,6 @@ public class StatusTransitionService {
         this.audit = audit;
     }
 
-    /**
-     * Applies one edge. Rejects an edge registry §9 has no row for.
-     *
-     * @param triggerRef workflow instance id, esign session id, or null for user/scheduler actions
-     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void transition(EntityType entityType, UUID entityId, String entityNo,
                            DocumentStatus from, DocumentStatus to,
@@ -56,27 +40,17 @@ public class StatusTransitionService {
         record(entityType, entityId, entityNo, from, to, trigger, triggerRef, note);
     }
 
-    /**
-     * Applies the SUBMITTED → UNDER_REVIEW edge that a delayed {@code instance_started} skipped,
-     * then the outcome edge — one history row each, one transaction (registry §9 footnote ¹).
-     *
-     * <p>Exists because Kafka orders sends, not commits: a {@code workflow.completed} can arrive
-     * while the document is still SUBMITTED. Rejecting it would wedge the document permanently,
-     * so the skipped edge is filled in rather than the event discarded.
-     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void transitionOrderTolerant(EntityType entityType, UUID entityId, String entityNo,
                                         DocumentStatus current, DocumentStatus outcome,
                                         UUID instanceId) {
-        // A redelivery of an outcome already applied. Not an error and not a second history row.
+        // a redelivery of an outcome already applied: not an error, not a second history row
         if (current == outcome) {
             return;
         }
         DocumentStatus from = current;
         if (from == DocumentStatus.SUBMITTED) {
-            // The edge instance_started would have applied, filled in rather than skipped: the
-            // history has to show the document actually passed through review, and §9 has no
-            // SUBMITTED -> APPROVED row to apply directly even if we wanted one.
+            // filled in, not skipped: §9 has no SUBMITTED -> APPROVED row to apply directly
             transition(entityType, entityId, entityNo, from, DocumentStatus.UNDER_REVIEW,
                     TriggerKind.W, instanceId,
                     "Approval instance started (applied out of order, registry §9 footnote 1)");
@@ -86,7 +60,6 @@ public class StatusTransitionService {
                 "Approval %s".formatted(outcome.name().toLowerCase(java.util.Locale.ROOT)));
     }
 
-    /** The entity's transitions, oldest first (D17). Read-only by construction — this log is append-only. */
     @Transactional(readOnly = true)
     public java.util.List<StatusHistory> history(EntityType entityType, UUID entityId) {
         return history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(entityType, entityId);

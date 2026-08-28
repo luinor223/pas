@@ -28,11 +28,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-/**
- * Addendum endpoints (4.3). The same lifecycle a contract has, under its own permissions — an
- * addendum is a document in its own right, with its own number, its own workflow instance and its
- * own approval chain.
- */
 @RestController
 @RequestMapping("/addenda")
 public class AddendumController {
@@ -64,14 +59,12 @@ public class AddendumController {
         return AddendumResponse.of(addenda.create(request));
     }
 
-    /** CTR-01 applies equally; editing a REVISION_REQUESTED addendum returns it to DRAFT. */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('addendum:write')")
     public AddendumResponse update(@PathVariable UUID id, @Valid @RequestBody AddendumRequest request) {
         return AddendumResponse.of(addenda.update(id, request));
     }
 
-    /** D4, under document type ADDENDUM — its own instance, chain configurable separately. */
     @PostMapping("/{id}/submit")
     @PreAuthorize("hasAuthority('addendum:write')")
     public SubmitResponse submit(@PathVariable UUID id) {
@@ -79,7 +72,6 @@ public class AddendumController {
         return SubmitResponse.pendingDispatch(DocumentStatus.SUBMITTED.name());
     }
 
-    /** The same M2 handoff as a contract, 202 included. */
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('addendum:write')")
     public ResponseEntity<CancelResponse> cancel(@PathVariable UUID id,

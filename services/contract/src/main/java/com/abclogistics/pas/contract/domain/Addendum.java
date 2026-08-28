@@ -20,19 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Contract addendum (4.3) — own row, own workflow instance, same status enum as {@link Contract}.
- *
- * <p>Renewal is not a separate mechanism: it IS a {@code TERM_EXTENSION} addendum carrying
- * {@code newValidTo} (D14b). Addenda have no own end date; they share the parent's expiry.
- *
- * <p>Carries no price data (D8). A {@code UNIT_PRICE_CHANGE} addendum records only that prices
- * change and from when; the new figures are a pricing version Sales creates afterwards.
- *
- * <p>{@code services} is record/display data for {@code ADDED_SERVICE} and is deliberately NOT
- * an input to scope enforcement — {@code Contract.serviceGroup} remains the single scope value
- * operations-service validates against.
- */
+/** Contract addendum (4.3) — own row, own workflow instance, same status enum as {@link Contract}. */
 @Entity
 @Table(name = "addendum", schema = "contract")
 public class Addendum extends BaseEntity implements ApprovableDocument {
@@ -57,11 +45,9 @@ public class Addendum extends BaseEntity implements ApprovableDocument {
     @Column(name = "effective_from", nullable = false)
     private LocalDate effectiveFrom;
 
-    /** Required for TERM_EXTENSION; applied to {@code contract.validTo} when this takes effect. */
     @Column(name = "new_valid_to")
     private LocalDate newValidTo;
 
-    /** Required for PAYMENT_TERMS; applied to {@code contract.paymentTerm} when this takes effect. */
     @Column(name = "payment_term_override")
     private String paymentTermOverride;
 

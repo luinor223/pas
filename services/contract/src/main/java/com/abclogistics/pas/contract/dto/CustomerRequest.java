@@ -5,11 +5,6 @@ import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
 
-/**
- * Create/update payload for a customer. {@code code} is deliberately absent: it is
- * server-generated ({@code CUS-{seq}}, registry §2) and a client-supplied one would break the
- * sequence's meaning.
- */
 public record CustomerRequest(
         @NotBlank String name,
         String shortName,

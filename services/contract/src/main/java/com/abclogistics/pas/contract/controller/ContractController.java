@@ -30,9 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Contract endpoints (4.2). Send-for-signing arrives with Phase B item 13.
- */
 @RestController
 @RequestMapping("/contracts")
 public class ContractController {
@@ -67,11 +64,6 @@ public class ContractController {
         return ContractResponse.of(contracts.create(request));
     }
 
-    /**
-     * CTR-02 checks, then D4: the status change and the dispatch intent commit together and a
-     * relay makes the remote call. The response says INITIALIZATION_PENDING because that is what
-     * has actually happened — nothing has been dispatched yet.
-     */
     @PostMapping("/{id}/submit")
     @PreAuthorize("hasAuthority('contract:write')")
     public SubmitResponse submit(@PathVariable UUID id) {
@@ -79,15 +71,6 @@ public class ContractController {
         return SubmitResponse.pendingDispatch(DocumentStatus.SUBMITTED.name());
     }
 
-    /**
-     * DRAFT and ACTIVE cancel outright; SUBMITTED runs the M2 cancel-vs-dispatch handoff, which
-     * may not resolve in one call. 202 means exactly that — nothing was changed and the same call
-     * should be retried, because flipping the document to CANCELLED on an inconclusive read is
-     * what would let a workflow instance start against an already-cancelled contract.
-     *
-     * <p>CTR-06's {@code contract:cancel_active} is checked in the service, not here: whether it
-     * is required depends on the document's status.
-     */
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('contract:write')")
     public ResponseEntity<CancelResponse> cancel(@PathVariable UUID id,
@@ -98,36 +81,24 @@ public class ContractController {
                 .body(CancelResponse.of(outcome));
     }
 
-    /**
-     * CTR-04's audited opt-in: a REJECTED contract returns to DRAFT explicitly, and only then can
-     * it be edited. It carries no body — reopening and editing are two separate, separately
-     * audited acts.
-     */
     @PostMapping("/{id}/revise")
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse revise(@PathVariable UUID id) {
         return ContractResponse.of(contracts.revise(id));
     }
 
-    /**
-     * Proxies GetInstanceByDocument and returns the snapshot chain that actually ran. An absent
-     * instance, or a terminal one left over from a previous submission, is D4's dispatch window
-     * rendered as INITIALIZATION_PENDING — not an error, and never retried here.
-     */
     @GetMapping("/{id}/progress")
     @PreAuthorize("hasAuthority('contract:read')")
     public ProgressResponse progress(@PathVariable UUID id) {
         return ProgressResponse.of(contracts.progress(id));
     }
 
-    /** The local D17 timeline. Domain data, synchronous — audit-service is the other half. */
     @GetMapping("/{id}/history")
     @PreAuthorize("hasAuthority('contract:read')")
     public List<StatusHistoryResponse> history(@PathVariable UUID id) {
         return contracts.history(id).stream().map(StatusHistoryResponse::of).toList();
     }
 
-    /** CTR-01 + optimistic lock. Editing a REVISION_REQUESTED contract returns it to DRAFT. */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse update(@PathVariable UUID id, @Valid @RequestBody ContractRequest request) {

@@ -8,16 +8,7 @@ import com.abclogistics.pas.workflow.grpc.StepInstance;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Approval progress (4.7), as REST sees it. The proto message stops at the service boundary: it is
- * an internal wire contract (D16), and proto3 scalars have no null — an unset {@code comment} or
- * {@code activated_at} arrives as {@code ""}, which JSON would publish as a present-but-empty
- * value. Every string is normalised back to null here so "absent" stays absent.
- *
- * <p>{@code documentStatus} and {@code workflowState} are two separate facts and are never
- * collapsed into one (D14e). While D4's dispatch window is open the document is SUBMITTED and the
- * workflow state is INITIALIZATION_PENDING, with no instance to report.
- */
+/** Approval progress (4.7) as REST sees it; proto3 empty strings are normalised back to null. */
 public record ProgressResponse(
         String documentStatus,
         String workflowState,
@@ -29,7 +20,6 @@ public record ProgressResponse(
         Step currentStep,
         List<Step> steps) {
 
-    /** One step of the snapshot chain taken when the instance started, not today's definition. */
     public record Step(
             int stepNo,
             String name,
@@ -57,8 +47,7 @@ public record ProgressResponse(
                 text(instance.getRequestedByName()),
                 text(instance.getStartedAt()),
                 text(instance.getPriority()),
-                // proto3 has no "has" bit for a message field either: an unset current_step reads
-                // back as a default instance, which is a terminal instance's normal state.
+                // proto3 has no "has" bit: an unset current_step reads back as a default instance
                 instance.hasCurrentStep() ? step(instance.getCurrentStep()) : null,
                 instance.getStepsList().stream().map(ProgressResponse::step).toList());
     }

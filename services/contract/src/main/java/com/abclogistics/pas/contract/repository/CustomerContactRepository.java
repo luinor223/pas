@@ -11,6 +11,5 @@ public interface CustomerContactRepository extends JpaRepository<CustomerContact
 
     List<CustomerContact> findByCustomerId(UUID customerId);
 
-    /** At most one exists — guaranteed by the partial unique index, not by this query. */
     Optional<CustomerContact> findByCustomerIdAndPrimaryTrue(UUID customerId);
 }

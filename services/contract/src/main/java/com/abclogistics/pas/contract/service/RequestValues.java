@@ -6,13 +6,7 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.function.Function;
 
-/**
- * Turning request text into domain values, the same way everywhere.
- *
- * <p>A bad reference value or filter is the caller's mistake, so it is a 422 naming what IS
- * allowed. A bare {@code valueOf} would be an IllegalArgumentException — a 500 for a typo — and
- * would also reject {@code active} for a value space that is case-insensitive to every user.
- */
+/** Request text to domain values. A bad reference value is a 422 naming what IS allowed. */
 final class RequestValues {
 
     private RequestValues() { }
@@ -44,11 +38,6 @@ final class RequestValues {
         }
     }
 
-    /**
-     * A ready lower-cased {@code %pattern%}. Building it in SQL means {@code '%' || ? || '%'},
-     * and Postgres has no type to infer for that parameter when it is null — it resolves the
-     * concatenation to bytea and the query dies on {@code lower(bytea) does not exist}.
-     */
     static String likePattern(String q) {
         String term = blankToNull(q);
         return term == null ? null : "%" + term.trim().toLowerCase(Locale.ROOT) + "%";

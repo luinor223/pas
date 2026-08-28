@@ -19,12 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Thin wrapper over {@code WorkflowInternal} (D16, gRPC internal-only).
- *
- * <p>{@code NOT_FOUND} from {@link #getInstanceByDocument} is not an error: it is D4's dispatch
- * window, rendered as {@code INITIALIZATION_PENDING} from local status and never retried here.
- */
+/** Thin wrapper over {@code WorkflowInternal} (D16). NOT_FOUND is D4's dispatch window, not an error. */
 @Component
 public class WorkflowGrpcClient {
 
@@ -37,17 +32,11 @@ public class WorkflowGrpcClient {
         this.stub = WorkflowInternalGrpc.newBlockingStub(channel);
     }
 
-    /** For test doubles that don't need a real channel. */
     protected WorkflowGrpcClient() {
         this.channel = null;
         this.stub = null;
     }
 
-    /**
-     * Read-only pre-submit check. Run BEFORE the submit commit so a document type with no active
-     * definition fails fast as a 412, instead of committing and then parking in the outbox for a
-     * relay to retry against a configuration that will never appear.
-     */
     public void validateStartable(String documentTypeCode) {
         try {
             deadlined().validateStartable(ValidateStartableRequest.newBuilder()
@@ -64,11 +53,6 @@ public class WorkflowGrpcClient {
         }
     }
 
-    /**
-     * Called only by the outbox relay, never inline with the submit transaction (D4). The
-     * idempotency key is the one generated at submit, so a retry after a lost ack resolves to the
-     * same instance rather than starting a second one.
-     */
     public UUID startInstance(UUID idempotencyKey, String documentTypeCode, UUID documentId,
                               String documentNo, String customerName, String priority,
                               UUID requestedById, String requestedByName) {
@@ -85,26 +69,12 @@ public class WorkflowGrpcClient {
         return UUID.fromString(deadlined().startInstance(request).getInstanceId());
     }
 
-    /**
-     * The three M2 outcomes, kept as a value rather than as exceptions because two of the three are
-     * expected results the cancel handoff branches on, not failures.
-     */
     public enum CancelOutcome {
-        /** The instance is cancelled, or was already. */
         CANCELLED,
-        /** A step was already actioned — the cancel fails outright and is not retried (M2). */
         ALREADY_ACTIONED,
-        /**
-         * No instance under that document. INCONCLUSIVE, not terminal: the dispatch may simply not
-         * have landed yet. Never read as "nothing to cancel".
-         */
         NOT_FOUND
     }
 
-    /**
-     * The reason is not sent: the proto carries no field for it, and it belongs in this service's
-     * own audit trail anyway.
-     */
     public CancelOutcome cancelInstance(UUID documentId, String documentTypeCode, UUID idempotencyKey) {
         try {
             deadlined().cancelInstance(CancelInstanceRequest.newBuilder()
@@ -117,19 +87,12 @@ public class WorkflowGrpcClient {
             return switch (e.getStatus().getCode()) {
                 case NOT_FOUND -> CancelOutcome.NOT_FOUND;
                 case FAILED_PRECONDITION -> CancelOutcome.ALREADY_ACTIONED;
-                // UNAVAILABLE, DEADLINE_EXCEEDED and the rest are transport failures, not answers:
-                // swallowing them here would let a cancel that never reached workflow-service look
-                // like a definitive result.
+                // transport failures are not answers: a cancel that never landed is not definitive
                 default -> throw e;
             };
         }
     }
 
-    /**
-     * Empty means "no instance yet", which is a normal state during D4's dispatch window — the
-     * caller renders it from local status. It is deliberately not an exception: an empty result is
-     * not a failure and must not be retried.
-     */
     public Optional<GetInstanceByDocumentResponse> getInstanceByDocument(String documentTypeCode,
                                                                         UUID documentId) {
         try {
@@ -146,15 +109,10 @@ public class WorkflowGrpcClient {
         }
     }
 
-    /** A fresh deadline per call — a stub-level deadline is absolute and expires once, not per use. */
     private WorkflowInternalGrpc.WorkflowInternalBlockingStub deadlined() {
         return stub.withDeadlineAfter(2, TimeUnit.SECONDS);
     }
 
-    /**
-     * Bound to the context lifecycle: a ManagedChannel owns netty event-loop threads, so a channel
-     * left open across a context restart leaks them.
-     */
     @PreDestroy
     public void shutdown() {
         if (channel == null) {

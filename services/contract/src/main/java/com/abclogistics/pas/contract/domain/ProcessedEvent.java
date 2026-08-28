@@ -8,13 +8,6 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Consumer dedup for {@code workflow.instance_started} and {@code workflow.completed}.
- *
- * <p>Still required under Kafka: offsets commit after processing, so a mid-batch death re-reads
- * records that were already applied. Inserted in the same transaction as the effect it guards —
- * a PK violation means "already applied", not an error.
- */
 @Entity
 @Table(name = "processed_event", schema = "contract")
 public class ProcessedEvent {

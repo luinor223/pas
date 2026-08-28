@@ -12,17 +12,6 @@ import org.hibernate.annotations.UuidGenerator;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * A service added by an {@code ADDED_SERVICE} addendum (requirement 4.3 "bo sung dich vu").
- *
- * <p>RECORD/DISPLAY ONLY. This is deliberately not an input to scope enforcement:
- * {@code ContractInternal.GetContract} still returns {@code Contract.serviceGroup} and
- * operations-service validates volume entries against that alone. Composing scope from addenda
- * would change that proto response and operations' validation logic (session 5) — if it is ever
- * wanted it needs its own registry decision, not a side effect of this table.
- *
- * <p>Carries no price (D8): an added service still needs its own pricing version.
- */
 @Entity
 @Table(name = "addendum_service", schema = "contract")
 public class AddendumServiceLine {
@@ -35,7 +24,6 @@ public class AddendumServiceLine {
     @JoinColumn(name = "addendum_id", nullable = false)
     private Addendum addendum;
 
-    /** pricing-service {@code service_item} id, when the service is already in the catalogue. */
     @Column(name = "service_item_id")
     private UUID serviceItemId;
 

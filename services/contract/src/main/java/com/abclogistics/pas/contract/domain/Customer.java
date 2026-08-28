@@ -11,11 +11,6 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.util.UUID;
 
-/**
- * Customer master record (4.1). {@code code} is server-generated {@code CUS-{seq}} from
- * {@link CustomerCounter} — never client-supplied. Status is ACTIVE|SUSPENDED only: customers
- * are activated and suspended, never approved, so they have no workflow and no status_history.
- */
 @Entity
 @Table(name = "customer", schema = "contract")
 public class Customer extends BaseEntity {

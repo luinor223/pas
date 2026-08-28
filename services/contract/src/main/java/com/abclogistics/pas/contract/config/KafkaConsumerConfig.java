@@ -14,17 +14,7 @@ import org.springframework.util.backoff.FixedBackOff;
 
 import java.time.Duration;
 
-/**
- * Consumer failure policy (registry §4).
- *
- * <p>A record that can never be processed — a malformed payload, an outcome this service has no
- * status for — must not be retried forever: {@code enable-auto-commit} is false and the container
- * replays the same record, so one poison message blocks its partition and every document behind it
- * stops moving. After a bounded retry it goes to {@code <topic>.DLT} and the offset advances.
- *
- * <p>The retry is what makes the bound safe: a transient failure (the database briefly away) is
- * not a poison record, and dead-lettering one would silently lose a status transition.
- */
+/** Consumer failure policy (registry §4): bounded retry, then {@code <topic>.DLT} so the offset advances. */
 @Configuration
 @ConditionalOnBean(KafkaTemplate.class)
 public class KafkaConsumerConfig {

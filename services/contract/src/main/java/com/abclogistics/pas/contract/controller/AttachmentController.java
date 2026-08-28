@@ -23,13 +23,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Attachments for contracts and addenda (CTR-02's ">= 1 file" prerequisite).
- * Size limits come from {@code spring.servlet.multipart}.
- *
- * <p>No {@code @PreAuthorize}: the permission depends on the owner type, which for download and
- * delete is a column on the row. {@link AttachmentService} checks it once it knows the owner.
- */
 @RestController
 @RequestMapping("/attachments")
 public class AttachmentController {
@@ -54,16 +47,10 @@ public class AttachmentController {
         return AttachmentResponse.of(attachments.upload(ownerType, ownerId, file));
     }
 
-    /**
-     * Streams the stored bytes back under the original filename. The filename is put in the
-     * Content-Disposition header only, quoted and encoded by {@link ContentDisposition} — it is
-     * client-supplied text and never touches a path or an unescaped header value.
-     */
     @GetMapping("/{id}")
     public ResponseEntity<Resource> download(@PathVariable UUID id) {
         AttachmentService.AttachmentContent content = attachments.download(id);
-        // Normalised at upload, but re-checked here: a row written before that check exists, or
-        // edited outside this service, must not make its own file undownloadable.
+        // re-checked: a row written before that check must not make its own file undownloadable
         MediaType mediaType = MediaType.parseMediaType(
                 AttachmentService.safeContentType(content.metadata().getContentType()));
         ContentDisposition disposition = ContentDisposition.attachment()

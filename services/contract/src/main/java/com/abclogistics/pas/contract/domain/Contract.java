@@ -17,18 +17,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
-/**
- * Service contract (4.2). {@code contractNo} is server-generated {@code CTR-{YYYY}-{seq}}.
- *
- * <p>The status column is a cache of the newest {@link StatusHistory} row (D17) — every change
- * to it writes one history row in the same transaction, so the two are cross-checkable.
- *
- * <p>{@code vatRate} and {@code paymentTerm} are nullable so a DRAFT can be saved incomplete;
- * both become required at submit (CTR-02). A null {@code vatRate} is never coerced to zero —
- * 0% is a deliberate, billable value and "not stated" is not.
- *
- * <p>No signing state lives here (D14e): the frontend composes it from esign-service.
- */
+/** Service contract (4.2). The status column is a cache of the newest {@link StatusHistory} row. */
 @Entity
 @Table(name = "contract", schema = "contract")
 public class Contract extends BaseEntity implements ApprovableDocument {
@@ -59,11 +48,9 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     @Column(name = "valid_from", nullable = false)
     private LocalDate validFrom;
 
-    /** Extended in place when a TERM_EXTENSION addendum takes effect (D14b, registry §9 footnote ²). */
     @Column(name = "valid_to", nullable = false)
     private LocalDate validTo;
 
-    /** Overwritten when a PAYMENT_TERMS addendum takes effect. Required at submit (CTR-02). */
     @Column(name = "payment_term")
     private String paymentTerm;
 
@@ -71,7 +58,6 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     @Column(name = "billing_cycle", nullable = false)
     private BillingCycle billingCycle;
 
-    /** Percent, 0..100. Required at submit (CTR-02). Null is "not stated", never 0. */
     @Column(name = "vat_rate")
     private BigDecimal vatRate;
 
@@ -85,7 +71,6 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     @Column(nullable = false)
     private DocumentStatus status;
 
-    /** CTR-01 optimistic lock — a concurrent edit loses rather than silently overwriting. */
     @Version
     @Column(nullable = false)
     private int version;
@@ -141,7 +126,6 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     public String getCreatedByDepartment() { return createdByDepartment; }
     public String getUpdatedByName() { return updatedByName; }
 
-    /** Only reachable while the contract is editable (CTR-01) — the service enforces that. */
     public void setCustomer(Customer customer) { this.customer = customer; }
     public void setDescription(String v) { this.description = v; }
     public void setServiceGroup(ServiceGroup v) { this.serviceGroup = v; }

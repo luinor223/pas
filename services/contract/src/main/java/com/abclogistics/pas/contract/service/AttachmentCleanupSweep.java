@@ -15,18 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Deletes stored files that no attachment row references.
- *
- * <p>{@link AttachmentService} reconciles the bytes with the row inside a transaction
- * synchronization, which covers the ordinary cases. It cannot cover two: the process dying between
- * writing the object and committing, and a storage deletion that fails after the
- * transaction has already completed. Both leave a file with no row — inert, but permanent without
- * this. The sweep is the recovery path those two paths log against.
- *
- * <p>Direction matters: it only ever deletes a file with no row, never a row with no file. The row
- * is the record of truth, so a missing file is a fault to be reported, not tidied away.
- */
+/** Deletes stored files no attachment row references. Never the reverse: the row is the truth. */
 @Component
 public class AttachmentCleanupSweep {
 
@@ -53,12 +42,8 @@ public class AttachmentCleanupSweep {
         }
     }
 
-    /**
-     * @return how many files were deleted — the scheduled path ignores it; tests do not.
-     */
     public int removeOrphans() {
-        // Anything younger than the grace period may belong to an upload whose transaction has not
-        // committed yet. Deleting it would destroy a file its own row is about to point at.
+        // younger than the grace period may be an upload whose transaction has not committed yet
         Instant cutoff = Instant.now().minus(grace);
         List<AttachmentStorage.StoredObject> candidates = storage.findOlderThan(cutoff);
         if (candidates.isEmpty()) {
@@ -78,7 +63,7 @@ public class AttachmentCleanupSweep {
                 deleted++;
                 log.info("Deleted orphaned attachment object {}", object.storageKey());
             } catch (IOException e) {
-                // Still no row pointing at it, so the next sweep sees it again.
+                // still no row pointing at it, so the next sweep sees it again
                 log.warn("Failed to delete orphaned attachment object {}", object.storageKey(), e);
             }
         }
