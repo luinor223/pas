@@ -19,6 +19,8 @@ import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -41,6 +43,8 @@ import java.util.UUID;
  */
 @Service
 public class AddendumService {
+
+    private static final Logger log = LoggerFactory.getLogger(AddendumService.class);
 
     /** The workflow document type code addenda submit under. */
     static final String DOCUMENT_TYPE = "ADDENDUM";
@@ -280,8 +284,27 @@ public class AddendumService {
                 "validTo", parent.getValidTo(),
                 "paymentTerm", String.valueOf(parent.getPaymentTerm()));
 
+        boolean superseded = false;
         switch (addendum.getChangeType()) {
-            case TERM_EXTENSION -> parent.setValidTo(addendum.getNewValidTo());
+            // Re-checked here, not just at create: two addenda can be approved against the same
+            // contract, and they activate in effective-date order, not approval order. One
+            // extending to 2028 and another to 2027 would leave the parent on whichever landed
+            // last. A TERM_EXTENSION may only ever move valid_to forward.
+            case TERM_EXTENSION -> {
+                if (addendum.getNewValidTo().isAfter(parent.getValidTo())) {
+                    parent.setValidTo(addendum.getNewValidTo());
+                } else {
+                    // Not an error, and deliberately not a refusal: the addendum was approved and
+                    // its effective date has arrived, so it activates. Its term effect is simply
+                    // already covered by a longer extension. Refusing would wedge it APPROVED and
+                    // the sweep would retry it for ever.
+                    superseded = true;
+                    log.info("Addendum {} extends {} to {}, but the contract already runs to {};"
+                                    + " activating with no term change",
+                            addendum.getAddendumNo(), parent.getContractNo(),
+                            addendum.getNewValidTo(), parent.getValidTo());
+                }
+            }
             case PAYMENT_TERMS -> parent.setPaymentTerm(addendum.getPaymentTermOverride());
             // D8: the figures live in a pricing version Sales creates from the approved addendum.
             // Nothing on the contract row changes.
@@ -295,6 +318,16 @@ public class AddendumService {
                 "validTo", parent.getValidTo(),
                 "paymentTerm", String.valueOf(parent.getPaymentTerm()));
         Map<String, Object> changes = FieldDiff.between(was, now);
+        if (superseded) {
+            // Worth a row of its own: a term extension that changed nothing is a fact someone
+            // reading the contract's history needs, and it is not the same fact as "no effect".
+            audit.record(EntityType.CONTRACT.name(), parent.getId(), parent.getContractNo(),
+                    "ADDENDUM_SUPERSEDED", null, null,
+                    "Addendum %s activated with no term change".formatted(addendum.getAddendumNo()),
+                    Map.of("newValidTo", String.valueOf(addendum.getNewValidTo()),
+                            "contractValidTo", String.valueOf(parent.getValidTo())));
+            return;
+        }
         if (changes.isEmpty()) {
             return;   // nothing to say: an audit row claiming a change would be a false record
         }
@@ -449,16 +482,16 @@ public class AddendumService {
         fields.put("effectiveFrom", addendum.getEffectiveFrom());
         fields.put("newValidTo", addendum.getNewValidTo());
         fields.put("paymentTermOverride", addendum.getPaymentTermOverride());
-        // Every persisted field, or an edit to a unit or a scope note produces an audit row that
-        // claims nothing changed. Sorted so a reorder is not itself a change.
+        // Structured, not joined. String.valueOf(null) is the string "null", which would make an
+        // actual null indistinguishable from a scope note that literally reads "null"; and any
+        // delimiter can appear inside a value. Nested maps compare by equals, field by field,
+        // and FieldDiff's null handling then applies all the way down.
+        //
+        // Sorted by service_code, which is unique per addendum (uq_addendum_service_code), so a
+        // reorder of the request's list is not itself a change.
         fields.put("services", addendum.getServices().stream()
-                .map(line -> String.join("|",
-                        String.valueOf(line.getServiceItemId()),
-                        line.getServiceCode(),
-                        line.getServiceName(),
-                        String.valueOf(line.getUnit()),
-                        String.valueOf(line.getScopeNote())))
-                .sorted()
+                .sorted(java.util.Comparator.comparing(AddendumServiceLine::getServiceCode))
+                .map(AddendumService::describe)
                 .toList());
         return fields;
     }
@@ -479,6 +512,17 @@ public class AddendumService {
         // Same transaction by construction: if the effect fails, the flip goes with it, and the
         // parent never keeps its old terms while the addendum claims to be in force.
         applyEffectsToParent(addendum);
+    }
+
+    /** A service line as the audit sees it: every persisted field, nulls preserved as nulls. */
+    private static Map<String, Object> describe(AddendumServiceLine line) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("serviceItemId", line.getServiceItemId());
+        fields.put("serviceCode", line.getServiceCode());
+        fields.put("serviceName", line.getServiceName());
+        fields.put("unit", line.getUnit());
+        fields.put("scopeNote", line.getScopeNote());
+        return fields;
     }
 
     /** Effective dates that have arrived — the D14d sweep's input (item 12). */

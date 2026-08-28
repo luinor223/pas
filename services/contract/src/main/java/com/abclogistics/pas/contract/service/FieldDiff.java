@@ -23,8 +23,8 @@ final class FieldDiff {
             Object after = now.get(field);
             if (!sameValue(before, after)) {
                 Map<String, Object> change = new LinkedHashMap<>();
-                change.put("from", text(before));
-                change.put("to", text(after));
+                change.put("from", render(before));
+                change.put("to", render(after));
                 changes.put(field, change);
             }
         });
@@ -39,8 +39,19 @@ final class FieldDiff {
         return Objects.equals(before, after);
     }
 
-    /** Null stays null in the payload — "not stated" and the string "null" are different facts. */
-    private static String text(Object value) {
-        return value == null ? null : value.toString();
+    /**
+     * Null stays null in the payload — "not stated" and the string "null" are different facts.
+     *
+     * <p>Structured values (a list of service lines, say) are passed through rather than
+     * stringified, so the serializer renders them as real JSON. {@code toString} on a nested map
+     * prints a null value and the literal string "null" identically, which would lose inside the
+     * audit row exactly the distinction this method preserves at the top level. Scalars are still
+     * rendered as text, so dates and numbers read the way they always have.
+     */
+    private static Object render(Object value) {
+        if (value == null || value instanceof Iterable<?> || value instanceof Map<?, ?>) {
+            return value;
+        }
+        return value.toString();
     }
 }

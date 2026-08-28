@@ -219,6 +219,55 @@ class AddendumActiveAppliesToParentTxTest {
         assertThat(auditRows(contractId, "ADDENDUM_APPLIED")).isZero();
     }
 
+    // --- several addenda against one contract -------------------------------------------------
+
+    @Test
+    void aLaterAddendumNeverShortensAnExtensionAlreadyApplied() {
+        // Two addenda can be approved against the same contract, and they activate in
+        // effective-date order rather than approval order. Validation at create compared each
+        // against the contract as it was THEN; by activation that comparison is stale.
+        UUID contractId = activeContract();
+        UUID longer = approved(termExtension(contractId, LocalDate.of(2028, 12, 31)));
+        UUID shorter = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+
+        tx.executeWithoutResult(s -> addenda.activate(longer));
+        tx.executeWithoutResult(s -> addenda.activate(shorter));
+
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2028, 12, 31));
+    }
+
+    @Test
+    void aSupersededExtensionStillActivatesRatherThanWedging() {
+        // It was approved and its date arrived, so refusing would leave it APPROVED for ever with
+        // the sweep retrying it on every run. It activates; only its term effect is a no-op.
+        UUID contractId = activeContract();
+        UUID longer = approved(termExtension(contractId, LocalDate.of(2028, 12, 31)));
+        UUID shorter = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+
+        tx.executeWithoutResult(s -> addenda.activate(longer));
+        tx.executeWithoutResult(s -> addenda.activate(shorter));
+
+        assertThat(statusOf(shorter)).isEqualTo(DocumentStatus.ACTIVE);
+        // and it says so: "extended nothing" is a different fact from "had no effect"
+        String payload = auditPayload(contractId, "ADDENDUM_SUPERSEDED");
+        assertThat(payload).contains("2027-06-30").contains("2028-12-31");
+    }
+
+    @Test
+    void addendaAppliedInAscendingOrderBothTakeEffect() {
+        // The ordinary case must not have been broken by the guard: a genuinely longer extension
+        // applied after a shorter one still moves the parent.
+        UUID contractId = activeContract();
+        UUID shorter = approved(termExtension(contractId, LocalDate.of(2027, 6, 30)));
+        UUID longer = approved(termExtension(contractId, LocalDate.of(2028, 12, 31)));
+
+        tx.executeWithoutResult(s -> addenda.activate(shorter));
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2027, 6, 30));
+
+        tx.executeWithoutResult(s -> addenda.activate(longer));
+        assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2028, 12, 31));
+    }
+
     // --- the parent moves under the addendum's feet ------------------------------------------
 
     @Test
@@ -363,6 +412,50 @@ class AddendumActiveAppliesToParentTxTest {
 
         String payload = auditPayload(id, "UPDATE");
         assertThat(payload).contains("services").contains("pallet").contains("inbound only");
+    }
+
+    @Test
+    void aScopeNoteOfTheLiteralWordNullIsNotTheSameAsNoScopeNote() {
+        // Joining the snapshot into a string turned null into "null", so clearing a scope note
+        // that literally read "null" produced no audit difference at all.
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(
+                contractId, "ADDED_SERVICE", "new service", LocalDate.of(2026, 6, 1), null, null,
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", "m2", "null")),
+                null)).getId());
+        Integer version = tx.execute(s -> addenda.get(id).getVersion());
+
+        tx.executeWithoutResult(s -> addenda.update(id, new AddendumRequest(
+                contractId, "ADDED_SERVICE", "new service", LocalDate.of(2026, 6, 1), null, null,
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", "m2", null)),
+                version)));
+
+        String payload = auditPayload(id, "UPDATE");
+        // detected as a change, and the row says which way round it went: the old value is the
+        // quoted string, the new one a JSON null
+        assertThat(payload).contains("services");
+        assertThat(payload).containsPattern("\"scopeNote\"\\s*:\\s*\"null\"");
+        assertThat(payload).containsPattern("\"scopeNote\"\\s*:\\s*null");
+    }
+
+    @Test
+    void aValueContainingTheDelimiterDoesNotCollapseTwoLines() {
+        // Any delimiter can appear inside a value, so a joined representation can make two
+        // different sets of lines compare equal. Structured entries cannot.
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(
+                contractId, "ADDED_SERVICE", "new service", LocalDate.of(2026, 6, 1), null, null,
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", "m2", "a|b")),
+                null)).getId());
+        Integer version = tx.execute(s -> addenda.get(id).getVersion());
+
+        tx.executeWithoutResult(s -> addenda.update(id, new AddendumRequest(
+                contractId, "ADDED_SERVICE", "new service", LocalDate.of(2026, 6, 1), null, null,
+                List.of(new AddendumRequest.ServiceLine(null, "WH-01", "Warehousing", "m2|a", "b")),
+                version)));
+
+        String payload = auditPayload(id, "UPDATE");
+        assertThat(payload).contains("services").contains("a|b").contains("m2|a");
     }
 
     // --- helpers ----------------------------------------------------------------------------
