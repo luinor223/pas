@@ -8,14 +8,19 @@ import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.service.EsignGrpcClient;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -32,6 +37,15 @@ public class ContractOutboxRelay extends OutboxRelay {
 
     private static final String GRPC_START_INSTANCE = "grpc:WorkflowInternal.StartInstance";
     private static final String GRPC_CREATE_SIGNING_SESSION = "grpc:EsignInternal.CreateSigningSession";
+
+    /**
+     * The callee refused rather than failed. NOT_FOUND is deliberately absent: it is D4's dispatch
+     * window on the workflow side, where the retry is the whole design (registry §5.1).
+     */
+    private static final Set<Status.Code> PERMANENT_STATUSES = EnumSet.of(
+            Status.Code.FAILED_PRECONDITION, Status.Code.INVALID_ARGUMENT,
+            Status.Code.PERMISSION_DENIED, Status.Code.UNAUTHENTICATED,
+            Status.Code.UNIMPLEMENTED, Status.Code.OUT_OF_RANGE, Status.Code.ALREADY_EXISTS);
 
     private static final Logger log = LoggerFactory.getLogger(ContractOutboxRelay.class);
 
@@ -91,6 +105,21 @@ public class ContractOutboxRelay extends OutboxRelay {
         log.debug("Created signing session {} for {} {} from outbox event {} (idempotencyKey={})",
                 sessionId, payload.documentType(), payload.documentNo(), event.getId(),
                 payload.idempotencyKey());
+    }
+
+    /**
+     * A gRPC status that is an answer, not an outage. Retrying these is pure noise: a double-send
+     * refused with FAILED_PRECONDITION is refused identically on every poll, and at a five-second
+     * interval that is a row re-claimed for the life of the deployment. UNAVAILABLE,
+     * DEADLINE_EXCEEDED and the rest stay retryable — those are the outages the outbox exists for.
+     */
+    @Override
+    protected boolean isPermanentFailure(Exception e) {
+        if (e instanceof StatusRuntimeException grpc) {
+            return PERMANENT_STATUSES.contains(grpc.getStatus().getCode());
+        }
+        // a payload this service cannot even parse will not parse on the next poll either
+        return e instanceof JacksonException;
     }
 
     @Override

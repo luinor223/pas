@@ -108,6 +108,11 @@ class ContractInternalGrpcServiceTest {
     private static final byte[] SIGNED_PDF = "%PDF-1.7 the contract as uploaded"
             .getBytes(StandardCharsets.UTF_8);
 
+    private static final CustomerRequest ACME = new CustomerRequest("ACME Logistics", null, null,
+            null, null, null, null,
+            List.of(new CustomerContactRequest("Tran Thi B", "Director", "b@acme.vn",
+                    "0900000000", true)));
+
     @MockitoBean WorkflowGrpcClient workflow;
 
     @Autowired ContractInternalGrpcService service;
@@ -196,8 +201,7 @@ class ContractInternalGrpcServiceTest {
 
     @Test
     void getSigningPayloadServesAnApprovedContract() {
-        UUID id = contract(DocumentStatus.APPROVED);
-        attach(EntityType.CONTRACT, id);
+        UUID id = approvedContractWithPdf();
 
         GetSigningPayloadResponse response = getSigningPayload("CONTRACT", id.toString());
 
@@ -212,9 +216,10 @@ class ContractInternalGrpcServiceTest {
     void getSigningPayloadServesAnApprovedAddendumThroughItsParentsCustomer() {
         // D10 covers addenda too, and an addendum has no customer of its own.
         UUID contractId = contract(DocumentStatus.ACTIVE);
-        UUID id = approvedAddendum(new AddendumRequest(contractId, "PAYMENT_TERMS", "terms",
-                LocalDate.now(), null, "NET60", null, null));
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(contractId, "PAYMENT_TERMS",
+                "terms", LocalDate.now(), null, "NET60", null, null)).getId());
         attach(EntityType.ADDENDUM, id);
+        tx.executeWithoutResult(s -> addenda.get(id).setStatus(DocumentStatus.APPROVED));
 
         GetSigningPayloadResponse response = getSigningPayload("ADDENDUM", id.toString());
 
@@ -226,8 +231,9 @@ class ContractInternalGrpcServiceTest {
     void aDocumentThatIsNotApprovedIsRefused() {
         // registry §5's guard. Unlike billing's it is not widened: nothing here flips a status
         // before dispatching, so APPROVED is always reachable.
-        UUID id = contract(DocumentStatus.ACTIVE);
+        UUID id = draftContractFor(ACME);
         attach(EntityType.CONTRACT, id);
+        setStatus(id, DocumentStatus.ACTIVE);
 
         assertThatThrownBy(() -> getSigningPayload("CONTRACT", id.toString()))
                 .isInstanceOf(StatusRuntimeException.class)
@@ -255,14 +261,45 @@ class ContractInternalGrpcServiceTest {
     }
 
     @Test
+    void aDocumentWhoseOnlyAttachmentIsNotAPdfIsRefused() {
+        // The field on the wire is pdf_content and attachments are a general-purpose list, so the
+        // newest upload can easily be a spreadsheet of volumes. Sending it would put that in front
+        // of the customer to sign.
+        UUID id = draftContractFor(ACME);
+        attach(EntityType.CONTRACT, id, "volumes.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "not a pdf".getBytes(StandardCharsets.UTF_8));
+        setStatus(id, DocumentStatus.APPROVED);
+
+        assertThatThrownBy(() -> getSigningPayload("CONTRACT", id.toString()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .hasMessageContaining("none is a PDF");
+    }
+
+    @Test
+    void theNewestPdfWinsOverANewerNonPdf() {
+        // Ordering by upload time alone would pick the spreadsheet uploaded afterwards.
+        UUID id = draftContractFor(ACME);
+        attach(EntityType.CONTRACT, id);
+        attach(EntityType.CONTRACT, id, "volumes.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "not a pdf".getBytes(StandardCharsets.UTF_8));
+        setStatus(id, DocumentStatus.APPROVED);
+
+        GetSigningPayloadResponse response = getSigningPayload("CONTRACT", id.toString());
+
+        assertThat(response.getPdfContent().toByteArray()).isEqualTo(SIGNED_PDF);
+    }
+
+    @Test
     void theNewestAttachmentIsTheOneSent() {
         // A re-upload before approval corrects the one before it; sending the superseded file
         // would put the wrong terms in front of the signer.
-        UUID id = contract(DocumentStatus.APPROVED);
-        attach(EntityType.CONTRACT, id);
         byte[] corrected = "%PDF-1.7 corrected".getBytes(StandardCharsets.UTF_8);
-        tx.execute(s -> attachments.upload(EntityType.CONTRACT, id,
-                new MockMultipartFile("file", "contract-v2.pdf", "application/pdf", corrected)));
+        UUID id = draftContractFor(ACME);
+        attach(EntityType.CONTRACT, id);
+        attach(EntityType.CONTRACT, id, "contract-v2.pdf", "application/pdf", corrected);
+        setStatus(id, DocumentStatus.APPROVED);
 
         GetSigningPayloadResponse response = getSigningPayload("CONTRACT", id.toString());
 
@@ -271,9 +308,10 @@ class ContractInternalGrpcServiceTest {
 
     @Test
     void aCustomerWithNoPrimaryContactIsRefused() {
-        UUID id = contractFor(new CustomerRequest("Beta Trading", null, null, null, null, null,
-                null, List.of()), DocumentStatus.APPROVED);
+        UUID id = draftContractFor(new CustomerRequest("Beta Trading", null, null, null, null,
+                null, null, List.of()));
         attach(EntityType.CONTRACT, id);
+        setStatus(id, DocumentStatus.APPROVED);
 
         assertThatThrownBy(() -> getSigningPayload("CONTRACT", id.toString()))
                 .isInstanceOf(StatusRuntimeException.class)
@@ -313,19 +351,39 @@ class ContractInternalGrpcServiceTest {
     }
 
     private UUID contract(DocumentStatus status) {
-        return contractFor(new CustomerRequest("ACME Logistics", null, null, null, null, null, null,
-                List.of(new CustomerContactRequest("Tran Thi B", "Director", "b@acme.vn",
-                        "0900000000", true))), status);
+        return contractFor(ACME, status);
     }
 
     private UUID contractFor(CustomerRequest customer, DocumentStatus status) {
+        UUID id = draftContractFor(customer);
+        setStatus(id, status);
+        return id;
+    }
+
+    /**
+     * Left DRAFT on purpose. AttachmentService refuses an upload onto a document that is no longer
+     * editable (CTR-01), which is the real order of events: a contract is filled in and its file
+     * attached, and only then does approval move it. A fixture that flips the status first is
+     * testing a state the application cannot produce.
+     */
+    private UUID draftContractFor(CustomerRequest customer) {
         UUID customerId = tx.execute(s -> customers.create(customer).getId());
-        UUID id = tx.execute(s -> contracts.create(new ContractRequest(
+        return tx.execute(s -> contracts.create(new ContractRequest(
                 customerId, "internal read", "TRANSPORTATION", new BigDecimal("1000000"), "VND",
                 LocalDate.now().minusDays(1), LocalDate.now().plusYears(1),
                 "NET30", "MONTHLY", new BigDecimal("10"), null, null, null)).getId());
-        tx.executeWithoutResult(s -> contracts.get(id).setStatus(status));
+    }
+
+    /** DRAFT + its signed file, then APPROVED — the sequence a real document goes through. */
+    private UUID approvedContractWithPdf() {
+        UUID id = draftContractFor(ACME);
+        attach(EntityType.CONTRACT, id, "contract.pdf", "application/pdf", SIGNED_PDF);
+        setStatus(id, DocumentStatus.APPROVED);
         return id;
+    }
+
+    private void setStatus(UUID id, DocumentStatus status) {
+        tx.executeWithoutResult(s -> contracts.get(id).setStatus(status));
     }
 
     private UUID approvedAddendum(AddendumRequest request) {
@@ -335,7 +393,12 @@ class ContractInternalGrpcServiceTest {
     }
 
     private void attach(EntityType ownerType, UUID ownerId) {
+        attach(ownerType, ownerId, "contract.pdf", "application/pdf", SIGNED_PDF);
+    }
+
+    private void attach(EntityType ownerType, UUID ownerId, String fileName, String contentType,
+                        byte[] content) {
         tx.execute(s -> attachments.upload(ownerType, ownerId,
-                new MockMultipartFile("file", "contract.pdf", "application/pdf", SIGNED_PDF)));
+                new MockMultipartFile("file", fileName, contentType, content)));
     }
 }

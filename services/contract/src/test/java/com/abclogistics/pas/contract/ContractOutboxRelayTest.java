@@ -239,6 +239,73 @@ class ContractOutboxRelayTest {
         verify(kafka, never()).send(any(ProducerRecord.class));
     }
 
+    // --- refusals vs outages ------------------------------------------------------------------
+
+    @Test
+    void aPermanentlyRefusedSendIsParkedRatherThanRetriedForEver() {
+        // A double-send is refused with FAILED_PRECONDITION, and it will be refused identically on
+        // every poll. At a five-second interval, retrying is a row re-claimed for the life of the
+        // deployment and a log line every five seconds saying the same thing.
+        OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0006", "Tran Thi B", "b@acme.vn")));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenThrow(new StatusRuntimeException(
+                        Status.FAILED_PRECONDITION.withDescription("session already exists")));
+
+        relay.pollAndDispatch();
+
+        // parked, not published: nothing reached esign, and the row says so
+        assertThat(event.getCancelledAt()).isNotNull();
+        assertThat(event.getPublishedAt()).isNull();
+        // and the payload and count survive, so the parked send is still readable after the fact
+        assertThat(event.getRetryCount()).isEqualTo(1);
+        assertThat(event.getPayload()).contains("b@acme.vn");
+    }
+
+    @Test
+    void anOutageIsStillRetried() {
+        // The distinction the classification exists for: UNAVAILABLE is what the outbox is FOR.
+        OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0007", "Tran Thi B", "b@acme.vn")));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getCancelledAt()).isNull();
+        assertThat(event.getClaimedAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+    }
+
+    @Test
+    void aWorkflowStartRefusedOutrightIsParkedToo() {
+        // Not esign-specific: a StartInstance the workflow service refuses is equally undeliverable.
+        OutboxEvent event = queued(startRequested(new WorkflowStartRequested(UUID.randomUUID(),
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0008", "ACME Co", "NORMAL", null, "system")));
+        when(workflow.startInstance(any(), anyString(), any(), anyString(), any(), any(), any(), any()))
+                .thenThrow(new StatusRuntimeException(
+                        Status.INVALID_ARGUMENT.withDescription("unknown document type")));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getCancelledAt()).isNotNull();
+        assertThat(event.getPublishedAt()).isNull();
+    }
+
+    @Test
+    void aBrokerRefusalIsNotTreatedAsPermanent() {
+        // Kafka failures arrive as plain exceptions, not gRPC statuses, and a broker that rejected
+        // a record is an outage from here. Parking an audit row would lose it silently.
+        OutboxEvent event = queued(OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{}"));
+        when(kafka.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getCancelledAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+    }
+
     // --- events with no route ---------------------------------------------------------------
 
     @Test

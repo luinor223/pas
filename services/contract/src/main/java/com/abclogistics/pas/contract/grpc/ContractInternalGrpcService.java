@@ -19,12 +19,14 @@ import com.google.protobuf.ByteString;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -39,15 +41,23 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
     private final CustomerService customers;
     private final AttachmentRepository attachments;
     private final AttachmentStorage storage;
+    private final TransactionTemplate tx;
 
     public ContractInternalGrpcService(ContractService contracts, AddendumService addenda,
                                        CustomerService customers, AttachmentRepository attachments,
-                                       AttachmentStorage storage) {
+                                       AttachmentStorage storage,
+                                       PlatformTransactionManager transactionManager) {
         this.contracts = contracts;
         this.addenda = addenda;
         this.customers = customers;
         this.attachments = attachments;
         this.storage = storage;
+        // NOT @Transactional on the rpc methods. A lookup that throws marks the surrounding
+        // transaction rollback-only, and catching it inside that transaction to build an onError
+        // means the commit afterwards throws UnexpectedRollbackException — the caller gets
+        // INTERNAL instead of NOT_FOUND. The template ends the transaction first, then we map.
+        this.tx = new TransactionTemplate(transactionManager);
+        this.tx.setReadOnly(true);
     }
 
     /**
@@ -56,28 +66,31 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
      * row (registry §9²), so there is nothing for a caller to recompose.
      */
     @Override
-    @Transactional(readOnly = true)
     public void getContract(GetContractRequest request,
                             StreamObserver<GetContractResponse> observer) {
         try {
-            Contract contract = contracts.get(parseId(request.getId()));
-            observer.onNext(GetContractResponse.newBuilder()
-                    .setId(contract.getId().toString())
-                    .setContractNo(contract.getContractNo())
-                    .setStatus(contract.getStatus().name())
-                    .setValidFrom(contract.getValidFrom().toString())
-                    .setValidTo(contract.getValidTo().toString())
-                    .setServiceGroup(contract.getServiceGroup().name())
-                    .setVatRate(vatRate(contract))
-                    .setPaymentTerm(nullToEmpty(contract.getPaymentTerm()))
-                    .setCustomerId(contract.getCustomer().getId().toString())
-                    .setCustomerName(contract.getCustomer().getName())
-                    .setCurrency(contract.getCurrency())
-                    .build());
+            observer.onNext(tx.execute(s -> readContract(request)));
             observer.onCompleted();
         } catch (Exception e) {
             observer.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
+    }
+
+    private GetContractResponse readContract(GetContractRequest request) {
+        Contract contract = contracts.get(parseId(request.getId()));
+        return GetContractResponse.newBuilder()
+                .setId(contract.getId().toString())
+                .setContractNo(contract.getContractNo())
+                .setStatus(contract.getStatus().name())
+                .setValidFrom(contract.getValidFrom().toString())
+                .setValidTo(contract.getValidTo().toString())
+                .setServiceGroup(contract.getServiceGroup().name())
+                .setVatRate(vatRate(contract))
+                .setPaymentTerm(nullToEmpty(contract.getPaymentTerm()))
+                .setCustomerId(contract.getCustomer().getId().toString())
+                .setCustomerName(contract.getCustomer().getName())
+                .setCurrency(contract.getCurrency())
+                .build();
     }
 
     /**
@@ -86,9 +99,17 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
      * here flips a status before dispatching.
      */
     @Override
-    @Transactional(readOnly = true)
     public void getSigningPayload(GetSigningPayloadRequest request,
                                   StreamObserver<GetSigningPayloadResponse> observer) {
+        try {
+            observer.onNext(tx.execute(s -> readSigningPayload(request)));
+            observer.onCompleted();
+        } catch (Exception e) {
+            observer.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    private GetSigningPayloadResponse readSigningPayload(GetSigningPayloadRequest request) {
         try {
             EntityType type = documentType(request.getDocumentType());
             UUID id = parseId(request.getId());
@@ -104,33 +125,54 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
             }
             CustomerContact signer = signerFor(document, type);
 
-            observer.onNext(GetSigningPayloadResponse.newBuilder()
+            return GetSigningPayloadResponse.newBuilder()
                     .setDocumentNo(document.getDocumentNo())
                     .setPdfContent(pdfContent(type, id, document.getDocumentNo()))
                     .setSignerName(signer.getFullName())
                     .setSignerEmail(nullToEmpty(signer.getEmail()))
-                    .build());
-            observer.onCompleted();
-        } catch (Exception e) {
-            observer.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+                    .build();
+        } catch (IOException e) {
+            // reading the stored file is the one checked failure here; the rest are unchecked and
+            // travel out of the template on their own
+            throw new java.io.UncheckedIOException(e);
         }
     }
 
     /**
      * The document as uploaded, not a rendering: CTR-02 already requires an attachment to submit,
      * and inventing a generated PDF here would send the provider something no one ever approved.
-     * The newest upload wins — a re-upload before approval is a correction of the one before it.
+     * The newest PDF wins — a re-upload before approval corrects the one before it.
+     *
+     * <p>Filtered by content type, not just taken newest: attachments are a general-purpose list
+     * (a scanned annex, a spreadsheet of volumes), and the field on the wire is {@code pdf_content}.
+     * Handing the provider the most recent upload regardless of what it is would send a customer a
+     * spreadsheet to sign.
      */
     private ByteString pdfContent(EntityType type, UUID documentId, String documentNo) throws IOException {
-        Attachment newest = attachments.findByOwnerTypeAndOwnerId(type, documentId).stream()
+        List<Attachment> all = attachments.findByOwnerTypeAndOwnerId(type, documentId);
+        Attachment newest = all.stream()
+                .filter(ContractInternalGrpcService::isPdf)
                 .max(Comparator.comparing(Attachment::getUploadedAt))
-                .orElseThrow(() -> new FailedPreconditionException(
-                        "%s %s has no attachment to sign (CTR-02 requires one at submit, so this "
+                .orElseThrow(() -> new FailedPreconditionException(all.isEmpty()
+                        ? "%s %s has no attachment to sign (CTR-02 requires one at submit, so this "
+                                .formatted(type, documentNo)
                                 + "document predates the rule or lost its file)"
-                                .formatted(type, documentNo)));
+                        : "%s %s has %d attachment(s) but none is a PDF; there is nothing here to "
+                                .formatted(type, documentNo, all.size())
+                                + "send for signature (D10)"));
         try (InputStream content = storage.load(newest.getStoragePath()).getInputStream()) {
             return ByteString.readFrom(content);
         }
+    }
+
+    /** Content type first; a missing one falls back to the extension rather than being refused. */
+    private static boolean isPdf(Attachment attachment) {
+        String contentType = attachment.getContentType();
+        if (contentType != null && !contentType.isBlank()) {
+            return contentType.toLowerCase(Locale.ROOT).startsWith("application/pdf");
+        }
+        String name = attachment.getFileName();
+        return name != null && name.toLowerCase(Locale.ROOT).endsWith(".pdf");
     }
 
     private CustomerContact signerFor(ApprovableDocument document, EntityType type) {
