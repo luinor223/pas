@@ -99,6 +99,17 @@ public class ContractController {
         return contracts.history(id).stream().map(StatusHistoryResponse::of).toList();
     }
 
+    /**
+     * D10 — accepted and queued, not done: the relay dispatches CreateSigningSession afterwards.
+     * 202 rather than 200, and the contract's status is deliberately unchanged (5.5, D14e).
+     */
+    @PostMapping("/{id}/send-for-signing")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @PreAuthorize("hasAuthority('esign:send')")
+    public void sendForSigning(@PathVariable UUID id) {
+        contracts.sendForSigning(id);
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse update(@PathVariable UUID id, @Valid @RequestBody ContractRequest request) {

@@ -18,6 +18,8 @@ import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.contract.domain.CustomerContact;
+import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
@@ -375,9 +377,57 @@ public class ContractService {
         return contract;
     }
 
+    /**
+     * D10 send-for-signing — registry §6's third outbox use, and NOT a transition. Requirement 5.5
+     * keeps approval state and signing state apart, so nothing about the contract's status moves
+     * here and no status_history row is written; the frontend composes signing state from
+     * esign-service for display.
+     *
+     * <p>Outboxed rather than called synchronously for the same reason submit is (D4): APR-07 wants
+     * the user's send to survive esign-service being down, and a remote call committed afterwards
+     * would leave a session sending to the provider for a document this service never recorded.
+     */
     @Transactional
     public void sendForSigning(UUID id) {
-        throw new UnsupportedOperationException("session-3 Phase B");
+        Contract contract = get(id);
+        // GetSigningPayload's own guard (registry §5): esign will re-check it when it fetches, and
+        // refusing here means the user learns now rather than through a failed session
+        if (contract.getStatus() != DocumentStatus.APPROVED) {
+            throw new ConflictException(
+                    "Contract %s is %s; only an APPROVED contract can be sent for signature (D10)"
+                            .formatted(contract.getContractNo(), contract.getStatus()));
+        }
+        CustomerContact signer = signerFor(contract.getCustomer());
+
+        EsignSessionRequested payload = new EsignSessionRequested(
+                // generated once, here: every retry of this row reuses it, so a re-dispatch after
+                // a timeout cannot create a second signing session (§M2)
+                UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),
+                signer.getFullName(), signer.getEmail());
+        outbox.save(OutboxEvent.event(EsignSessionRequested.EVENT_TYPE,
+                EntityType.CONTRACT.name(), contract.getId(),
+                objectMapper.writeValueAsString(payload)));
+
+        // audited even though no status moved: "who sent this for signature, and when" is exactly
+        // the kind of action the History tab exists to answer (D15)
+        audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
+                "SEND_FOR_SIGNING", null, null,
+                "Sent for e-signature to %s".formatted(signer.getEmail()),
+                Map.of("signerName", signer.getFullName(), "signerEmail", signer.getEmail()));
+    }
+
+    /** The signer esign addresses (db-esign.md: "the mock addresses a named customer signer"). */
+    private CustomerContact signerFor(Customer customer) {
+        CustomerContact signer = customers.primaryContactOf(customer.getId())
+                .orElseThrow(() -> new UnprocessableEntityException(
+                        "Customer %s has no primary contact; there is nobody to address the "
+                                + "signature request to (D10)".formatted(customer.getCode())));
+        if (RequestValues.blankToNull(signer.getEmail()) == null) {
+            throw new UnprocessableEntityException(
+                    "Primary contact %s of customer %s has no email address; the signature request "
+                            + "has nowhere to go (D10)".formatted(signer.getFullName(), customer.getCode()));
+        }
+        return signer;
     }
 
     // --- D14d date-driven transitions (driven by ContractStatusScheduler) ------------------------

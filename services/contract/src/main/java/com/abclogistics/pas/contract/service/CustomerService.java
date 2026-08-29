@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.UUID;
 
@@ -61,6 +62,12 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public List<CustomerContact> contactsOf(UUID customerId) {
         return contacts.findByCustomerId(customerId);
+    }
+
+    /** The contact a document addressed to this customer goes to — at most one exists (D10). */
+    @Transactional(readOnly = true)
+    public Optional<CustomerContact> primaryContactOf(UUID customerId) {
+        return contacts.findByCustomerIdAndPrimaryTrue(customerId);
     }
 
     @Transactional

@@ -69,6 +69,41 @@ class ContractContractTest {
     }
 
     @Test
+    void contractInternalProtoCarriesEveryFieldItsCallersRead() throws Exception {
+        // The callee owns this file (§5.1) and neither caller exists yet: billing snapshots
+        // GetContract in session 6, esign fetches GetSigningPayload in session 7. A field dropped
+        // here would not fail until then.
+        Path proto = resolve("proto/src/main/proto/contract/v1/contract_internal.proto");
+        assertThat(Files.exists(proto))
+                .withFailMessage("proto not found at %s", proto.toAbsolutePath()).isTrue();
+        String content = Files.readString(proto);
+
+        assertThat(content).contains("rpc GetContract");
+        assertThat(content).contains("rpc GetSigningPayload");
+        // PAY-03's snapshot, field by field
+        assertThat(content).contains("contract_no").contains("customer_name").contains("customer_id");
+        assertThat(content).contains("vat_rate").contains("payment_term").contains("currency");
+        assertThat(content).contains("valid_from").contains("valid_to").contains("service_group");
+        // D10's payload: esign renders from these
+        assertThat(content).contains("document_no").contains("pdf_content");
+        assertThat(content).contains("signer_name").contains("signer_email");
+        // GetSigningPayload is generic over contract and addendum, so the type travels with the id
+        assertThat(content).contains("document_type");
+    }
+
+    @Test
+    void esignProtoCarriesTheIdempotencyKeyTheRelayResends() throws Exception {
+        // §M2: the key is generated once when the user presses send and reused on every retry, so
+        // it has to be a field on the request rather than something esign derives.
+        Path proto = resolve("proto/src/main/proto/esign/v1/esign_internal.proto");
+        String content = Files.readString(proto);
+
+        assertThat(content).contains("rpc CreateSigningSession");
+        assertThat(content).contains("idempotency_key");
+        assertThat(content).contains("signer_name").contains("signer_email");
+    }
+
+    @Test
     void documentStatusHasNoSigningStates() {
         // D14e / requirement 5.5: approval state and signing state are never mixed. The frontend
         // composes signing state from esign-service; it is never persisted on the document.

@@ -46,8 +46,7 @@ class ApiSurfaceConsistencyTest {
             AddendumController.class);
 
     /** Documented but not built yet — Phase B items 6-14. Delete a line as its item lands. */
-    private static final Set<String> PENDING = Set.of(
-            "POST /contracts/{id}/send-for-signing");  // item 13 — D10 / D14e
+    private static final Set<String> PENDING = Set.of();
 
     @Test
     void everyDocumentedRouteIsServedUnlessItIsListedAsPending() {
@@ -66,8 +65,11 @@ class ApiSurfaceConsistencyTest {
         // A pending entry that no longer appears in the OpenAPI is a typo or a removed route.
         assertThat(PENDING).isSubsetOf(documentedRoutes());
         // And one that has since been implemented must be deleted from the list, or the build
-        // stops telling the truth about what is left to do.
-        assertThat(implementedRoutes()).doesNotContainAnyElementsOf(PENDING);
+        // stops telling the truth about what is left to do. Empty is the goal state, not a
+        // special case — AssertJ just refuses an empty iterable here.
+        if (!PENDING.isEmpty()) {
+            assertThat(implementedRoutes()).doesNotContainAnyElementsOf(PENDING);
+        }
     }
 
     @Test

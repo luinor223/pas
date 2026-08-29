@@ -4,7 +4,9 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelay;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
+import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
+import com.abclogistics.pas.contract.service.EsignGrpcClient;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,14 +37,17 @@ public class ContractOutboxRelay extends OutboxRelay {
 
     private final KafkaTemplate<String, String> kafka;
     private final WorkflowGrpcClient workflow;
+    private final EsignGrpcClient esign;
     private final ObjectMapper objectMapper;
 
     public ContractOutboxRelay(OutboxRepository outbox, OutboxRelayProperties props,
                                KafkaTemplate<String, String> kafka, WorkflowGrpcClient workflow,
-                               ObjectMapper objectMapper, TransactionTemplate tx) {
+                               EsignGrpcClient esign, ObjectMapper objectMapper,
+                               TransactionTemplate tx) {
         super(outbox, props, tx);
         this.kafka = kafka;
         this.workflow = workflow;
+        this.esign = esign;
         this.objectMapper = objectMapper;
     }
 
@@ -51,10 +56,7 @@ public class ContractOutboxRelay extends OutboxRelay {
         switch (event.getEventType()) {
             case AUDIT_RECORDED -> publish(event);
             case WORKFLOW_START_REQUESTED -> startInstance(event);
-            // no client yet: throwing parks the row, while Kafka would accept it unread
-            case ESIGN_SESSION_REQUESTED -> throw new UnsupportedOperationException(
-                    "esign.session_requested has no gRPC client yet; outbox row %s stays pending"
-                            .formatted(event.getId()));
+            case ESIGN_SESSION_REQUESTED -> createSigningSession(event);
             // A new event type parks loudly rather than publishing to a topic nobody reads.
             default -> throw new IllegalStateException(
                     "Unroutable outbox event type '%s' (row %s) — add a dispatch branch"
@@ -77,6 +79,17 @@ public class ContractOutboxRelay extends OutboxRelay {
                 payload.requestedById(), payload.requestedByName());
         log.debug("Started workflow instance {} for {} {} from outbox event {} (idempotencyKey={})",
                 instanceId, payload.documentType(), payload.documentNo(), event.getId(),
+                payload.idempotencyKey());
+    }
+
+    private void createSigningSession(OutboxEvent event) {
+        EsignSessionRequested payload =
+                objectMapper.readValue(event.getPayload(), EsignSessionRequested.class);
+        UUID sessionId = esign.createSigningSession(
+                payload.idempotencyKey(), payload.documentType(), payload.documentId(),
+                payload.documentNo(), payload.signerName(), payload.signerEmail());
+        log.debug("Created signing session {} for {} {} from outbox event {} (idempotencyKey={})",
+                sessionId, payload.documentType(), payload.documentNo(), event.getId(),
                 payload.idempotencyKey());
     }
 

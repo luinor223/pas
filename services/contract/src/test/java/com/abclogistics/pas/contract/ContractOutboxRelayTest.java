@@ -3,8 +3,10 @@ package com.abclogistics.pas.contract;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
+import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.outbox.ContractOutboxRelay;
+import com.abclogistics.pas.contract.service.EsignGrpcClient;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -51,6 +53,7 @@ class ContractOutboxRelayTest {
     private OutboxRepository outbox;
     private KafkaTemplate<String, String> kafka;
     private WorkflowGrpcClient workflow;
+    private EsignGrpcClient esign;
     private ContractOutboxRelay relay;
 
     @BeforeEach
@@ -59,10 +62,13 @@ class ContractOutboxRelayTest {
         outbox = mock(OutboxRepository.class);
         kafka = mock(KafkaTemplate.class);
         workflow = mock(WorkflowGrpcClient.class);
+        esign = mock(EsignGrpcClient.class);
         // A template that just runs the callback: these tests are about routing, and the real
         // transaction boundaries are pinned by libs:common's OutboxRelayDatabaseTest.
         relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow,
-                MAPPER, directTransactions());
+                esign, MAPPER, directTransactions());
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenReturn(UUID.randomUUID());
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
     }
@@ -183,19 +189,57 @@ class ContractOutboxRelayTest {
                 eq(null), eq("NORMAL"), eq(null), eq("system"));
     }
 
-    // --- events with no route ---------------------------------------------------------------
+    // --- esign.session_requested → gRPC ------------------------------------------------------
 
     @Test
-    void anEsignRequestIsParkedRatherThanPublishedToATopicNobodyReads() {
-        OutboxEvent event = queued(OutboxEvent.event(ContractOutboxRelay.ESIGN_SESSION_REQUESTED,
-                "CONTRACT", UUID.randomUUID(), "{}"));
+    void aSendForSigningIsDispatchedOverGrpcNotKafka() {
+        UUID key = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        queued(sessionRequested(new EsignSessionRequested(key, "CONTRACT", documentId,
+                "HD-2026-0001", "Tran Thi B", "b@acme.vn")));
+
+        relay.pollAndDispatch();
+
+        verify(esign).createSigningSession(key, "CONTRACT", documentId, "HD-2026-0001",
+                "Tran Thi B", "b@acme.vn");
+        verify(kafka, never()).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    void everySendRetryReusesTheKeyGeneratedWhenTheUserPressedSend() {
+        // The reason the key is stored on the row: a retried send must resolve to the session that
+        // already exists, not open a second one against the provider (APR-07).
+        UUID key = UUID.randomUUID();
+        OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(key, "CONTRACT",
+                UUID.randomUUID(), "HD-2026-0002", "Tran Thi B", "b@acme.vn")));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE))
+                .thenReturn(UUID.randomUUID());
+
+        relay.pollAndDispatch();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+        assertThat(event.getPublishedAt()).isNull();
+
+        relay.pollAndDispatch();
+
+        verify(esign, times(2)).createSigningSession(eq(key), anyString(), any(), anyString(),
+                any(), any());
+        assertThat(event.getPublishedAt()).isNotNull();
+    }
+
+    @Test
+    void anUnreachableEsignServiceNeverFallsBackToKafka() {
+        queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(), "CONTRACT",
+                UUID.randomUUID(), "HD-2026-0003", "Tran Thi B", "b@acme.vn")));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
         relay.pollAndDispatch();
 
         verify(kafka, never()).send(any(ProducerRecord.class));
-        assertThat(event.getPublishedAt()).isNull();
-        assertThat(event.getRetryCount()).isEqualTo(1);
     }
+
+    // --- events with no route ---------------------------------------------------------------
 
     @Test
     void anUnknownEventTypeIsNotSilentlyPublished() {
@@ -244,6 +288,11 @@ class ContractOutboxRelayTest {
     }
 
     // --- helpers ----------------------------------------------------------------------------
+
+    private OutboxEvent sessionRequested(EsignSessionRequested payload) {
+        return OutboxEvent.event(EsignSessionRequested.EVENT_TYPE, "CONTRACT",
+                payload.documentId(), MAPPER.writeValueAsString(payload));
+    }
 
     private OutboxEvent startRequested(WorkflowStartRequested payload) {
         return OutboxEvent.event(WorkflowStartRequested.EVENT_TYPE, "CONTRACT",
