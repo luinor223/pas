@@ -1,0 +1,32 @@
+# Routing lives here, not in the compose labels: the docker provider needs a working
+# /var/run/docker.sock, which it does not have on every host (Docker Desktop/WSL refuses it), and
+# a gateway that silently stops routing when the socket is unavailable is not a gateway. The file
+# provider is deterministic and is what identity.yml already uses; the compose labels are kept for
+# hosts where the docker provider does work, and produce an identical router if it does.
+#
+# api-v1-strip is declared in identity.yml and shared: the file provider merges every file into
+# one namespace, so a middleware defined in one is referable from another. The rate limit is not
+# shared — it is per-service on purpose, so contract's upload traffic cannot exhaust identity's.
+http:
+  routers:
+    contract:
+      rule: >-
+        PathPrefix(`/api/v1/customers`) || PathPrefix(`/api/v1/contracts`)
+        || PathPrefix(`/api/v1/addenda`) || PathPrefix(`/api/v1/attachments`)
+      entryPoints: [web]
+      middlewares: [contract-ratelimit, jwt-auth@file, api-v1-strip]
+      service: contract
+
+  middlewares:
+    contract-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+
+  services:
+    contract:
+      loadBalancer:
+        servers:
+          # gRPC (50052) is deliberately absent: ContractInternal is service-to-service only and
+          # never reaches the edge (01-architecture.md sealed internal)
+          - url: http://contract-service:8002
