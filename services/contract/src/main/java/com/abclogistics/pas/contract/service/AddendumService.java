@@ -418,10 +418,25 @@ public class AddendumService {
         return fields;
     }
 
+    /**
+     * APPROVED to ACTIVE at effective_from, applying the effects to the parent in the same
+     * transaction (§9²).
+     *
+     * <p>The candidate list is read outside this transaction, so a second sweep — an overlapping
+     * run, or a replica — can arrive with an id another one has already activated. {@code @Version}
+     * on {@link Addendum} already makes that safe under true concurrency (one commits, the other
+     * rolls back its history, audit and parent effects together), and a stale sequential call is
+     * already refused by §9 having no ACTIVE to ACTIVE edge. This guard adds neither: it makes the
+     * refusal quiet, so the sweep logs a warning only for something that genuinely could not move.
+     * Mirrors {@code ContractService.activate}.
+     */
     @Transactional
     public void activate(UUID id) {
         Addendum addendum = get(id);
         DocumentStatus before = addendum.getStatus();
+        if (before != DocumentStatus.APPROVED) {
+            return;
+        }
         transitions.transition(EntityType.ADDENDUM, addendum.getId(), addendum.getAddendumNo(),
                 before, DocumentStatus.ACTIVE, TriggerKind.S, null,
                 "Effective date reached (D14d)");

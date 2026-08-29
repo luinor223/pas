@@ -28,6 +28,8 @@ import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.scheduler.ContractStatusScheduler;
+import org.springframework.dao.OptimisticLockingFailureException;
+import tools.jackson.databind.ObjectMapper;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
@@ -42,10 +44,17 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -104,6 +113,7 @@ class SchedulerActivatesAndExpiresTest {
     @Autowired AddendumService addenda;
     @Autowired CustomerService customers;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ObjectMapper objectMapper;
     @Autowired TransactionTemplate tx;
 
     @BeforeEach
@@ -337,6 +347,137 @@ class SchedulerActivatesAndExpiresTest {
         verify(kafka, times(2)).send(any(ProducerRecord.class));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void theEventIdIsDerivedFromTheWarningNotGeneratedFresh() {
+        // The Kafka ack and the last_expiry_warning_for stamp cannot be atomic, so a crash between
+        // them re-sends, and two replicas sweeping at once can both send before either stamps.
+        // With a random event_id every one of those is a NEW event to the consumer and its
+        // processed_event table cannot dedupe it — the customer is warned twice. Deriving the id
+        // from what the warning IS makes every republish the same logical event.
+        UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
+        when(kafka.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
+        scheduler.publishExpiryWarnings(TODAY);           // sent, never acked, never stamped
+
+        when(kafka.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+        scheduler.publishExpiryWarnings(TODAY);           // the re-warn the missing stamp causes
+
+        ArgumentCaptor<ProducerRecord<String, String>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafka, times(2)).send(captor.capture());
+        assertThat(eventIdOf(captor.getAllValues().get(0)))
+                .isEqualTo(eventIdOf(captor.getAllValues().get(1)));
+        // and it is derived from the event type, the document and the term — computed here from
+        // the spec rather than from the scheduler, because the VALUE is what a consumer dedupes on
+        assertThat(eventIdOf(captor.getAllValues().getFirst()))
+                .isEqualTo(expectedEventId(id, TODAY.plusDays(10)));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void concurrentSendsOfTheSameWarningCarryOneEventId() {
+        // Two replicas sweeping at the same moment: neither has stamped yet, so both send. The
+        // consumer must see one event twice, not two events.
+        UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
+
+        inParallel(4, () -> scheduler.publishExpiryWarnings(TODAY));
+
+        ArgumentCaptor<ProducerRecord<String, String>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafka, atLeastOnce()).send(captor.capture());
+        assertThat(captor.getAllValues()).extracting(this::eventIdOf)
+                .containsOnly(expectedEventId(id, TODAY.plusDays(10)));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aNewTermIsANewEventNotARepublishOfTheOldOne() {
+        // The other half: an extension is a genuinely different warning and must NOT be deduped
+        // away as a repeat of the one already delivered.
+        UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
+        scheduler.publishExpiryWarnings(TODAY);
+
+        approvedAddendum(termExtension(id, TODAY, TODAY.plusDays(20)));
+        scheduler.sweep();
+
+        ArgumentCaptor<ProducerRecord<String, String>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafka, times(2)).send(captor.capture());
+        assertThat(eventIdOf(captor.getAllValues().get(0)))
+                .isNotEqualTo(eventIdOf(captor.getAllValues().get(1)));
+    }
+
+    // --- concurrency ----------------------------------------------------------------------------
+
+    @Test
+    void aStaleAddendumCandidateIsAQuietNoOp() {
+        // The other shape, and the one @Version does NOT cover: the candidate list is read outside
+        // the transaction, so a second sweep can arrive with an id the first already activated —
+        // sequentially, with no version conflict to lose. Without the APPROVED guard this reaches
+        // StatusTransitionService as an ACTIVE -> ACTIVE edge and throws, which the sweep would
+        // log as a failure for a document that is in exactly the state it should be in.
+        UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
+        UUID addendumId = approvedAddendum(termExtension(contractId, TODAY, TODAY.plusYears(2)));
+        addenda.activate(addendumId);
+
+        assertThatCode(() -> addenda.activate(addendumId)).doesNotThrowAnyException();
+
+        assertThat(addendumStatusOf(addendumId)).isEqualTo(DocumentStatus.ACTIVE);
+        // and the second call really was a no-op: no extra row, and the effect not applied twice
+        assertThat(historyRows(addendumId, "ACTIVE")).isEqualTo(1);
+        assertThat(auditRows(addendumId, "STATUS_CHANGE")).isEqualTo(1);
+        assertThat(validToOf(contractId)).isEqualTo(TODAY.plusYears(2));
+    }
+
+    @Test
+    void concurrentAddendumActivationsApplyTheEffectExactlyOnce() {
+        // Two sweeps overlapping, or two replicas: @Version on Addendum means one commits and the
+        // other rolls back its history, audit AND parent effect together, and the APPROVED guard
+        // makes a stale sequential call a quiet no-op. Whatever the interleaving, the parent is
+        // extended once.
+        UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
+        UUID addendumId = approvedAddendum(termExtension(contractId, TODAY, TODAY.plusYears(2)));
+
+        List<Throwable> failures = inParallel(4, () -> addenda.activate(addendumId));
+
+        assertThat(addendumStatusOf(addendumId)).isEqualTo(DocumentStatus.ACTIVE);
+        assertThat(validToOf(contractId)).isEqualTo(TODAY.plusYears(2));
+        // the invariant that matters: one edge, one row, one audit entry — not one per thread
+        assertThat(historyRows(addendumId, "ACTIVE")).isEqualTo(1);
+        assertThat(auditRows(addendumId, "STATUS_CHANGE")).isEqualTo(1);
+        // losers lose on the version check; nothing else may come out of here
+        assertThat(failures).allSatisfy(e -> assertThat(rootIsOptimisticLock(e))
+                .as("unexpected failure: %s", e).isTrue());
+    }
+
+    @Test
+    void concurrentContractActivationsWriteOneHistoryRow() {
+        UUID id = contract(TODAY.minusDays(1), TODAY.plusYears(1), DocumentStatus.APPROVED);
+
+        List<Throwable> failures = inParallel(4, () -> contracts.activate(id));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.ACTIVE);
+        assertThat(historyRows(id, "ACTIVE")).isEqualTo(1);
+        assertThat(auditRows(id, "STATUS_CHANGE")).isEqualTo(1);
+        assertThat(failures).allSatisfy(e -> assertThat(rootIsOptimisticLock(e))
+                .as("unexpected failure: %s", e).isTrue());
+    }
+
+    @Test
+    void concurrentContractExpiriesWriteOneHistoryRow() {
+        UUID id = contract(TODAY.minusYears(1), TODAY.minusDays(1), DocumentStatus.ACTIVE);
+
+        List<Throwable> failures = inParallel(4, () -> contracts.expire(id, TODAY));
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.EXPIRED);
+        assertThat(historyRows(id, "EXPIRED")).isEqualTo(1);
+        assertThat(auditRows(id, "STATUS_CHANGE")).isEqualTo(1);
+        assertThat(failures).allSatisfy(e -> assertThat(rootIsOptimisticLock(e))
+                .as("unexpected failure: %s", e).isTrue());
+    }
+
     // --- self-healing ---------------------------------------------------------------------------
 
     @Test
@@ -358,6 +499,62 @@ class SchedulerActivatesAndExpiresTest {
     }
 
     // --- helpers --------------------------------------------------------------------------------
+
+    /**
+     * Run {@code action} on {@code threads} threads released together, and return whatever each
+     * threw. The barrier is what makes them actually overlap rather than queue.
+     */
+    private List<Throwable> inParallel(int threads, Runnable action) {
+        CyclicBarrier start = new CyclicBarrier(threads);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            List<Future<Throwable>> results = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                results.add(pool.submit(() -> {
+                    try {
+                        start.await(10, TimeUnit.SECONDS);
+                        action.run();
+                        return null;
+                    } catch (Throwable e) {
+                        return e;
+                    }
+                }));
+            }
+            List<Throwable> failures = new java.util.ArrayList<>();
+            for (Future<Throwable> result : results) {
+                Throwable thrown = result.get(30, TimeUnit.SECONDS);
+                if (thrown != null) {
+                    failures.add(thrown);
+                }
+            }
+            return failures;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** A loser of the version check, however the persistence layer wrapped it. */
+    private static boolean rootIsOptimisticLock(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof OptimisticLockingFailureException
+                    || t instanceof jakarta.persistence.OptimisticLockException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The published contract, restated independently: event type, document, term being warned for. */
+    private static String expectedEventId(UUID contractId, LocalDate expiresOn) {
+        String name = "document.expiring:%s:%s".formatted(contractId, expiresOn);
+        return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    private String eventIdOf(ProducerRecord<String, String> record) {
+        return objectMapper.readTree(record.value()).get("event_id").asString();
+    }
 
     private UUID contract(LocalDate validFrom, LocalDate validTo, DocumentStatus status) {
         UUID customerId = tx.execute(s -> customers.create(new CustomerRequest(

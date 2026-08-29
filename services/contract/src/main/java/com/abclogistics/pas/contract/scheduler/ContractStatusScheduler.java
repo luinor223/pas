@@ -150,7 +150,7 @@ public class ContractStatusScheduler {
         payload.put("owner_user_id", warning.ownerUserId());
 
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("event_id", UUID.randomUUID().toString());
+        envelope.put("event_id", eventId(warning).toString());
         envelope.put("event_type", DOCUMENT_EXPIRING);
         envelope.put("occurred_at", java.time.Instant.now().toString());
         // the envelope is fixed (registry §4) and a scheduler has no actor: null id, "system"
@@ -168,6 +168,28 @@ public class ContractStatusScheduler {
         record.headers().add(header("event_type", DOCUMENT_EXPIRING));
         record.headers().add(header("document_type", DOCUMENT_TYPE));
         return record;
+    }
+
+    /**
+     * Derived, not random — the one thing that makes this event safely retryable without an outbox
+     * row (D9, registry §4).
+     *
+     * <p>The Kafka ack and the {@code last_expiry_warning_for} stamp cannot be made atomic: a
+     * crash between them re-warns on the next sweep, and two replicas sweeping at once can both
+     * send before either stamps. With a random {@code event_id} each of those is a NEW event to
+     * every consumer, so {@code processed_event} cannot dedupe it and the customer gets the
+     * warning twice. Keying the id on what the warning IS — the event type, the document, and the
+     * expiry date being warned about — makes every one of those republishes the same logical
+     * event, which is exactly what the consumer's dedup table is for.
+     *
+     * <p>The valid_to is part of the key on purpose: an extension earns a genuinely new warning
+     * for the new term, and it gets a genuinely new id. That is the same reasoning as the stamp
+     * being a date rather than a timestamp.
+     */
+    static UUID eventId(ContractService.ExpiryWarning warning) {
+        String name = "%s:%s:%s".formatted(
+                DOCUMENT_EXPIRING, warning.contractId(), warning.expiresOn());
+        return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8));
     }
 
     private static RecordHeader header(String name, String value) {
