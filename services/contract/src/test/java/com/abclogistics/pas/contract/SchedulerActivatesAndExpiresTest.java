@@ -247,7 +247,7 @@ class SchedulerActivatesAndExpiresTest {
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         int before = outboxRows();
 
-        scheduler.publishExpiryWarnings();
+        scheduler.publishExpiryWarnings(TODAY);
 
         assertThat(outboxRows()).isEqualTo(before);
 
@@ -265,13 +265,23 @@ class SchedulerActivatesAndExpiresTest {
                 .contains("\"days_left\":10")
                 .contains(TODAY.plusDays(10).toString())
                 .contains(contractNoOf(id));
+        // the §4 envelope in full: a scheduler has no actor, and omitting the two fields would
+        // make this the one event a consumer has to special-case
+        assertThat(record.value())
+                .contains("\"event_id\":")
+                .contains("\"event_type\":\"document.expiring\"")
+                .contains("\"occurred_at\":")
+                .contains("\"actor_id\":null")
+                .contains("\"actor_name\":\"system\"")
+                .contains("\"document_type\":\"CONTRACT\"")
+                .contains("\"document_id\":\"%s\"".formatted(id));
     }
 
     @Test
     void aContractExpiringBeyondTheHorizonIsNotWarnedAbout() {
         contract(TODAY.minusYears(1), TODAY.plusDays(90), DocumentStatus.ACTIVE);
 
-        scheduler.publishExpiryWarnings();
+        scheduler.publishExpiryWarnings(TODAY);
 
         verify(kafka, times(0)).send(any(ProducerRecord.class));
     }
@@ -280,8 +290,8 @@ class SchedulerActivatesAndExpiresTest {
     void aWarningIsSentOnlyOnceForTheSameValidTo() {
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
 
-        scheduler.publishExpiryWarnings();
-        scheduler.publishExpiryWarnings();
+        scheduler.publishExpiryWarnings(TODAY);
+        scheduler.publishExpiryWarnings(TODAY);
 
         verify(kafka, times(1)).send(any(ProducerRecord.class));
         assertThat(warnedForOf(id)).isEqualTo(TODAY.plusDays(10));
@@ -294,7 +304,7 @@ class SchedulerActivatesAndExpiresTest {
         // and then silent through the whole new one. The stamp is the valid_to it warned FOR, so
         // moving valid_to makes the contract a candidate again with nothing to reset.
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
-        scheduler.publishExpiryWarnings();
+        scheduler.publishExpiryWarnings(TODAY);
 
         approvedAddendum(termExtension(contractId, TODAY, TODAY.plusDays(20)));
         scheduler.sweep();
@@ -315,13 +325,13 @@ class SchedulerActivatesAndExpiresTest {
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
 
-        scheduler.publishExpiryWarnings();
+        scheduler.publishExpiryWarnings(TODAY);
 
         assertThat(warnedForOf(id)).isNull();
 
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
-        scheduler.publishExpiryWarnings();
+        scheduler.publishExpiryWarnings(TODAY);
 
         assertThat(warnedForOf(id)).isEqualTo(TODAY.plusDays(10));
         verify(kafka, times(2)).send(any(ProducerRecord.class));

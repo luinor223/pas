@@ -161,5 +161,51 @@ services:
       - "traefik.http.routers.workflow-docs.service=workflow"
       - "traefik.http.routers.workflow-docs.middlewares=workflow-docs-strip"
 
+  contract-service:
+    build:
+      context: .
+      dockerfile: services/contract/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_contract
+      DB_USER: contract
+      DB_PASSWORD: contract
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WORKFLOW_GRPC_HOST: workflow-service
+      WORKFLOW_GRPC_PORT: 50056
+      ESIGN_GRPC_HOST: esign-service
+      ESIGN_GRPC_PORT: 50057
+      # a bind inside the container would put uploads on the writable layer, where a redeploy
+      # loses every attachment CTR-02 made mandatory
+      ATTACHMENT_STORAGE_PATH: /var/pas/attachments
+    volumes:
+      - attachments:/var/pas/attachments
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      identity-service:
+        condition: service_started
+      # not service_healthy: D4 commits the submission first and dispatches after, so a
+      # contract-service that starts ahead of workflow-service is a retry, not a failure
+      workflow-service:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.contract.loadbalancer.server.port=8002"
+      - "traefik.http.middlewares.contract-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.contract-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.contract.rule=PathPrefix(`/api/v1/customers`) || PathPrefix(`/api/v1/contracts`) || PathPrefix(`/api/v1/addenda`) || PathPrefix(`/api/v1/attachments`)"
+      - "traefik.http.routers.contract.entrypoints=web"
+      - "traefik.http.routers.contract.middlewares=contract-ratelimit,jwt-auth@file,api-v1-strip"
+
 volumes:
   pgdata:
+  # uploads are the one piece of contract state that is not in Postgres (D12)
+  attachments:

@@ -67,17 +67,22 @@ public class ContractStatusScheduler {
     /**
      * The ordered sweep, callable without the schedule. Every document gets its own transaction
      * and its own try: one that cannot move must not end the run.
+     *
+     * <p>{@code today} is read ONCE and threaded through all four passes. Reading it per pass let
+     * a sweep that started at 23:59:59 straddle midnight, so the ordering guarantee below would
+     * hold against two different dates — a contract could be expired against tomorrow after its
+     * renewal was judged against yesterday.
      */
     public void sweep() {
-        activateDueAddenda();     // renewals land on the parent first
-        activateDueContracts();
-        expireEndedContracts();   // ... so this sees the extended valid_to
-        publishExpiryWarnings();
+        LocalDate today = LocalDate.now();
+        activateDueAddenda(today);     // renewals land on the parent first
+        activateDueContracts(today);
+        expireEndedContracts(today);   // ... so this sees the extended valid_to
+        publishExpiryWarnings(today);
     }
 
     /** APPROVED -> ACTIVE at valid_from (CTR-05). */
-    public void activateDueContracts() {
-        LocalDate today = LocalDate.now();
+    public void activateDueContracts(LocalDate today) {
         for (UUID id : contracts.dueForActivation(today)) {
             try {
                 contracts.activate(id);
@@ -88,11 +93,10 @@ public class ContractStatusScheduler {
     }
 
     /** ACTIVE -> EXPIRED after valid_to. */
-    public void expireEndedContracts() {
-        LocalDate today = LocalDate.now();
+    public void expireEndedContracts(LocalDate today) {
         for (UUID id : contracts.dueForExpiry(today)) {
             try {
-                contracts.expire(id);
+                contracts.expire(id, today);
             } catch (Exception e) {
                 log.warn("Could not expire contract {}: {}", id, e.getMessage());
             }
@@ -100,8 +104,7 @@ public class ContractStatusScheduler {
     }
 
     /** APPROVED -> ACTIVE at effective_from, applying the addendum's effects to its parent (§9²). */
-    public void activateDueAddenda() {
-        LocalDate today = LocalDate.now();
+    public void activateDueAddenda(LocalDate today) {
         for (Addendum addendum : addenda.dueForActivation(today)) {
             try {
                 addenda.activate(addendum.getId());
@@ -117,8 +120,7 @@ public class ContractStatusScheduler {
      * re-fires on the next sweep because the stamp is only written after the ack, so an outbox row
      * would buy nothing and could deliver a second copy.
      */
-    public void publishExpiryWarnings() {
-        LocalDate today = LocalDate.now();
+    public void publishExpiryWarnings(LocalDate today) {
         LocalDate horizon = today.plusDays(warningDays);
         KafkaTemplate<String, String> kafka = kafkaProvider.getIfAvailable();
         if (kafka == null) {
@@ -151,6 +153,10 @@ public class ContractStatusScheduler {
         envelope.put("event_id", UUID.randomUUID().toString());
         envelope.put("event_type", DOCUMENT_EXPIRING);
         envelope.put("occurred_at", java.time.Instant.now().toString());
+        // the envelope is fixed (registry §4) and a scheduler has no actor: null id, "system"
+        // name, exactly as AuditRecorder stamps a scheduler-driven audit row
+        envelope.put("actor_id", null);
+        envelope.put("actor_name", "system");
         envelope.put("document_type", DOCUMENT_TYPE);
         envelope.put("document_id", warning.contractId().toString());
         envelope.put("payload", payload);

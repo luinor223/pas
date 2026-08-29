@@ -465,9 +465,13 @@ public class ContractService {
         contract.setStatus(DocumentStatus.ACTIVE);
     }
 
-    /** ACTIVE to EXPIRED once valid_to has passed — the stored one, so an extension is honoured. */
+    /**
+     * ACTIVE to EXPIRED once valid_to has passed — the stored one, so an extension is honoured.
+     * {@code today} comes from the caller so a whole sweep judges every document against one
+     * date, rather than reading the clock again per row and straddling midnight.
+     */
     @Transactional
-    public void expire(UUID id) {
+    public void expire(UUID id, LocalDate today) {
         Contract contract = get(id);
         DocumentStatus before = contract.getStatus();
         if (before != DocumentStatus.ACTIVE) {
@@ -475,7 +479,7 @@ public class ContractService {
         }
         // re-checked against the row as it is now: an addendum activated earlier in this same
         // sweep may have moved valid_to past today, and expiring it anyway would undo the renewal
-        if (!contract.getValidTo().isBefore(LocalDate.now())) {
+        if (!contract.getValidTo().isBefore(today)) {
             return;
         }
         transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),

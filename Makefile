@@ -30,7 +30,7 @@ help: ## Show this help
 	@echo "  build                                           Build image (uses cache)"
 	@echo "  rebuild                                         Force rebuild --no-cache"
 	@echo "  ps                                              Show containers"
-	@echo "  logs / logs-identity                            Tail logs"
+	@echo "  logs / logs-identity / logs-workflow / logs-contract  Tail logs"
 	@echo "  down                                            Stop stack, keep volumes/cache"
 	@echo "  down-v / clean / nuke                           Stop stack + WIPE volumes (DB reset)"
 	@echo "  test / test-unit                                Run unit tests (excludes integration)"
@@ -64,13 +64,13 @@ keys-check: ## Fail if private key missing (used by up)
 # ---------------------------------------------------------------------------
 # docker compose
 # ---------------------------------------------------------------------------
-.PHONY: up build rebuild ps logs down down-v clean nuke
+.PHONY: up build rebuild ps logs logs-identity logs-workflow logs-contract down down-v clean nuke
 
 up: keys-check ## Build (if needed) and start stack detached (docker compose up --build -d)
 	$(COMPOSE) up --build -d
 	@echo ">> Stack up: http://localhost:18080 (gateway)  http://localhost:18090 (traefik dashboard)"
 
-build: keys-check ## Build identity-service image (uses Docker layer cache)
+build: keys-check ## Build every service image (uses Docker layer cache)
 	$(COMPOSE) build
 
 rebuild: keys-check ## Force rebuild ignoring cache (slow)
@@ -84,6 +84,12 @@ logs: ## Tail all logs
 
 logs-identity: ## Tail identity-service logs
 	$(COMPOSE) logs -f identity-service
+
+logs-workflow: ## Tail workflow-service logs
+	$(COMPOSE) logs -f workflow-service
+
+logs-contract: ## Tail contract-service logs
+	$(COMPOSE) logs -f contract-service
 
 down: ## Stop and remove containers/network (KEEP pgdata volume & image cache)
 	$(COMPOSE) down
