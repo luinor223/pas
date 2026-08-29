@@ -1,5 +1,6 @@
 package com.abclogistics.pas.contract;
 
+import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
@@ -22,6 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -54,6 +56,7 @@ class ContractOutboxRelayTest {
     private KafkaTemplate<String, String> kafka;
     private WorkflowGrpcClient workflow;
     private EsignGrpcClient esign;
+    private AuditRecorder audit;
     private ContractOutboxRelay relay;
 
     @BeforeEach
@@ -63,10 +66,11 @@ class ContractOutboxRelayTest {
         kafka = mock(KafkaTemplate.class);
         workflow = mock(WorkflowGrpcClient.class);
         esign = mock(EsignGrpcClient.class);
+        audit = mock(AuditRecorder.class);
         // A template that just runs the callback: these tests are about routing, and the real
         // transaction boundaries are pinned by libs:common's OutboxRelayDatabaseTest.
         relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow,
-                esign, MAPPER, directTransactions());
+                esign, MAPPER, audit, directTransactions());
         when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
                 .thenReturn(UUID.randomUUID());
         when(kafka.send(any(ProducerRecord.class)))
@@ -260,6 +264,10 @@ class ContractOutboxRelayTest {
         // and the payload and count survive, so the parked send is still readable after the fact
         assertThat(event.getRetryCount()).isEqualTo(1);
         assertThat(event.getPayload()).contains("b@acme.vn");
+        // the half that reaches a person: the send is in History as failed, not just as sent
+        Map<String, Object> detail = captureAudit("SEND_FOR_SIGNING_FAILED", "CTR-2026-0006");
+        assertThat(detail).containsEntry("grpcStatus", "FAILED_PRECONDITION")
+                .containsEntry("grpcDescription", "session already exists");
     }
 
     @Test
@@ -290,6 +298,23 @@ class ContractOutboxRelayTest {
 
         assertThat(event.getCancelledAt()).isNotNull();
         assertThat(event.getPublishedAt()).isNull();
+        // "Submitted — workflow initialization pending" is a lie once the dispatch is abandoned,
+        // and the status column cannot say so: SUBMITTED is still the document's real status.
+        Map<String, Object> detail = captureAudit("WORKFLOW_INITIALIZATION_FAILED", "CTR-2026-0008");
+        assertThat(detail).containsEntry("grpcStatus", "INVALID_ARGUMENT");
+    }
+
+    @Test
+    void anOutageIsNotAudited() {
+        // Only abandonment is news. Auditing every retry would bury the one entry that matters.
+        queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(), "CONTRACT",
+                UUID.randomUUID(), "CTR-2026-0009", "Tran Thi B", "b@acme.vn")));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
+
+        relay.pollAndDispatch();
+
+        verifyNoInteractions(audit);
     }
 
     @Test
@@ -318,7 +343,26 @@ class ContractOutboxRelayTest {
         verify(kafka, never()).send(any(ProducerRecord.class));
         verifyNoInteractions(workflow);
         assertThat(event.getPublishedAt()).isNull();
+        // parked, not retried: a missing dispatch branch is a deployment bug, and polling it every
+        // five seconds neither fixes it nor makes it more visible than the audit row does
+        assertThat(event.getCancelledAt()).isNotNull();
         assertThat(event.getRetryCount()).isEqualTo(1);
+        assertThat(captureAudit("DISPATCH_FAILED", null))
+                .containsEntry("eventType", "contract.something_new");
+    }
+
+    @Test
+    void anAuditRowThatCannotBePublishedIsNeverParked() {
+        // It would take its own failure record with it. Audit is Kafka-bound, so its failures are
+        // outages by construction — but the guard is asserted rather than assumed.
+        OutboxEvent event = queued(OutboxEvent.audit("CONTRACT", UUID.randomUUID(), "{}"));
+        when(kafka.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getCancelledAt()).isNull();
+        verifyNoInteractions(audit);
     }
 
     // --- mixed batch ------------------------------------------------------------------------
@@ -392,6 +436,15 @@ class ContractOutboxRelayTest {
                 ArgumentCaptor.forClass(ProducerRecord.class);
         verify(kafka).send(captor.capture());
         return captor.getValue();
+    }
+
+    /** The audit row the relay wrote when it gave up, checked down to the detail map. */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> captureAudit(String action, String documentNo) {
+        ArgumentCaptor<Map<String, Object>> detail = ArgumentCaptor.forClass(Map.class);
+        verify(audit).record(eq("CONTRACT"), any(UUID.class), eq(documentNo), eq(action),
+                eq(null), eq(null), anyString(), detail.capture());
+        return detail.getValue();
     }
 
     private static String header(ProducerRecord<String, String> record, String name) {

@@ -1,5 +1,6 @@
 package com.abclogistics.pas.contract.outbox;
 
+import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelay;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
@@ -20,6 +21,8 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +52,7 @@ public class ContractOutboxRelay extends OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(ContractOutboxRelay.class);
 
+    private final AuditRecorder audit;
     private final KafkaTemplate<String, String> kafka;
     private final WorkflowGrpcClient workflow;
     private final EsignGrpcClient esign;
@@ -57,8 +61,9 @@ public class ContractOutboxRelay extends OutboxRelay {
     public ContractOutboxRelay(OutboxRepository outbox, OutboxRelayProperties props,
                                KafkaTemplate<String, String> kafka, WorkflowGrpcClient workflow,
                                EsignGrpcClient esign, ObjectMapper objectMapper,
-                               TransactionTemplate tx) {
+                               AuditRecorder audit, TransactionTemplate tx) {
         super(outbox, props, tx);
+        this.audit = audit;
         this.kafka = kafka;
         this.workflow = workflow;
         this.esign = esign;
@@ -72,7 +77,7 @@ public class ContractOutboxRelay extends OutboxRelay {
             case WORKFLOW_START_REQUESTED -> startInstance(event);
             case ESIGN_SESSION_REQUESTED -> createSigningSession(event);
             // A new event type parks loudly rather than publishing to a topic nobody reads.
-            default -> throw new IllegalStateException(
+            default -> throw new UnroutableEventException(
                     "Unroutable outbox event type '%s' (row %s) — add a dispatch branch"
                             .formatted(event.getEventType(), event.getId()));
         }
@@ -118,8 +123,62 @@ public class ContractOutboxRelay extends OutboxRelay {
         if (e instanceof StatusRuntimeException grpc) {
             return PERMANENT_STATUSES.contains(grpc.getStatus().getCode());
         }
-        // a payload this service cannot even parse will not parse on the next poll either
-        return e instanceof JacksonException;
+        // a payload this service cannot even parse, or a type it has no branch for, is in exactly
+        // the same state on the next poll — and on every poll after that
+        return e instanceof JacksonException || e instanceof UnroutableEventException;
+    }
+
+    /** No dispatcher for this event type. A deployment bug, and retrying it does not fix one. */
+    static final class UnroutableEventException extends IllegalStateException {
+        UnroutableEventException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * The user pressed a button and it is not going to happen. Written in the parking transaction
+     * so the History tab carries the failure next to the action that started it (D15) — a
+     * SUBMITTED contract whose workflow never started is otherwise indistinguishable from one
+     * waiting its turn.
+     */
+    @Override
+    protected void onParked(OutboxEvent event, Exception cause) {
+        // audit rows are Kafka-bound and never classified permanent, so this cannot recurse
+        if (AUDIT_RECORDED.equals(event.getEventType())) {
+            return;
+        }
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("eventType", event.getEventType());
+        detail.put("outboxRow", event.getId().toString());
+        detail.put("attempts", event.getRetryCount());
+        if (cause instanceof StatusRuntimeException grpc) {
+            detail.put("grpcStatus", grpc.getStatus().getCode().name());
+            detail.put("grpcDescription", grpc.getStatus().getDescription());
+        } else {
+            detail.put("error", cause.getMessage());
+        }
+        audit.record(event.getAggregateType(), event.getAggregateId(), documentNo(event),
+                parkedAction(event.getEventType()), null, null,
+                "Dispatch abandoned after a permanent refusal; it will not be retried",
+                detail);
+    }
+
+    private static String parkedAction(String eventType) {
+        return switch (eventType) {
+            case WORKFLOW_START_REQUESTED -> "WORKFLOW_INITIALIZATION_FAILED";
+            case ESIGN_SESSION_REQUESTED -> "SEND_FOR_SIGNING_FAILED";
+            default -> "DISPATCH_FAILED";
+        };
+    }
+
+    /** Both dispatch payloads carry it; a row whose payload will not parse simply has none. */
+    private String documentNo(OutboxEvent event) {
+        try {
+            var node = objectMapper.readTree(event.getPayload()).get("documentNo");
+            return node == null || node.isNull() ? null : node.asString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
