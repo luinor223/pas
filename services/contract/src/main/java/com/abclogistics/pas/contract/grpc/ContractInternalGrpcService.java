@@ -25,8 +25,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -35,6 +37,14 @@ import java.util.UUID;
  */
 @GrpcService
 public class ContractInternalGrpcService extends ContractInternalGrpc.ContractInternalImplBase {
+
+    /**
+     * The statuses a signing payload is served for (registry §5). A document is only ever SENT
+     * from APPROVED; ACTIVE is here because D14d activates it underneath a session already in
+     * flight, and a payload refused mid-signature strands the provider with nothing to render.
+     */
+    private static final Set<DocumentStatus> SIGNABLE =
+            EnumSet.of(DocumentStatus.APPROVED, DocumentStatus.ACTIVE);
 
     private final ContractService contracts;
     private final AddendumService addenda;
@@ -95,8 +105,17 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
 
     /**
      * D10 — esign-service fetches this to render the document for the provider. Guard is
-     * {@code status = APPROVED} (registry §5); unlike billing's, it is not widened, because nothing
-     * here flips a status before dispatching.
+     * {@code status IN (APPROVED, ACTIVE)} (registry §5).
+     *
+     * <p>{@code ACTIVE} is in the guard because D14d moves a contract there on its own schedule,
+     * with no regard for a session in flight: sending starts from {@code APPROVED}, but the sweep
+     * flips the row within one interval of the effective date, and every contract approved on or
+     * after that date is {@code ACTIVE} long before the provider is done with it. An
+     * {@code APPROVED}-only guard therefore refuses the payload for exactly the documents that
+     * were legitimately sent — the same deadlock §5 already widened billing's guard to avoid,
+     * arrived at from the other side (billing flips before dispatching; here the scheduler does).
+     * The send guard is unchanged and stays {@code APPROVED}-only: this widens what can be
+     * fetched, never what can be started.
      */
     @Override
     public void getSigningPayload(GetSigningPayloadRequest request,
@@ -117,11 +136,11 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
                     ? contracts.get(id)
                     : addenda.get(id);
 
-            if (document.getStatus() != DocumentStatus.APPROVED) {
+            if (!SIGNABLE.contains(document.getStatus())) {
                 throw new FailedPreconditionException(
-                        "%s %s is %s; a signing payload is only served for an APPROVED document "
+                        "%s %s is %s; a signing payload is only served for a document that is %s "
                                 + "(registry §5)".formatted(type, document.getDocumentNo(),
-                                document.getStatus()));
+                                document.getStatus(), SIGNABLE));
             }
             CustomerContact signer = signerFor(document, type);
 

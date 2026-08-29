@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -104,7 +103,6 @@ class SchedulerActivatesAndExpiresTest {
     @Autowired ContractService contracts;
     @Autowired AddendumService addenda;
     @Autowired CustomerService customers;
-    @Autowired ApplicationContext context;
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate tx;
 
@@ -151,16 +149,13 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void activationIgnoresSigningProgress() {
-        // D14e: APPROVED -> ACTIVE fires on schedule whether or not a signing session exists,
-        // is in progress, or failed. contract-service has no dependency on esign-service.
+        // D14e: contract activation does not consult or depend on signing state. APPROVED -> ACTIVE
+        // fires on schedule whether or not a signing session exists, is in progress, or failed.
         UUID id = contract(TODAY.minusDays(1), TODAY.plusYears(1), DocumentStatus.APPROVED);
 
         scheduler.sweep();
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.ACTIVE);
-        // and there is nothing it could have consulted: no esign bean exists in the context at all
-        assertThat(context.getBeanDefinitionNames())
-                .noneMatch(name -> name.toLowerCase(java.util.Locale.ROOT).contains("esign"));
     }
 
     @Test

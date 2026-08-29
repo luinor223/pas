@@ -25,6 +25,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -201,7 +203,7 @@ class ContractInternalGrpcServiceTest {
 
     @Test
     void getSigningPayloadServesAnApprovedContract() {
-        UUID id = approvedContractWithPdf();
+        UUID id = contractWithPdf(DocumentStatus.APPROVED);
 
         GetSigningPayloadResponse response = getSigningPayload("CONTRACT", id.toString());
 
@@ -215,11 +217,7 @@ class ContractInternalGrpcServiceTest {
     @Test
     void getSigningPayloadServesAnApprovedAddendumThroughItsParentsCustomer() {
         // D10 covers addenda too, and an addendum has no customer of its own.
-        UUID contractId = contract(DocumentStatus.ACTIVE);
-        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(contractId, "PAYMENT_TERMS",
-                "terms", LocalDate.now(), null, "NET60", null, null)).getId());
-        attach(EntityType.ADDENDUM, id);
-        tx.executeWithoutResult(s -> addenda.get(id).setStatus(DocumentStatus.APPROVED));
+        UUID id = addendumWithPdf(DocumentStatus.APPROVED);
 
         GetSigningPayloadResponse response = getSigningPayload("ADDENDUM", id.toString());
 
@@ -227,15 +225,49 @@ class ContractInternalGrpcServiceTest {
         assertThat(response.getSignerEmail()).isEqualTo("b@acme.vn");
     }
 
-    @Test
-    void aDocumentThatIsNotApprovedIsRefused() {
-        // registry §5's guard. Unlike billing's it is not widened: nothing here flips a status
-        // before dispatching, so APPROVED is always reachable.
-        UUID id = draftContractFor(ACME);
-        attach(EntityType.CONTRACT, id);
-        setStatus(id, DocumentStatus.ACTIVE);
+    /**
+     * registry §5's guard, widened to {@code {APPROVED, ACTIVE}}. ACTIVE is not a state a send can
+     * start from — {@code sendForSigning} still refuses it — but D14d moves a contract there on
+     * its own schedule while a session is in flight, and every contract approved on or after its
+     * effective date is ACTIVE within one sweep. An APPROVED-only guard refused the payload for
+     * exactly the documents that had been legitimately sent.
+     */
+    @ParameterizedTest
+    @EnumSource(value = DocumentStatus.class, names = {"APPROVED", "ACTIVE"})
+    void aSignableContractStatusIsServed(DocumentStatus status) {
+        UUID id = contractWithPdf(status);
+
+        assertThat(getSigningPayload("CONTRACT", id.toString()).getPdfContent().toByteArray())
+                .isEqualTo(SIGNED_PDF);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DocumentStatus.class, names = {"DRAFT", "CANCELLED", "EXPIRED"})
+    void anUnsignableContractStatusIsRefused(DocumentStatus status) {
+        UUID id = contractWithPdf(status);
 
         assertThatThrownBy(() -> getSigningPayload("CONTRACT", id.toString()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .extracting(e -> ((StatusRuntimeException) e).getStatus().getCode())
+                .isEqualTo(Status.Code.FAILED_PRECONDITION);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DocumentStatus.class, names = {"APPROVED", "ACTIVE"})
+    void aSignableAddendumStatusIsServed(DocumentStatus status) {
+        // the same guard, and the same reason: an addendum activates on its effective_from too
+        UUID id = addendumWithPdf(status);
+
+        assertThat(getSigningPayload("ADDENDUM", id.toString()).getPdfContent().toByteArray())
+                .isEqualTo(SIGNED_PDF);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DocumentStatus.class, names = {"DRAFT", "CANCELLED", "EXPIRED"})
+    void anUnsignableAddendumStatusIsRefused(DocumentStatus status) {
+        UUID id = addendumWithPdf(status);
+
+        assertThatThrownBy(() -> getSigningPayload("ADDENDUM", id.toString()))
                 .isInstanceOf(StatusRuntimeException.class)
                 .extracting(e -> ((StatusRuntimeException) e).getStatus().getCode())
                 .isEqualTo(Status.Code.FAILED_PRECONDITION);
@@ -374,11 +406,21 @@ class ContractInternalGrpcServiceTest {
                 "NET30", "MONTHLY", new BigDecimal("10"), null, null, null)).getId());
     }
 
-    /** DRAFT + its signed file, then APPROVED — the sequence a real document goes through. */
-    private UUID approvedContractWithPdf() {
+    /** DRAFT + its signed file, then the status under test — the sequence a real document goes through. */
+    private UUID contractWithPdf(DocumentStatus status) {
         UUID id = draftContractFor(ACME);
         attach(EntityType.CONTRACT, id, "contract.pdf", "application/pdf", SIGNED_PDF);
-        setStatus(id, DocumentStatus.APPROVED);
+        setStatus(id, status);
+        return id;
+    }
+
+    /** The addendum equivalent: its parent must be ACTIVE before an addendum can be raised on it. */
+    private UUID addendumWithPdf(DocumentStatus status) {
+        UUID contractId = contract(DocumentStatus.ACTIVE);
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(contractId, "PAYMENT_TERMS",
+                "terms", LocalDate.now(), null, "NET60", null, null)).getId());
+        attach(EntityType.ADDENDUM, id, "addendum.pdf", "application/pdf", SIGNED_PDF);
+        tx.executeWithoutResult(s -> addenda.get(id).setStatus(status));
         return id;
     }
 

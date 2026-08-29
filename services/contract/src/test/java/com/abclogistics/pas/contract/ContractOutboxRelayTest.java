@@ -286,6 +286,26 @@ class ContractOutboxRelayTest {
     }
 
     @Test
+    void aSystemicRefusalIsRetriedNotParked() {
+        // PERMISSION_DENIED / UNAUTHENTICATED / UNIMPLEMENTED are about the deployment, not the
+        // row. Parking them would abandon every pending dispatch over one bad credential, when a
+        // config fix or a redeploy recovers all of them at once.
+        OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0010", "Tran Thi B", "b@acme.vn")));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                .thenThrow(new StatusRuntimeException(
+                        Status.PERMISSION_DENIED.withDescription("caller not allowed")));
+
+        relay.pollAndDispatch();
+
+        assertThat(event.getCancelledAt()).isNull();
+        assertThat(event.getClaimedAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+        // and nothing is audited: the send has not been abandoned, only delayed
+        verifyNoInteractions(audit);
+    }
+
+    @Test
     void aWorkflowStartRefusedOutrightIsParkedToo() {
         // Not esign-specific: a StartInstance the workflow service refuses is equally undeliverable.
         OutboxEvent event = queued(startRequested(new WorkflowStartRequested(UUID.randomUUID(),

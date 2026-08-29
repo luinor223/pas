@@ -42,13 +42,18 @@ public class ContractOutboxRelay extends OutboxRelay {
     private static final String GRPC_CREATE_SIGNING_SESSION = "grpc:EsignInternal.CreateSigningSession";
 
     /**
-     * The callee refused rather than failed. NOT_FOUND is deliberately absent: it is D4's dispatch
-     * window on the workflow side, where the retry is the whole design (registry §5.1).
+     * The callee refused <em>this row</em> rather than failed. Every code here is an answer about
+     * the request itself, identical on every retry.
+     *
+     * <p>NOT_FOUND is deliberately absent: it is D4's dispatch window on the workflow side, where
+     * the retry is the whole design (registry §5.1). So are UNAUTHENTICATED, PERMISSION_DENIED and
+     * UNIMPLEMENTED — those are about the deployment, not the row: a bad credential or a
+     * version-skewed callee would park every pending dispatch within one poll, each needing manual
+     * repair, when a config fix or a redeploy recovers all of them at once. They retry.
      */
     private static final Set<Status.Code> PERMANENT_STATUSES = EnumSet.of(
             Status.Code.FAILED_PRECONDITION, Status.Code.INVALID_ARGUMENT,
-            Status.Code.PERMISSION_DENIED, Status.Code.UNAUTHENTICATED,
-            Status.Code.UNIMPLEMENTED, Status.Code.OUT_OF_RANGE, Status.Code.ALREADY_EXISTS);
+            Status.Code.OUT_OF_RANGE, Status.Code.ALREADY_EXISTS);
 
     private static final Logger log = LoggerFactory.getLogger(ContractOutboxRelay.class);
 
