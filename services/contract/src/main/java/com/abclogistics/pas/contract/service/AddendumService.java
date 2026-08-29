@@ -442,6 +442,6 @@ public class AddendumService {
 
     @Transactional(readOnly = true)
     public List<Addendum> dueForActivation(LocalDate onOrBefore) {
-        return addenda.findByStatusAndEffectiveFromLessThanEqual(DocumentStatus.APPROVED, onOrBefore);
+        return addenda.dueForActivation(DocumentStatus.APPROVED, onOrBefore);
     }
 }

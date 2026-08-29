@@ -89,6 +89,8 @@ class CTR02SubmitRequiresAttachmentTest {
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("outbox.relay.enabled", () -> "false");
         registry.add("contract.kafka.listener-enabled", () -> "false");
+        // the D14d sweep runs on a schedule; these tests drive their own dates and statuses
+        registry.add("contract.status-sweep-enabled", () -> "false");
         registry.add("contract.attachment-storage-path", STORAGE::toString);
     }
 

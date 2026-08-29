@@ -34,9 +34,40 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                           @Param("q") String q,
                           Pageable pageable);
 
-    List<Contract> findByStatusAndValidFromLessThanEqual(DocumentStatus status, LocalDate onOrBefore);
+    /**
+     * D14d activation sweep. Ordered so a sweep that has not run for days replays the backlog in
+     * the order the dates actually fell; created_at then id only break a same-day tie.
+     */
+    @Query("""
+            select c from Contract c
+            where c.status = :status and c.validFrom <= :onOrBefore
+            order by c.validFrom asc, c.createdAt asc, c.id asc
+            """)
+    List<Contract> dueForActivation(@Param("status") DocumentStatus status,
+                                    @Param("onOrBefore") LocalDate onOrBefore);
 
-    List<Contract> findByStatusAndValidToLessThan(DocumentStatus status, LocalDate before);
+    /** D14d expiry sweep. valid_to is inclusive, so a contract expires the day after it. */
+    @Query("""
+            select c from Contract c
+            where c.status = :status and c.validTo < :before
+            order by c.validTo asc, c.createdAt asc, c.id asc
+            """)
+    List<Contract> dueForExpiry(@Param("status") DocumentStatus status,
+                                @Param("before") LocalDate before);
 
-    List<Contract> findByStatusAndValidToBetween(DocumentStatus status, LocalDate from, LocalDate to);
+    /**
+     * D9 warning sweep. The stamp is compared against the CURRENT valid_to: an extension that
+     * moved it makes the two differ again, so the new term gets its own warning without anything
+     * having to remember to clear the stamp.
+     */
+    @Query("""
+            select c from Contract c
+            where c.status = :status
+              and c.validTo between :from and :to
+              and (c.lastExpiryWarningFor is null or c.lastExpiryWarningFor <> c.validTo)
+            order by c.validTo asc, c.createdAt asc, c.id asc
+            """)
+    List<Contract> dueForExpiryWarning(@Param("status") DocumentStatus status,
+                                       @Param("from") LocalDate from,
+                                       @Param("to") LocalDate to);
 }

@@ -48,6 +48,8 @@ class KafkaBackedBeansExistInABootContextTest {
         // never reached: no row is written here, so the relay polls an empty table
         registry.add("spring.kafka.bootstrap-servers", () -> "localhost:1");
         registry.add("contract.kafka.listener-enabled", () -> "false");
+        // the D14d sweep runs on a schedule; these tests drive their own dates and statuses
+        registry.add("contract.status-sweep-enabled", () -> "false");
     }
 
     @Autowired(required = false) KafkaTemplate<String, String> kafka;

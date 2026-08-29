@@ -54,6 +54,11 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     @Column(name = "payment_term")
     private String paymentTerm;
 
+    // D9: the valid_to a document.expiring warning has already gone out for. Not a timestamp —
+    // an extension moves valid_to, and comparing the two is what lets the new term warn again.
+    @Column(name = "last_expiry_warning_for")
+    private LocalDate lastExpiryWarningFor;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "billing_cycle", nullable = false)
     private BillingCycle billingCycle;
@@ -116,6 +121,7 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     public LocalDate getValidFrom() { return validFrom; }
     public LocalDate getValidTo() { return validTo; }
     public String getPaymentTerm() { return paymentTerm; }
+    public LocalDate getLastExpiryWarningFor() { return lastExpiryWarningFor; }
     public BillingCycle getBillingCycle() { return billingCycle; }
     public BigDecimal getVatRate() { return vatRate; }
     public String getPenaltyTerms() { return penaltyTerms; }
@@ -134,6 +140,7 @@ public class Contract extends BaseEntity implements ApprovableDocument {
     public void setValidFrom(LocalDate v) { this.validFrom = v; }
     public void setValidTo(LocalDate v) { this.validTo = v; }
     public void setPaymentTerm(String v) { this.paymentTerm = v; }
+    public void setLastExpiryWarningFor(LocalDate v) { this.lastExpiryWarningFor = v; }
     public void setBillingCycle(BillingCycle v) { this.billingCycle = v; }
     public void setVatRate(BigDecimal v) { this.vatRate = v; }
     public void setPenaltyTerms(String v) { this.penaltyTerms = v; }

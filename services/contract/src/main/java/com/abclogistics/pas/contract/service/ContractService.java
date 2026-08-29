@@ -32,6 +32,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Currency;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -376,5 +378,90 @@ public class ContractService {
     @Transactional
     public void sendForSigning(UUID id) {
         throw new UnsupportedOperationException("session-3 Phase B");
+    }
+
+    // --- D14d date-driven transitions (driven by ContractStatusScheduler) ------------------------
+
+    /** APPROVED contracts whose valid_from has arrived, oldest first (CTR-05). */
+    @Transactional(readOnly = true)
+    public List<UUID> dueForActivation(LocalDate onOrBefore) {
+        return contracts.dueForActivation(DocumentStatus.APPROVED, onOrBefore)
+                .stream().map(Contract::getId).toList();
+    }
+
+    /** ACTIVE contracts whose valid_to has passed, oldest first. */
+    @Transactional(readOnly = true)
+    public List<UUID> dueForExpiry(LocalDate today) {
+        return contracts.dueForExpiry(DocumentStatus.ACTIVE, today)
+                .stream().map(Contract::getId).toList();
+    }
+
+    /**
+     * CTR-05: APPROVED to ACTIVE on the effective date. Fires whether or not a signing session
+     * exists (D14e, registry §9 footnote 3) — this service has no dependency on esign at all.
+     */
+    @Transactional
+    public void activate(UUID id) {
+        Contract contract = get(id);
+        DocumentStatus before = contract.getStatus();
+        // the candidate list was read outside this transaction: an overlapping run may already
+        // have activated it, and a second history row would claim it happened twice
+        if (before != DocumentStatus.APPROVED) {
+            return;
+        }
+        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+                before, DocumentStatus.ACTIVE, TriggerKind.S, null,
+                "Effective date reached (CTR-05, D14d)");
+        contract.setStatus(DocumentStatus.ACTIVE);
+    }
+
+    /** ACTIVE to EXPIRED once valid_to has passed — the stored one, so an extension is honoured. */
+    @Transactional
+    public void expire(UUID id) {
+        Contract contract = get(id);
+        DocumentStatus before = contract.getStatus();
+        if (before != DocumentStatus.ACTIVE) {
+            return;
+        }
+        // re-checked against the row as it is now: an addendum activated earlier in this same
+        // sweep may have moved valid_to past today, and expiring it anyway would undo the renewal
+        if (!contract.getValidTo().isBefore(LocalDate.now())) {
+            return;
+        }
+        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
+                before, DocumentStatus.EXPIRED, TriggerKind.S, null,
+                "End date passed (D14d)");
+        contract.setStatus(DocumentStatus.EXPIRED);
+    }
+
+    /**
+     * D9 warning candidates: ACTIVE, expiring inside the horizon, not yet warned for the valid_to
+     * they currently carry. Snapshotted into a record because the warning is published outside any
+     * transaction — a Kafka ack must not be waited on while holding a connection.
+     */
+    @Transactional(readOnly = true)
+    public List<ExpiryWarning> dueForExpiryWarning(LocalDate today, LocalDate horizon) {
+        return contracts.dueForExpiryWarning(DocumentStatus.ACTIVE, today, horizon).stream()
+                .map(c -> new ExpiryWarning(c.getId(), c.getContractNo(), c.getValidTo(),
+                        ChronoUnit.DAYS.between(today, c.getValidTo()), c.getCreatedBy()))
+                .toList();
+    }
+
+    /** registry §4 document.expiring payload, snapshotted for a publish outside the transaction. */
+    public record ExpiryWarning(UUID contractId, String documentNo, LocalDate expiresOn,
+                                long daysLeft, UUID ownerUserId) { }
+
+    /**
+     * Stamped only after Kafka acked (D9): an unstamped warning re-fires next run, which is the
+     * whole reason this event needs no outbox row.
+     */
+    @Transactional
+    public void markExpiryWarned(UUID id, LocalDate warnedFor) {
+        Contract contract = get(id);
+        // guarded: an extension applied between the send and this write must not be recorded as
+        // warned-for, or the new term would go silent
+        if (warnedFor.equals(contract.getValidTo())) {
+            contract.setLastExpiryWarningFor(warnedFor);
+        }
     }
 }
