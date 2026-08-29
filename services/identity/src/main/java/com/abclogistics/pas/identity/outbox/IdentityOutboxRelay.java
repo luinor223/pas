@@ -23,8 +23,6 @@ import java.util.concurrent.TimeUnit;
 @Component
 @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
         prefix = "outbox.relay", name = "enabled", havingValue = "true", matchIfMissing = true)
-@org.springframework.boot.autoconfigure.condition.ConditionalOnBean(
-        type = "org.springframework.kafka.core.KafkaTemplate")
 public class IdentityOutboxRelay extends OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(IdentityOutboxRelay.class);

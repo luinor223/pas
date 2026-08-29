@@ -26,6 +26,8 @@ dependencies {
     implementation(libs.flyway.core)
     runtimeOnly(libs.flyway.postgresql)
 
+    implementation(libs.spring.boot.kafka)
+
     // identity signs JWTs; verification lives in common
     implementation(libs.jjwt.api)
     runtimeOnly(libs.jjwt.impl)

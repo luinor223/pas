@@ -8,7 +8,6 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -18,7 +17,6 @@ import java.util.concurrent.TimeUnit;
 
 @Component
 @ConditionalOnProperty(prefix = "outbox.relay", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(type = "org.springframework.kafka.core.KafkaTemplate")
 public class WorkflowOutboxRelay extends OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowOutboxRelay.class);
