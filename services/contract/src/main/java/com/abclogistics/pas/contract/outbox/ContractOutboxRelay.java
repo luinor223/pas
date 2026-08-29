@@ -42,14 +42,9 @@ public class ContractOutboxRelay extends OutboxRelay {
     private static final String GRPC_CREATE_SIGNING_SESSION = "grpc:EsignInternal.CreateSigningSession";
 
     /**
-     * The callee refused <em>this row</em> rather than failed. Every code here is an answer about
-     * the request itself, identical on every retry.
-     *
-     * <p>NOT_FOUND is deliberately absent: it is D4's dispatch window on the workflow side, where
-     * the retry is the whole design (registry §5.1). So are UNAUTHENTICATED, PERMISSION_DENIED and
-     * UNIMPLEMENTED — those are about the deployment, not the row: a bad credential or a
-     * version-skewed callee would park every pending dispatch within one poll, each needing manual
-     * repair, when a config fix or a redeploy recovers all of them at once. They retry.
+     * The callee refused <em>this row</em> — the same answer on every retry. NOT_FOUND is absent
+     * (D4's dispatch window, §5.1), and so are UNAUTHENTICATED / PERMISSION_DENIED / UNIMPLEMENTED:
+     * those describe the deployment, and a redeploy recovers every row at once (§M2).
      */
     private static final Set<Status.Code> PERMANENT_STATUSES = EnumSet.of(
             Status.Code.FAILED_PRECONDITION, Status.Code.INVALID_ARGUMENT,
@@ -117,19 +112,13 @@ public class ContractOutboxRelay extends OutboxRelay {
                 payload.idempotencyKey());
     }
 
-    /**
-     * A gRPC status that is an answer, not an outage. Retrying these is pure noise: a double-send
-     * refused with FAILED_PRECONDITION is refused identically on every poll, and at a five-second
-     * interval that is a row re-claimed for the life of the deployment. UNAVAILABLE,
-     * DEADLINE_EXCEEDED and the rest stay retryable — those are the outages the outbox exists for.
-     */
+    /** An answer, not an outage: UNAVAILABLE and friends stay retryable, which is what M2 is for. */
     @Override
     protected boolean isPermanentFailure(Exception e) {
         if (e instanceof StatusRuntimeException grpc) {
             return PERMANENT_STATUSES.contains(grpc.getStatus().getCode());
         }
-        // a payload this service cannot even parse, or a type it has no branch for, is in exactly
-        // the same state on the next poll — and on every poll after that
+        // an unparseable payload, or a type with no branch, is identical on every poll after this
         return e instanceof JacksonException || e instanceof UnroutableEventException;
     }
 
@@ -141,14 +130,13 @@ public class ContractOutboxRelay extends OutboxRelay {
     }
 
     /**
-     * The user pressed a button and it is not going to happen. Written in the parking transaction
-     * so the History tab carries the failure next to the action that started it (D15) — a
-     * SUBMITTED contract whose workflow never started is otherwise indistinguishable from one
-     * waiting its turn.
+     * The user pressed a button and it is not going to happen. In the parking transaction so the
+     * History tab shows it (D15): a SUBMITTED contract whose workflow never started otherwise
+     * looks like one waiting its turn.
      */
     @Override
     protected void onParked(OutboxEvent event, Exception cause) {
-        // audit rows are Kafka-bound and never classified permanent, so this cannot recurse
+        // audit rows are Kafka-bound and never permanent, so this cannot recurse
         if (AUDIT_RECORDED.equals(event.getEventType())) {
             return;
         }

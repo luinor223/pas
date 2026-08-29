@@ -354,11 +354,8 @@ class SchedulerActivatesAndExpiresTest {
     @Test
     @SuppressWarnings("unchecked")
     void theEventIdIsDerivedFromTheWarningNotGeneratedFresh() {
-        // The Kafka ack and the last_expiry_warning_for stamp cannot be atomic, so a crash between
-        // them re-sends, and two replicas sweeping at once can both send before either stamps.
-        // With a random event_id every one of those is a NEW event to the consumer and its
-        // processed_event table cannot dedupe it — the customer is warned twice. Deriving the id
-        // from what the warning IS makes every republish the same logical event.
+        // The ack and the stamp cannot be atomic, so a crash between them re-sends. With a random
+        // event_id that is a NEW event to the consumer and it warns the customer twice.
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
@@ -376,8 +373,7 @@ class SchedulerActivatesAndExpiresTest {
         // and the header travels with it, or a consumer deduping off the header sees two events
         assertThat(header(captor.getAllValues().get(0), "event_id"))
                 .isEqualTo(header(captor.getAllValues().get(1), "event_id"));
-        // and it is derived from the event type, the document and the term — computed here from
-        // the spec rather than from the scheduler, because the VALUE is what a consumer dedupes on
+        // computed from the spec, not from the scheduler: the VALUE is what a consumer dedupes on
         assertThat(eventIdOf(captor.getAllValues().getFirst()))
                 .isEqualTo(expectedEventId(id, TODAY.plusDays(10)));
     }
@@ -385,8 +381,7 @@ class SchedulerActivatesAndExpiresTest {
     @Test
     @SuppressWarnings("unchecked")
     void concurrentSendsOfTheSameWarningCarryOneEventId() {
-        // Two replicas sweeping at the same moment: neither has stamped yet, so both send. The
-        // consumer must see one event twice, not two events.
+        // Two replicas at the same moment, neither stamped yet: one event twice, not two events.
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
 
         inParallel(4, () -> scheduler.publishExpiryWarnings(TODAY));
@@ -403,8 +398,7 @@ class SchedulerActivatesAndExpiresTest {
     @Test
     @SuppressWarnings("unchecked")
     void aNewTermIsANewEventNotARepublishOfTheOldOne() {
-        // The other half: an extension is a genuinely different warning and must NOT be deduped
-        // away as a repeat of the one already delivered.
+        // The other half: an extension must NOT be deduped away as a repeat of the last warning.
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         scheduler.publishExpiryWarnings(TODAY);
 
@@ -424,11 +418,9 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void aStaleAddendumCandidateIsAQuietNoOp() {
-        // The other shape, and the one @Version does NOT cover: the candidate list is read outside
-        // the transaction, so a second sweep can arrive with an id the first already activated —
-        // sequentially, with no version conflict to lose. Without the APPROVED guard this reaches
-        // StatusTransitionService as an ACTIVE -> ACTIVE edge and throws, which the sweep would
-        // log as a failure for a document that is in exactly the state it should be in.
+        // The shape @Version does NOT cover: a candidate read outside the transaction, activated
+        // by an earlier sweep, arriving sequentially with no version conflict to lose. Without the
+        // guard this is an illegal ACTIVE -> ACTIVE edge and the sweep logs a healthy document.
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         UUID addendumId = approvedAddendum(termExtension(contractId, TODAY, TODAY.plusYears(2)));
         addenda.activate(addendumId);
@@ -444,10 +436,8 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void concurrentAddendumActivationsApplyTheEffectExactlyOnce() {
-        // Two sweeps overlapping, or two replicas: @Version on Addendum means one commits and the
-        // other rolls back its history, audit AND parent effect together, and the APPROVED guard
-        // makes a stale sequential call a quiet no-op. Whatever the interleaving, the parent is
-        // extended once.
+        // @Version: one commits, the others roll back history, audit AND parent effect together.
+        // However the interleaving falls, the parent is extended once.
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         UUID addendumId = approvedAddendum(termExtension(contractId, TODAY, TODAY.plusYears(2)));
 
@@ -511,10 +501,7 @@ class SchedulerActivatesAndExpiresTest {
 
     // --- helpers --------------------------------------------------------------------------------
 
-    /**
-     * Run {@code action} on {@code threads} threads released together, and return whatever each
-     * threw. The barrier is what makes them actually overlap rather than queue.
-     */
+    /** Run {@code action} on N threads released together; returns whatever each threw. */
     private List<Throwable> inParallel(int threads, Runnable action) {
         CyclicBarrier start = new CyclicBarrier(threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);

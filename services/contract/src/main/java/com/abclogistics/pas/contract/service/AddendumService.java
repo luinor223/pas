@@ -419,16 +419,9 @@ public class AddendumService {
     }
 
     /**
-     * APPROVED to ACTIVE at effective_from, applying the effects to the parent in the same
-     * transaction (§9²).
-     *
-     * <p>The candidate list is read outside this transaction, so a second sweep — an overlapping
-     * run, or a replica — can arrive with an id another one has already activated. {@code @Version}
-     * on {@link Addendum} already makes that safe under true concurrency (one commits, the other
-     * rolls back its history, audit and parent effects together), and a stale sequential call is
-     * already refused by §9 having no ACTIVE to ACTIVE edge. This guard adds neither: it makes the
-     * refusal quiet, so the sweep logs a warning only for something that genuinely could not move.
-     * Mirrors {@code ContractService.activate}.
+     * APPROVED to ACTIVE at effective_from, effects applied to the parent in the same transaction
+     * (§9²). The guard is for a stale candidate read outside this transaction — {@code @Version}
+     * covers the concurrent case; this only keeps the sequential one quiet.
      */
     @Transactional
     public void activate(UUID id) {

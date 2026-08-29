@@ -65,9 +65,8 @@ public class WorkflowEventListener {
             return;   // a PRICE_LIST or PAYMENT_STATEMENT approval; another owner's document
         }
         if (eventId == null) {
-            // ours, but without the header a redelivery looks identical to a new event. Every
-            // producer on this topic sets it — outboxed events via OutboxRelay#kafkaRecord, and
-            // the D9 direct publishes from their derived id (ContractStatusScheduler#eventId)
+            // ours, but without the header a redelivery looks identical to a new event; every
+            // producer on this topic sets it, D9's direct publishes included
             throw new IllegalStateException("Record on pas.events has no event_id header, key=" + key);
         }
         UUID documentId = documentId(key);

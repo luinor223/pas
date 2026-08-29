@@ -161,8 +161,7 @@ class StatusHistoryEveryTransitionTest {
 
     @Test
     void aFailedTransactionLeavesNeitherStatusNorHistory() {
-        // The row and the status move together or not at all. A history row surviving a rolled
-        // back status change would claim a transition that never happened.
+        // A row surviving a rolled back status change would claim a transition that never happened.
         UUID id = draftContract();
         String no = contractNoOf(id);
         // the baseline, not zero: creating the customer and the contract audited themselves
@@ -203,9 +202,7 @@ class StatusHistoryEveryTransitionTest {
         assertThat(reread.getToStatus()).isEqualTo(first.getToStatus());
         assertThat(reread.getOccurredAt()).isEqualTo(first.getOccurredAt());
 
-        // structural, not incidental: every mapped column is updatable = false, so a dirty check
-        // cannot rewrite a row even if a future caller mutates a loaded entity, and the class
-        // exposes no setter to mutate it with in the first place
+        // structural: every mapped column is updatable = false, and there is no setter anyway
         for (Field field : StatusHistory.class.getDeclaredFields()) {
             Column column = field.getAnnotation(Column.class);
             if (column != null) {
@@ -222,11 +219,8 @@ class StatusHistoryEveryTransitionTest {
 
     @Test
     void theRepositoryOffersNoWayToDeleteARow() {
-        // The other half of append-only, and the half a column mapping cannot give: updatable =
-        // false stops a row being rewritten, not removed. StatusHistoryRepository therefore
-        // declares its surface instead of inheriting JpaRepository's — which would hand every
-        // caller delete / deleteAll / deleteAllInBatch, and a transition log anything can delete
-        // from cannot be what the status column is checked against.
+        // The half a column mapping cannot give: updatable = false stops a row being rewritten,
+        // not removed, so the repository declares its surface instead of inheriting JpaRepository's.
         assertThat(Stream.of(StatusHistoryRepository.class.getMethods()).map(Method::getName))
                 .as("StatusHistoryRepository must expose no delete (D17 append-only)")
                 .noneMatch(name -> name.toLowerCase(Locale.ROOT).contains("delete")
@@ -261,9 +255,8 @@ class StatusHistoryEveryTransitionTest {
     // --- helpers --------------------------------------------------------------------------------
 
     /**
-     * DRAFT → SUBMITTED → UNDER_REVIEW → APPROVED → ACTIVE → EXPIRED, each edge through the code
-     * that really drives it: the user's submit, the two workflow events, and the D14d sweep. The
-     * scheduler edges run unauthenticated, as they do in production.
+     * The whole lifecycle, each edge through the code that really drives it: submit, the two
+     * workflow events, the D14d sweep. The scheduler edges run unauthenticated, as in production.
      */
     private UUID fullLifecycle() {
         UUID id = draftContract();
@@ -282,8 +275,7 @@ class StatusHistoryEveryTransitionTest {
                 {"instance_id":"%s","outcome":"APPROVED"}""".formatted(instanceId),
                 "CONTRACT", UUID.randomUUID().toString(), id));         // -> APPROVED (W)
 
-        // the scheduler acts as nobody; clearing the context is what makes the actor assertions
-        // above mean something rather than inheriting the submitter
+        // the scheduler acts as nobody, so the actor assertions above are not just the submitter
         SecurityContextHolder.clearContext();
         contracts.activate(id);                                        // -> ACTIVE (S)
         // brought forward rather than created in the past: the contract has to be creatable first

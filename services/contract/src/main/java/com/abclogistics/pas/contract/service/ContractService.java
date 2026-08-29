@@ -467,8 +467,7 @@ public class ContractService {
 
     /**
      * ACTIVE to EXPIRED once valid_to has passed — the stored one, so an extension is honoured.
-     * {@code today} comes from the caller so a whole sweep judges every document against one
-     * date, rather than reading the clock again per row and straddling midnight.
+     * {@code today} comes from the caller so a whole sweep judges every document against one date.
      */
     @Transactional
     public void expire(UUID id, LocalDate today) {

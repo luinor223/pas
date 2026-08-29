@@ -66,12 +66,8 @@ public class ContractStatusScheduler {
 
     /**
      * The ordered sweep, callable without the schedule. Every document gets its own transaction
-     * and its own try: one that cannot move must not end the run.
-     *
-     * <p>{@code today} is read ONCE and threaded through all four passes. Reading it per pass let
-     * a sweep that started at 23:59:59 straddle midnight, so the ordering guarantee below would
-     * hold against two different dates — a contract could be expired against tomorrow after its
-     * renewal was judged against yesterday.
+     * and its own try: one that cannot move must not end the run. {@code today} is read once and
+     * threaded through, or a sweep starting at 23:59:59 judges its four passes against two dates.
      */
     public void sweep() {
         LocalDate today = LocalDate.now();
@@ -116,9 +112,8 @@ public class ContractStatusScheduler {
     }
 
     /**
-     * D9: {@code document.expiring} is published DIRECTLY, with no outbox row. A lost warning
-     * re-fires on the next sweep because the stamp is only written after the ack, so an outbox row
-     * would buy nothing and could deliver a second copy.
+     * D9: published directly, no outbox row — the stamp is written only after the ack, so a lost
+     * warning re-fires next sweep and an outbox row would buy nothing.
      */
     public void publishExpiryWarnings(LocalDate today) {
         LocalDate horizon = today.plusDays(warningDays);
@@ -155,8 +150,7 @@ public class ContractStatusScheduler {
         envelope.put("event_id", eventId.toString());
         envelope.put("event_type", DOCUMENT_EXPIRING);
         envelope.put("occurred_at", java.time.Instant.now().toString());
-        // the envelope is fixed (registry §4) and a scheduler has no actor: null id, "system"
-        // name, exactly as AuditRecorder stamps a scheduler-driven audit row
+        // the §4 envelope is fixed and a scheduler has no actor, as AuditRecorder also stamps it
         envelope.put("actor_id", null);
         envelope.put("actor_name", "system");
         envelope.put("document_type", DOCUMENT_TYPE);
@@ -169,28 +163,16 @@ public class ContractStatusScheduler {
                 warning.contractId().toString(), objectMapper.writeValueAsString(envelope));
         record.headers().add(header("event_type", DOCUMENT_EXPIRING));
         record.headers().add(header("document_type", DOCUMENT_TYPE));
-        // mirrored into the header like every outboxed event (OutboxRelay#kafkaRecord), because
-        // that is where consumers read their dedup key from. Without it notification-service would
-        // need a payload-parsing path for this one event type, which is how a convention rots.
+        // where consumers read their dedup key, as OutboxRelay#kafkaRecord does for every event
         record.headers().add(header("event_id", eventId.toString()));
         return record;
     }
 
     /**
-     * Derived, not random — the one thing that makes this event safely retryable without an outbox
-     * row (D9, registry §4).
-     *
-     * <p>The Kafka ack and the {@code last_expiry_warning_for} stamp cannot be made atomic: a
-     * crash between them re-warns on the next sweep, and two replicas sweeping at once can both
-     * send before either stamps. With a random {@code event_id} each of those is a NEW event to
-     * every consumer, so {@code processed_event} cannot dedupe it and the customer gets the
-     * warning twice. Keying the id on what the warning IS — the event type, the document, and the
-     * expiry date being warned about — makes every one of those republishes the same logical
-     * event, which is exactly what the consumer's dedup table is for.
-     *
-     * <p>The valid_to is part of the key on purpose: an extension earns a genuinely new warning
-     * for the new term, and it gets a genuinely new id. That is the same reasoning as the stamp
-     * being a date rather than a timestamp.
+     * Derived, not random — what makes this event retryable without an outbox row. The ack and the
+     * stamp cannot be atomic, so a crash between them re-warns and two replicas can both send; a
+     * fresh uuid would make each of those a new event the consumer cannot dedupe. valid_to is in
+     * the key so an extension earns a new id (registry §4 change log).
      */
     static UUID eventId(ContractService.ExpiryWarning warning) {
         String name = "%s:%s:%s".formatted(

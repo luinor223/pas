@@ -38,11 +38,7 @@ import java.util.UUID;
 @GrpcService
 public class ContractInternalGrpcService extends ContractInternalGrpc.ContractInternalImplBase {
 
-    /**
-     * The statuses a signing payload is served for (registry §5). A document is only ever SENT
-     * from APPROVED; ACTIVE is here because D14d activates it underneath a session already in
-     * flight, and a payload refused mid-signature strands the provider with nothing to render.
-     */
+    /** registry §5. ACTIVE is included because D14d activates under a session already in flight. */
     private static final Set<DocumentStatus> SIGNABLE =
             EnumSet.of(DocumentStatus.APPROVED, DocumentStatus.ACTIVE);
 
@@ -62,10 +58,8 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
         this.customers = customers;
         this.attachments = attachments;
         this.storage = storage;
-        // NOT @Transactional on the rpc methods. A lookup that throws marks the surrounding
-        // transaction rollback-only, and catching it inside that transaction to build an onError
-        // means the commit afterwards throws UnexpectedRollbackException — the caller gets
-        // INTERNAL instead of NOT_FOUND. The template ends the transaction first, then we map.
+        // not @Transactional: catching inside the transaction to build an onError makes the
+        // commit throw UnexpectedRollbackException, so the caller gets INTERNAL, not NOT_FOUND
         this.tx = new TransactionTemplate(transactionManager);
         this.tx.setReadOnly(true);
     }
@@ -104,18 +98,10 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
     }
 
     /**
-     * D10 — esign-service fetches this to render the document for the provider. Guard is
-     * {@code status IN (APPROVED, ACTIVE)} (registry §5).
-     *
-     * <p>{@code ACTIVE} is in the guard because D14d moves a contract there on its own schedule,
-     * with no regard for a session in flight: sending starts from {@code APPROVED}, but the sweep
-     * flips the row within one interval of the effective date, and every contract approved on or
-     * after that date is {@code ACTIVE} long before the provider is done with it. An
-     * {@code APPROVED}-only guard therefore refuses the payload for exactly the documents that
-     * were legitimately sent — the same deadlock §5 already widened billing's guard to avoid,
-     * arrived at from the other side (billing flips before dispatching; here the scheduler does).
-     * The send guard is unchanged and stays {@code APPROVED}-only: this widens what can be
-     * fetched, never what can be started.
+     * D10 — esign fetches this to render the document. Guard {@link #SIGNABLE}: widened to ACTIVE
+     * because an APPROVED-only guard refused the payload for documents legitimately sent, once
+     * D14d activated them mid-signature (registry §5 change log). Sending still starts from
+     * APPROVED only.
      */
     @Override
     public void getSigningPayload(GetSigningPayloadRequest request,
@@ -151,21 +137,14 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
                     .setSignerEmail(nullToEmpty(signer.getEmail()))
                     .build();
         } catch (IOException e) {
-            // reading the stored file is the one checked failure here; the rest are unchecked and
-            // travel out of the template on their own
             throw new java.io.UncheckedIOException(e);
         }
     }
 
     /**
-     * The document as uploaded, not a rendering: CTR-02 already requires an attachment to submit,
-     * and inventing a generated PDF here would send the provider something no one ever approved.
-     * The newest PDF wins — a re-upload before approval corrects the one before it.
-     *
-     * <p>Filtered by content type, not just taken newest: attachments are a general-purpose list
-     * (a scanned annex, a spreadsheet of volumes), and the field on the wire is {@code pdf_content}.
-     * Handing the provider the most recent upload regardless of what it is would send a customer a
-     * spreadsheet to sign.
+     * The newest PDF as uploaded, never a rendering invented here — nobody approved a generated
+     * one. Filtered by type because attachments are a general-purpose list and the wire field is
+     * {@code pdf_content}: the newest upload could be a spreadsheet.
      */
     private ByteString pdfContent(EntityType type, UUID documentId, String documentNo) throws IOException {
         List<Attachment> all = attachments.findByOwnerTypeAndOwnerId(type, documentId);
@@ -205,10 +184,8 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
     }
 
     /**
-     * A null vat_rate is refused rather than sent as 0.0. proto3 cannot carry the difference, and
-     * billing snapshots this field: "not yet stated" arriving as "0% VAT" is exactly the invoice
-     * drift the design forbids (db-contract.md). CTR-02 makes it non-null from submit onwards, so
-     * only a DRAFT can land here.
+     * Refused rather than sent as 0.0: proto3 cannot carry the difference and billing snapshots
+     * this, so "not yet stated" would become "0% VAT" on an invoice (db-contract.md).
      */
     private static double vatRate(Contract contract) {
         if (contract.getVatRate() == null) {
