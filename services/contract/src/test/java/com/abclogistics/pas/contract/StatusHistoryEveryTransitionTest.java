@@ -48,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -217,6 +218,22 @@ class StatusHistoryEveryTransitionTest {
         assertThat(Stream.of(StatusHistory.class.getDeclaredMethods()).map(Method::getName))
                 .as("StatusHistory must expose no mutator (D17 append-only)")
                 .noneMatch(name -> name.startsWith("set"));
+    }
+
+    @Test
+    void theRepositoryOffersNoWayToDeleteARow() {
+        // The other half of append-only, and the half a column mapping cannot give: updatable =
+        // false stops a row being rewritten, not removed. StatusHistoryRepository therefore
+        // declares its surface instead of inheriting JpaRepository's — which would hand every
+        // caller delete / deleteAll / deleteAllInBatch, and a transition log anything can delete
+        // from cannot be what the status column is checked against.
+        assertThat(Stream.of(StatusHistoryRepository.class.getMethods()).map(Method::getName))
+                .as("StatusHistoryRepository must expose no delete (D17 append-only)")
+                .noneMatch(name -> name.toLowerCase(Locale.ROOT).contains("delete")
+                        || name.toLowerCase(Locale.ROOT).contains("remove"))
+                // and the surface really is the declared one, not an inherited CRUD interface
+                .containsExactlyInAnyOrder("save", "findByEntityTypeAndEntityIdOrderByOccurredAtAsc",
+                        "count");
     }
 
     @Test
