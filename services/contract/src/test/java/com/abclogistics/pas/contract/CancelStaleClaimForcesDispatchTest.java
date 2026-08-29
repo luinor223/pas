@@ -20,7 +20,8 @@ import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
-import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelOutcome;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelResult;
+import com.abclogistics.pas.workflow.grpc.GetInstanceByDocumentResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.junit.jupiter.api.AfterEach;
@@ -60,6 +61,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -190,7 +192,7 @@ class CancelStaleClaimForcesDispatchTest {
         UUID key = idempotencyKeyOf(id);
         claimedAgo(id, STALE);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.NOT_FOUND, CancelOutcome.CANCELLED);
+                .thenReturn(CancelResult.notFound(), CancelResult.cancelled());
         when(workflow.startInstance(eq(key), anyString(), any(), anyString(), any(), any(), any(), any()))
                 .thenReturn(UUID.randomUUID());
 
@@ -215,7 +217,7 @@ class CancelStaleClaimForcesDispatchTest {
         UUID key = idempotencyKeyOf(id);
         claimedAgo(id, FRESH);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.CANCELLED);
+                .thenReturn(CancelResult.cancelled());
 
         assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
 
@@ -232,7 +234,7 @@ class CancelStaleClaimForcesDispatchTest {
         UUID key = idempotencyKeyOf(id);
         claimedAgo(id, FRESH);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.NOT_FOUND);
+                .thenReturn(CancelResult.notFound());
 
         assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
@@ -252,7 +254,7 @@ class CancelStaleClaimForcesDispatchTest {
         claimedAgo(id, STALE);
         publish(id);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.NOT_FOUND);
+                .thenReturn(CancelResult.notFound());
 
         assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
@@ -267,15 +269,55 @@ class CancelStaleClaimForcesDispatchTest {
         UUID key = idempotencyKeyOf(id);
         claimedAgo(id, FRESH);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.ALREADY_ACTIONED);
+                .thenReturn(CancelResult.refused("Cannot cancel workflow instance after a step has been actioned"));
+        instanceIs(id, "IN_PROGRESS");
 
         assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("already actioned");
+                // the refusal workflow gave, not a guess at which of its preconditions failed
+                .hasMessageContaining("after a step has been actioned");
 
         // Not retried and not pending: an actioned step is a definitive answer.
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
         assertThat(startRequest(id).getCancelledAt()).isNull();
+    }
+
+    @Test
+    void aRetryAfterALostLocalCommitStillCancelsTheDocument() {
+        // Workflow refuses every instance that is not IN_PROGRESS, including one THIS key already
+        // cancelled. If the process died between that remote cancel and the local commit, the
+        // retry the API asks for must finish the job rather than read the refusal as "too late" —
+        // otherwise the document is wedged in SUBMITTED with a cancelled instance behind it.
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
+                .thenReturn(CancelResult.refused("Workflow instance not in progress, cannot cancel: CANCELLED"));
+        instanceIs(id, "CANCELLED");
+
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
+        assertThat(history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(EntityType.CONTRACT, id))
+                .extracting(StatusHistory::getToStatus)
+                .containsExactly(DocumentStatus.SUBMITTED, DocumentStatus.CANCELLED);
+    }
+
+    @Test
+    void aDecidedInstanceIsStillTooLateToCancel() {
+        // The reconciliation read must not turn every refusal into a cancellation: an APPROVED
+        // instance means the approvers decided, and that answer stands.
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
+                .thenReturn(CancelResult.refused("Workflow instance not in progress, cannot cancel: APPROVED"));
+        instanceIs(id, "APPROVED");
+
+        assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
+                .isInstanceOf(ConflictException.class);
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
     }
 
     @Test
@@ -286,7 +328,7 @@ class CancelStaleClaimForcesDispatchTest {
         UUID key = idempotencyKeyOf(id);
         claimedAgo(id, STALE);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.NOT_FOUND);
+                .thenReturn(CancelResult.notFound());
         when(workflow.startInstance(eq(key), anyString(), any(), anyString(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
@@ -326,7 +368,7 @@ class CancelStaleClaimForcesDispatchTest {
         claimedAgo(id, FRESH);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key))).thenAnswer(invocation -> {
             force(id, DocumentStatus.UNDER_REVIEW);
-            return CancelOutcome.CANCELLED;
+            return CancelResult.cancelled();
         });
 
         assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
@@ -344,7 +386,7 @@ class CancelStaleClaimForcesDispatchTest {
         claimedAgo(id, FRESH);
         force(id, DocumentStatus.UNDER_REVIEW);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.CANCELLED);
+                .thenReturn(CancelResult.cancelled());
 
         assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
 
@@ -359,7 +401,8 @@ class CancelStaleClaimForcesDispatchTest {
         claimedAgo(id, FRESH);
         force(id, DocumentStatus.UNDER_REVIEW);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.ALREADY_ACTIONED);
+                .thenReturn(CancelResult.refused("Cannot cancel workflow instance after a step has been actioned"));
+        instanceIs(id, "IN_PROGRESS");
 
         assertThatThrownBy(() -> cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew"))
                 .isInstanceOf(ConflictException.class);
@@ -392,7 +435,7 @@ class CancelStaleClaimForcesDispatchTest {
         claimedAgo(id, FRESH);
         force(id, DocumentStatus.UNDER_REVIEW);
         when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
-                .thenReturn(CancelOutcome.NOT_FOUND);
+                .thenReturn(CancelResult.notFound());
 
         assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
 
@@ -446,7 +489,7 @@ class CancelStaleClaimForcesDispatchTest {
         UUID pending = submittedContract();
         claimedAgo(pending, FRESH);
         when(workflow.cancelInstance(eq(pending), eq("CONTRACT"), eq(idempotencyKeyOf(pending))))
-                .thenReturn(CancelOutcome.NOT_FOUND);
+                .thenReturn(CancelResult.notFound());
 
         ResponseEntity<CancelResponse> ok = controller.cancel(cancelled, new CancelRequest("withdrew"));
         ResponseEntity<CancelResponse> accepted = controller.cancel(pending, new CancelRequest("withdrew"));
@@ -476,6 +519,14 @@ class CancelStaleClaimForcesDispatchTest {
     private static final long FRESH = 0;
 
     /** Rewrites {@code claimed_at} directly: a relay worker's claim is not reachable from the API. */
+    private void instanceIs(UUID contractId, String status) {
+        when(workflow.getInstanceByDocument(eq("CONTRACT"), eq(contractId)))
+                .thenReturn(Optional.of(GetInstanceByDocumentResponse.newBuilder()
+                        .setInstanceId(UUID.randomUUID().toString())
+                        .setStatus(status)
+                        .build()));
+    }
+
     private void claimedAgo(UUID contractId, long secondsAgo) {
         Instant claimedAt = Instant.now().minus(secondsAgo, ChronoUnit.SECONDS);
         jdbc.update("update contract.outbox set claimed_at = ? where id = ?",
@@ -515,7 +566,7 @@ class CancelStaleClaimForcesDispatchTest {
 
     private UUID submittedContract() {
         UUID id = submittableContract();
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
         return id;
     }
 

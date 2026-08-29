@@ -8,7 +8,6 @@ import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -20,8 +19,9 @@ import java.util.concurrent.TimeUnit;
 
 /** Dual-dispatch relay: audit.recorded to Kafka, the two gRPC intents to their stubs (registry §6). */
 @Component
+// the property is the only condition: @ConditionalOnBean(KafkaTemplate) evaluates before Kafka's
+// auto-config outside auto-configuration, and dropped the gRPC dispatch along with the Kafka one
 @ConditionalOnProperty(prefix = "outbox.relay", name = "enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(type = "org.springframework.kafka.core.KafkaTemplate")
 public class ContractOutboxRelay extends OutboxRelay {
 
     public static final String WORKFLOW_START_REQUESTED = "workflow.start_requested";

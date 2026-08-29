@@ -70,23 +70,44 @@ public class WorkflowGrpcClient {
     }
 
     public enum CancelOutcome {
+        /** Workflow cancelled the instance on this call. */
         CANCELLED,
-        ALREADY_ACTIONED,
+        /** Workflow refused outright: a step was actioned, the instance is decided, or the key does not match. */
+        REFUSED,
         NOT_FOUND
     }
 
-    public CancelOutcome cancelInstance(UUID documentId, String documentTypeCode, UUID idempotencyKey) {
+    /**
+     * FAILED_PRECONDITION covers several distinct refusals, so the reason travels with the outcome
+     * rather than being guessed at by the caller.
+     */
+    public record CancelResult(CancelOutcome outcome, String detail) {
+
+        public static CancelResult cancelled() {
+            return new CancelResult(CancelOutcome.CANCELLED, null);
+        }
+
+        public static CancelResult notFound() {
+            return new CancelResult(CancelOutcome.NOT_FOUND, null);
+        }
+
+        public static CancelResult refused(String detail) {
+            return new CancelResult(CancelOutcome.REFUSED, detail);
+        }
+    }
+
+    public CancelResult cancelInstance(UUID documentId, String documentTypeCode, UUID idempotencyKey) {
         try {
             deadlined().cancelInstance(CancelInstanceRequest.newBuilder()
                     .setDocumentType(documentTypeCode)
                     .setDocumentId(documentId.toString())
                     .setIdempotencyKey(idempotencyKey.toString())
                     .build());
-            return CancelOutcome.CANCELLED;
+            return CancelResult.cancelled();
         } catch (StatusRuntimeException e) {
             return switch (e.getStatus().getCode()) {
-                case NOT_FOUND -> CancelOutcome.NOT_FOUND;
-                case FAILED_PRECONDITION -> CancelOutcome.ALREADY_ACTIONED;
+                case NOT_FOUND -> CancelResult.notFound();
+                case FAILED_PRECONDITION -> CancelResult.refused(e.getStatus().getDescription());
                 // transport failures are not answers: a cancel that never landed is not definitive
                 default -> throw e;
             };

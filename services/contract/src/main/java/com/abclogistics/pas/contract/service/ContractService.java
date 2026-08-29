@@ -27,6 +27,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
@@ -61,12 +63,14 @@ public class ContractService {
     private final ObjectMapper objectMapper;
     private final AuditRecorder audit;
     private final DocumentCancellationService cancellation;
+    private final TransactionTemplate tx;
 
     public ContractService(ContractRepository contracts, CustomerService customers,
                            DocumentNumberService numbers, StatusTransitionService transitions,
                            AttachmentRepository attachments, WorkflowGrpcClient workflow,
                            OutboxRepository outbox, ObjectMapper objectMapper,
-                           AuditRecorder audit, DocumentCancellationService cancellation) {
+                           AuditRecorder audit, DocumentCancellationService cancellation,
+                           TransactionTemplate tx) {
         this.contracts = contracts;
         this.customers = customers;
         this.numbers = numbers;
@@ -77,6 +81,7 @@ public class ContractService {
         this.objectMapper = objectMapper;
         this.audit = audit;
         this.cancellation = cancellation;
+        this.tx = tx;
     }
 
     @Transactional(readOnly = true)
@@ -239,26 +244,52 @@ public class ContractService {
         return fields;
     }
 
-    @Transactional
+    /** D4 submit: pre-check between two transactions, never inside one. Not {@code @Transactional}. */
     public void submit(UUID id) {
+        requireNoTransaction();
+        // advisory only: refuses a hopeless document before it costs a round trip
+        tx.executeWithoutResult(s -> requireSubmittable(requireDraft(id)));
+
+        // before the commit, or a SUBMITTED contract parks against config that never appears;
+        // outside a transaction, or a 2s gRPC deadline holds a pooled connection for its duration
+        workflow.validateStartable(DOCUMENT_TYPE);
+
+        // the template, not a self-invoked @Transactional method the proxy would not intercept
+        tx.executeWithoutResult(s -> commitSubmission(id));
+    }
+
+    // asserted, not just documented: a caller wrapping submit puts the remote call back inside a
+    // transaction, and the two templates below would silently join it
+    static void requireNoTransaction() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "submit must run outside a transaction: ValidateStartable is a remote call, and "
+                    + "the local commit opens a transaction of its own (D4)");
+        }
+    }
+
+    private Contract requireDraft(UUID id) {
         Contract contract = get(id);
-        DocumentStatus before = contract.getStatus();
-        if (before != DocumentStatus.DRAFT) {
+        if (contract.getStatus() != DocumentStatus.DRAFT) {
             throw new ConflictException(
                     "Contract %s is %s; only a DRAFT can be submitted (registry §9)"
-                            .formatted(contract.getContractNo(), before));
+                            .formatted(contract.getContractNo(), contract.getStatus()));
         }
-        requireSubmittable(contract);
+        return contract;
+    }
 
-        // before the commit, or a SUBMITTED contract parks against config that never appears
-        workflow.validateStartable(DOCUMENT_TYPE);
+    // D4: re-read and re-checked, since nothing held a lock across the remote call. Status,
+    // history and dispatch intent commit together; StartInstance first would orphan a live
+    // instance on a still-DRAFT document.
+    private void commitSubmission(UUID id) {
+        Contract contract = requireDraft(id);
+        requireSubmittable(contract);
+        DocumentStatus before = contract.getStatus();
 
         transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
                 before, DocumentStatus.SUBMITTED, TriggerKind.U, null, "Submitted for approval");
         contract.setStatus(DocumentStatus.SUBMITTED);
 
-        // D4: status, history and dispatch intent commit together; StartInstance first would
-        // orphan a live instance on a still-DRAFT document
         AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         WorkflowStartRequested payload = new WorkflowStartRequested(
                 UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),

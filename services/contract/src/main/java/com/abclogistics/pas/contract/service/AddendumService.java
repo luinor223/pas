@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDate;
@@ -55,12 +56,13 @@ public class AddendumService {
     private final ObjectMapper objectMapper;
     private final AuditRecorder audit;
     private final DocumentCancellationService cancellation;
+    private final TransactionTemplate tx;
 
     public AddendumService(AddendumRepository addenda, ContractService contracts,
                            DocumentNumberService numbers, StatusTransitionService transitions,
                            AttachmentRepository attachments, WorkflowGrpcClient workflow,
                            OutboxRepository outbox, ObjectMapper objectMapper, AuditRecorder audit,
-                           DocumentCancellationService cancellation) {
+                           DocumentCancellationService cancellation, TransactionTemplate tx) {
         this.addenda = addenda;
         this.contracts = contracts;
         this.numbers = numbers;
@@ -71,6 +73,7 @@ public class AddendumService {
         this.objectMapper = objectMapper;
         this.audit = audit;
         this.cancellation = cancellation;
+        this.tx = tx;
     }
 
     @Transactional(readOnly = true)
@@ -156,17 +159,30 @@ public class AddendumService {
         return addendum;
     }
 
-    @Transactional
+    /** D4 submit — the same two-phase shape as {@link ContractService#submit(UUID)}. */
     public void submit(UUID id) {
+        ContractService.requireNoTransaction();
+        tx.executeWithoutResult(s -> requireSubmittable(requireDraft(id)));
+
+        workflow.validateStartable(DOCUMENT_TYPE);
+
+        tx.executeWithoutResult(s -> commitSubmission(id));
+    }
+
+    private Addendum requireDraft(UUID id) {
         Addendum addendum = get(id);
-        DocumentStatus before = addendum.getStatus();
-        if (before != DocumentStatus.DRAFT) {
+        if (addendum.getStatus() != DocumentStatus.DRAFT) {
             throw new ConflictException(
                     "Addendum %s is %s; only a DRAFT can be submitted (registry §9)"
-                            .formatted(addendum.getAddendumNo(), before));
+                            .formatted(addendum.getAddendumNo(), addendum.getStatus()));
         }
+        return addendum;
+    }
+
+    private void commitSubmission(UUID id) {
+        Addendum addendum = requireDraft(id);
         requireSubmittable(addendum);
-        workflow.validateStartable(DOCUMENT_TYPE);
+        DocumentStatus before = addendum.getStatus();
 
         transitions.transition(EntityType.ADDENDUM, addendum.getId(), addendum.getAddendumNo(),
                 before, DocumentStatus.SUBMITTED, TriggerKind.U, null, "Submitted for approval");

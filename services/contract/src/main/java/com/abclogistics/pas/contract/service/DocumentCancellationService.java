@@ -15,6 +15,7 @@ import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelOutcome;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Limit;
@@ -134,8 +135,8 @@ public class DocumentCancellationService {
         OutboxEvent row = reload(rowId);
         UUID idempotencyKey = payloadOf(row).idempotencyKey();
 
-        CancelOutcome first = workflow.cancelInstance(id, type.name(), idempotencyKey);
-        if (first != CancelOutcome.NOT_FOUND) {
+        CancelResult first = workflow.cancelInstance(id, type.name(), idempotencyKey);
+        if (first.outcome() != CancelOutcome.NOT_FOUND) {
             return resolve(type, id, reason, first);
         }
 
@@ -154,18 +155,41 @@ public class DocumentCancellationService {
         return resolve(type, id, reason, workflow.cancelInstance(id, type.name(), idempotencyKey));
     }
 
-    private Outcome resolve(EntityType type, UUID id, String reason, CancelOutcome outcome) {
-        return switch (outcome) {
+    private Outcome resolve(EntityType type, UUID id, String reason, CancelResult result) {
+        return switch (result.outcome()) {
             case CANCELLED -> {
                 tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
                 yield Outcome.CANCELLED;
             }
-            case ALREADY_ACTIONED -> throw new ConflictException(
-                    "A workflow step for %s %s was already actioned; it can no longer be cancelled (M2)"
-                            .formatted(type, id));
+            // Workflow refuses every instance that is not IN_PROGRESS, one this key already
+            // cancelled included, so the refusal alone cannot tell "too late" from "already done".
+            // A crash between the remote cancel and the local commit lands here on retry.
+            case REFUSED -> {
+                if (instanceAlreadyCancelled(type, id)) {
+                    // the reason too: the document-scoped read below cannot show a refusal that
+                    // was really about a foreign idempotency key
+                    log.info("Workflow refused the cancel of {} {} ({}), but its instance is "
+                             + "already CANCELLED; completing the local commit an earlier attempt lost",
+                            type, id, result.detail());
+                    tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
+                    yield Outcome.CANCELLED;
+                }
+                // an actioned step, a decided instance, a key that does not match: workflow says why
+                throw new ConflictException(
+                        "Workflow refused to cancel %s %s: %s (M2)"
+                                .formatted(type, id, RequestValues.blankToNull(result.detail()) == null
+                                        ? "no reason given" : result.detail()));
+            }
             // still nothing after the forced dispatch: not terminal, so the document stays put
             case NOT_FOUND -> Outcome.PENDING;
         };
+    }
+
+    // a transport failure propagates rather than reading as "not cancelled" — M2
+    private boolean instanceAlreadyCancelled(EntityType type, UUID id) {
+        return workflow.getInstanceByDocument(type.name(), id)
+                .filter(instance -> "CANCELLED".equals(instance.getStatus()))
+                .isPresent();
     }
 
     private boolean forceDispatch(OutboxEvent row) {

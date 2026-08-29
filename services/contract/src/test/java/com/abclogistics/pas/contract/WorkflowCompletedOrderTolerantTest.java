@@ -474,7 +474,7 @@ class WorkflowCompletedOrderTolerantTest {
         tx.execute(s -> attachments.upload(EntityType.ADDENDUM, id,
                 new MockMultipartFile("file", "annex.pdf", "application/pdf",
                         "annex".getBytes(StandardCharsets.UTF_8))));
-        tx.executeWithoutResult(s -> addenda.submit(id));
+        addenda.submit(id);
         return id;
     }
 
@@ -522,7 +522,7 @@ class WorkflowCompletedOrderTolerantTest {
         tx.execute(s -> attachments.upload(EntityType.CONTRACT, id,
                 new MockMultipartFile("file", "signed.pdf", "application/pdf",
                         "contract terms".getBytes(StandardCharsets.UTF_8))));
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
         return id;
     }
 }

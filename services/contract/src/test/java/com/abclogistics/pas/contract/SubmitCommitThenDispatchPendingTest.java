@@ -35,6 +35,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -50,6 +51,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -60,6 +62,7 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -150,7 +153,7 @@ class SubmitCommitThenDispatchPendingTest {
         UUID id = submittableContract();
         long historyBefore = tx.execute(s -> history.count());
 
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
         long historyAfter = tx.execute(s -> history.count());
@@ -174,7 +177,7 @@ class SubmitCommitThenDispatchPendingTest {
         // The key is generated ONCE at submit and reused by every retry, so a lost ack cannot
         // produce a second instance.
         UUID id = submittableContract();
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
 
         String payload = startRequestsFor(id).get(0).getPayload();
         assertThat(payload).containsPattern("\"idempotencyKey\"\\s*:\\s*\"" + UUID_PATTERN + "\"");
@@ -192,7 +195,7 @@ class SubmitCommitThenDispatchPendingTest {
         // GetInstanceByDocument NOT_FOUND must render INITIALIZATION_PENDING from local status
         // and must not be retried from the progress endpoint.
         UUID id = submittableContract();
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
         when(workflow.getInstanceByDocument(eq("CONTRACT"), eq(id))).thenReturn(Optional.empty());
 
         ContractService.ApprovalProgress progress = tx.execute(s -> contracts.progress(id));
@@ -204,6 +207,40 @@ class SubmitCommitThenDispatchPendingTest {
     }
 
     @Test
+    void theRemotePreCheckRunsWithNoTransactionOpen() {
+        // The pre-check is a 2s-deadline gRPC call. Running it inside the submit transaction ties
+        // connection-pool occupancy to workflow-service latency, so submit brackets it between two
+        // transactions instead of wrapping one around it.
+        UUID id = submittableContract();
+        AtomicBoolean insideTransaction = new AtomicBoolean(true);
+        doAnswer(invocation -> {
+            insideTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return null;
+        }).when(workflow).validateStartable("CONTRACT");
+
+        contracts.submit(id);
+
+        assertThat(insideTransaction).isFalse();
+        // and the work either side of it still landed
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+        assertThat(startRequestsFor(id)).hasSize(1);
+    }
+
+    @Test
+    void aCallerCannotPutThePreCheckBackInsideATransaction() {
+        // Asserted rather than documented: wrapping submit would silently restore exactly the
+        // behaviour the split removes, and the two transactions below would join the caller's.
+        UUID id = submittableContract();
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(id)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("outside a transaction");
+
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.DRAFT);
+        verify(workflow, never()).validateStartable(any());
+    }
+
+    @Test
     void validateStartableFailureBlocksTheCommit() {
         // The pre-check runs BEFORE the commit so an unconfigured document type fails fast (412)
         // instead of parking in the outbox forever.
@@ -211,7 +248,7 @@ class SubmitCommitThenDispatchPendingTest {
         doThrow(new FailedPreconditionException("No active definition for CONTRACT"))
                 .when(workflow).validateStartable("CONTRACT");
 
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(id)))
+        assertThatThrownBy(() -> contracts.submit(id))
                 .isInstanceOf(FailedPreconditionException.class);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.DRAFT);
@@ -224,7 +261,7 @@ class SubmitCommitThenDispatchPendingTest {
         // terminal one from the previous round. Rendering it would show the contract's PREVIOUS
         // rejected chain as its current progress for the whole dispatch window.
         UUID id = submittableContract();
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
         when(workflow.getInstanceByDocument(eq("CONTRACT"), eq(id)))
                 .thenReturn(Optional.of(GetInstanceByDocumentResponse.newBuilder()
                         .setInstanceId(UUID.randomUUID().toString())
@@ -241,7 +278,7 @@ class SubmitCommitThenDispatchPendingTest {
     @Test
     void aLiveInstanceIsReportedAsItself() {
         UUID id = submittableContract();
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
         when(workflow.getInstanceByDocument(eq("CONTRACT"), eq(id)))
                 .thenReturn(Optional.of(GetInstanceByDocumentResponse.newBuilder()
                         .setInstanceId(UUID.randomUUID().toString())

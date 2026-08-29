@@ -27,6 +27,7 @@ dependencies {
     runtimeOnly(libs.flyway.postgresql)
 
     implementation(libs.spring.kafka)
+    implementation(libs.spring.boot.kafka)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.junit)

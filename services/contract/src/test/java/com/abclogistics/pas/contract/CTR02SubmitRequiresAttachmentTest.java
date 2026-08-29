@@ -129,7 +129,7 @@ class CTR02SubmitRequiresAttachmentTest {
     void submitWithoutAttachmentIsRejected() {
         UUID id = contractWith(new BigDecimal("10"), "NET30");
 
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(id)))
+        assertThatThrownBy(() -> contracts.submit(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("CTR-02")
                 .hasMessageContaining("attachment");
@@ -146,7 +146,7 @@ class CTR02SubmitRequiresAttachmentTest {
         // because that is the moment the obligation becomes real.
         tx.executeWithoutResult(s -> customers.suspend(customerId, "unpaid invoices"));
 
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(id)))
+        assertThatThrownBy(() -> contracts.submit(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("CTR-02")
                 .hasMessageContaining("SUSPENDED");
@@ -160,14 +160,14 @@ class CTR02SubmitRequiresAttachmentTest {
         // never defaulted to zero.
         UUID noVat = contractWith(null, "NET30");
         attach(noVat);
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(noVat)))
+        assertThatThrownBy(() -> contracts.submit(noVat))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("vatRate")
                 .hasMessageContaining("never assumed to be 0");
 
         UUID noTerm = contractWith(new BigDecimal("10"), null);
         attach(noTerm);
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(noTerm)))
+        assertThatThrownBy(() -> contracts.submit(noTerm))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("paymentTerm");
     }
@@ -178,7 +178,7 @@ class CTR02SubmitRequiresAttachmentTest {
         UUID id = contractWith(new BigDecimal("150"), "NET30");
         attach(id);
 
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(id)))
+        assertThatThrownBy(() -> contracts.submit(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("between 0 and 100");
     }
@@ -189,7 +189,7 @@ class CTR02SubmitRequiresAttachmentTest {
         UUID id = contractWith(BigDecimal.ZERO, "NET30");
         attach(id);
 
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
 
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
     }
@@ -197,9 +197,9 @@ class CTR02SubmitRequiresAttachmentTest {
     @Test
     void onlyADraftCanBeSubmitted() {
         UUID id = submittableContract();
-        tx.executeWithoutResult(s -> contracts.submit(id));
+        contracts.submit(id);
 
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> contracts.submit(id)))
+        assertThatThrownBy(() -> contracts.submit(id))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("SUBMITTED");
         // and the second attempt did not queue a second dispatch

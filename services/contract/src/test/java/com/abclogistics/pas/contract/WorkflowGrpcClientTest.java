@@ -2,6 +2,8 @@ package com.abclogistics.pas.contract;
 
 import com.abclogistics.pas.contract.error.FailedPreconditionException;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelOutcome;
+import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelResult;
 import com.abclogistics.pas.workflow.grpc.CancelInstanceRequest;
 import com.abclogistics.pas.workflow.grpc.CancelInstanceResponse;
 import com.abclogistics.pas.workflow.grpc.GetInstanceByDocumentRequest;
@@ -182,6 +184,46 @@ class WorkflowGrpcClientTest {
         assertThat(sent.getIdempotencyKey()).isEqualTo(key.toString());
     }
 
+    @Test
+    void anOkCancelIsTheCancelledOutcome() {
+        assertThat(client.cancelInstance(UUID.randomUUID(), "CONTRACT", UUID.randomUUID()))
+                .isEqualTo(CancelResult.cancelled());
+    }
+
+    @Test
+    void failedPreconditionCarriesWorkflowsOwnReason() {
+        // The handoff reconciles against the instance rather than trusting this outcome, but the
+        // reason is what reaches the caller in the 409 — losing it here is what made an
+        // already-cancelled instance indistinguishable from an actioned step.
+        workflow.cancelError = Status.FAILED_PRECONDITION
+                .withDescription("Workflow instance not in progress, cannot cancel: CANCELLED")
+                .asRuntimeException();
+
+        CancelResult result = client.cancelInstance(UUID.randomUUID(), "CONTRACT", UUID.randomUUID());
+
+        assertThat(result.outcome()).isEqualTo(CancelOutcome.REFUSED);
+        assertThat(result.detail()).isEqualTo("Workflow instance not in progress, cannot cancel: CANCELLED");
+    }
+
+    @Test
+    void notFoundIsTheInconclusiveOutcomeNotAnError() {
+        // D4's dispatch window: the instance may simply not exist yet.
+        workflow.cancelError = Status.NOT_FOUND.withDescription("no instance").asRuntimeException();
+
+        assertThat(client.cancelInstance(UUID.randomUUID(), "CONTRACT", UUID.randomUUID()).outcome())
+                .isEqualTo(CancelOutcome.NOT_FOUND);
+    }
+
+    @Test
+    void aTransportFailureIsNotMappedToAnOutcomeAtAll() {
+        // An unanswered cancel is not an answer: mapping UNAVAILABLE to any outcome would let the
+        // handoff act on a call that never landed.
+        workflow.cancelError = Status.UNAVAILABLE.asRuntimeException();
+
+        assertThatThrownBy(() -> client.cancelInstance(UUID.randomUUID(), "CONTRACT", UUID.randomUUID()))
+                .isInstanceOf(StatusRuntimeException.class);
+    }
+
     // ---- deadlines ------------------------------------------------------------------------------
 
     @Test
@@ -201,6 +243,7 @@ class WorkflowGrpcClientTest {
     private static final class FakeWorkflow extends WorkflowInternalGrpc.WorkflowInternalImplBase {
 
         StatusRuntimeException validateStartableError;
+        StatusRuntimeException cancelError;
         StatusRuntimeException getInstanceError;
         GetInstanceByDocumentResponse instance;
         UUID instanceId = UUID.randomUUID();
@@ -239,6 +282,10 @@ class WorkflowGrpcClientTest {
         public void cancelInstance(CancelInstanceRequest request,
                                    StreamObserver<CancelInstanceResponse> observer) {
             lastCancel.set(request);
+            if (cancelError != null) {
+                observer.onError(cancelError);
+                return;
+            }
             observer.onNext(CancelInstanceResponse.getDefaultInstance());
             observer.onCompleted();
         }

@@ -36,6 +36,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -277,6 +278,25 @@ class AddendumActiveAppliesToParentTxTest {
         assertThat(parentValidTo(contractId)).isEqualTo(LocalDate.of(2028, 12, 31));
     }
 
+    @Test
+    void anAddendumPreChecksWorkflowOutsideAnyTransactionToo() {
+        // The addendum submit path is the same two-phase shape as a contract's, and has to hold
+        // the same property: no connection is held across the remote call.
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        attach(id);
+        java.util.concurrent.atomic.AtomicBoolean insideTransaction = new java.util.concurrent.atomic.AtomicBoolean(true);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            insideTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return null;
+        }).when(workflow).validateStartable("ADDENDUM");
+
+        addenda.submit(id);
+
+        assertThat(insideTransaction).isFalse();
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
     // --- the parent moves under the addendum's feet ------------------------------------------
 
     @Test
@@ -288,7 +308,7 @@ class AddendumActiveAppliesToParentTxTest {
         attach(id);
         tx.executeWithoutResult(s -> contracts.get(contractId).setStatus(DocumentStatus.CANCELLED));
 
-        assertThatThrownBy(() -> tx.executeWithoutResult(s -> addenda.submit(id)))
+        assertThatThrownBy(() -> addenda.submit(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("APPROVED or ACTIVE");
 
