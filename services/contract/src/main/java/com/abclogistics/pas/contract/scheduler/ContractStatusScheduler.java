@@ -149,8 +149,10 @@ public class ContractStatusScheduler {
         payload.put("days_left", warning.daysLeft());
         payload.put("owner_user_id", warning.ownerUserId());
 
+        UUID eventId = eventId(warning);
+
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("event_id", eventId(warning).toString());
+        envelope.put("event_id", eventId.toString());
         envelope.put("event_type", DOCUMENT_EXPIRING);
         envelope.put("occurred_at", java.time.Instant.now().toString());
         // the envelope is fixed (registry §4) and a scheduler has no actor: null id, "system"
@@ -167,6 +169,10 @@ public class ContractStatusScheduler {
                 warning.contractId().toString(), objectMapper.writeValueAsString(envelope));
         record.headers().add(header("event_type", DOCUMENT_EXPIRING));
         record.headers().add(header("document_type", DOCUMENT_TYPE));
+        // mirrored into the header like every outboxed event (OutboxRelay#kafkaRecord), because
+        // that is where consumers read their dedup key from. Without it notification-service would
+        // need a payload-parsing path for this one event type, which is how a convention rots.
+        record.headers().add(header("event_id", eventId.toString()));
         return record;
     }
 

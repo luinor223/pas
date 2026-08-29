@@ -56,7 +56,8 @@ public class WorkflowEventListener {
                         @Header(name = "event_id", required = false) String eventId,
                         @Header(KafkaHeaders.RECEIVED_KEY) String key) {
         String type = eventType == null ? "" : eventType;
-        // ours before anything about its shape: D9 direct-published events carry no event_id
+        // ours before anything about its shape. pas.events carries every service's traffic, and
+        // this listener owns exactly two types; everything else is skipped before it is parsed
         if (!INSTANCE_STARTED.equals(type) && !COMPLETED.equals(type)) {
             return;
         }
@@ -64,7 +65,9 @@ public class WorkflowEventListener {
             return;   // a PRICE_LIST or PAYMENT_STATEMENT approval; another owner's document
         }
         if (eventId == null) {
-            // ours, but without the header a redelivery looks identical to a new event
+            // ours, but without the header a redelivery looks identical to a new event. Every
+            // producer on this topic sets it — outboxed events via OutboxRelay#kafkaRecord, and
+            // the D9 direct publishes from their derived id (ContractStatusScheduler#eventId)
             throw new IllegalStateException("Record on pas.events has no event_id header, key=" + key);
         }
         UUID documentId = documentId(key);

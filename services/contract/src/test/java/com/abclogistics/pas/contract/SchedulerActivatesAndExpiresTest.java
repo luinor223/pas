@@ -271,6 +271,10 @@ class SchedulerActivatesAndExpiresTest {
         assertThat(record.key()).isEqualTo(id.toString());
         assertThat(header(record, "event_type")).isEqualTo("document.expiring");
         assertThat(header(record, "document_type")).isEqualTo("CONTRACT");
+        // the dedup key, in the header where every consumer already reads it (OutboxRelay does
+        // the same for outboxed events) — and identical to the envelope's, not a second id
+        assertThat(header(record, "event_id")).isEqualTo(eventIdOf(record));
+        assertThat(header(record, "event_id")).isEqualTo(expectedEventId(id, TODAY.plusDays(10)));
         assertThat(record.value())
                 .contains("\"days_left\":10")
                 .contains(TODAY.plusDays(10).toString())
@@ -369,6 +373,9 @@ class SchedulerActivatesAndExpiresTest {
         verify(kafka, times(2)).send(captor.capture());
         assertThat(eventIdOf(captor.getAllValues().get(0)))
                 .isEqualTo(eventIdOf(captor.getAllValues().get(1)));
+        // and the header travels with it, or a consumer deduping off the header sees two events
+        assertThat(header(captor.getAllValues().get(0), "event_id"))
+                .isEqualTo(header(captor.getAllValues().get(1), "event_id"));
         // and it is derived from the event type, the document and the term — computed here from
         // the spec rather than from the scheduler, because the VALUE is what a consumer dedupes on
         assertThat(eventIdOf(captor.getAllValues().getFirst()))
@@ -389,6 +396,8 @@ class SchedulerActivatesAndExpiresTest {
         verify(kafka, atLeastOnce()).send(captor.capture());
         assertThat(captor.getAllValues()).extracting(this::eventIdOf)
                 .containsOnly(expectedEventId(id, TODAY.plusDays(10)));
+        assertThat(captor.getAllValues()).extracting(r -> header(r, "event_id"))
+                .containsOnly(expectedEventId(id, TODAY.plusDays(10)));
     }
 
     @Test
@@ -407,6 +416,8 @@ class SchedulerActivatesAndExpiresTest {
         verify(kafka, times(2)).send(captor.capture());
         assertThat(eventIdOf(captor.getAllValues().get(0)))
                 .isNotEqualTo(eventIdOf(captor.getAllValues().get(1)));
+        assertThat(header(captor.getAllValues().get(0), "event_id"))
+                .isNotEqualTo(header(captor.getAllValues().get(1), "event_id"));
     }
 
     // --- concurrency ----------------------------------------------------------------------------
