@@ -48,6 +48,7 @@ protoc-gen-grpc-java = { module = "io.grpc:protoc-gen-grpc-java", version.ref = 
 
 # --- Kafka ---
 spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
+spring-boot-kafka = { module = "org.springframework.boot:spring-boot-kafka" }
 
 # --- Testing ---
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
