@@ -471,6 +471,43 @@ class CancelStaleClaimForcesDispatchTest {
     }
 
     @Test
+    void aPendingCancelIsAuditedEvenThoughTheDocumentDoesNotMove() {
+        // A 202 leaves no trace on the document by design — its status must not move on an
+        // inconclusive read. The attempt still has to be recoverable from the audit log, or a
+        // cancel that was asked for and never completed is invisible.
+        UUID id = submittedContract();
+        UUID key = idempotencyKeyOf(id);
+        claimedAgo(id, FRESH);
+        when(workflow.cancelInstance(eq(id), eq("CONTRACT"), eq(key)))
+                .thenReturn(CancelResult.notFound());
+
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.PENDING);
+
+        assertThat(auditRows(id, "CANCEL_PENDING")).singleElement().satisfies(payload -> {
+            // the status it kept, and no status it moved to — the row records an attempt, not a change
+            assertThat(payload).containsPattern(field("beforeStatus", "SUBMITTED"));
+            assertThat(payload).containsPattern("\"afterStatus\"\\s*:\\s*null");
+            assertThat(payload).contains("customer withdrew");
+            // which of the three pending paths it was, so the log says why it did not complete
+            assertThat(payload).contains("no instance for the key yet");
+        });
+        // the document itself is untouched: no status change, no history row
+        assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+        assertThat(history.findByEntityTypeAndEntityIdOrderByOccurredAtAsc(EntityType.CONTRACT, id))
+                .extracting(StatusHistory::getToStatus)
+                .containsExactly(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void aCompletedCancelIsNotRecordedAsPending() {
+        UUID id = submittedContract();
+
+        assertThat(cancellation.cancel(EntityType.CONTRACT, id, "customer withdrew")).isEqualTo(Outcome.CANCELLED);
+
+        assertThat(auditRows(id, "CANCEL_PENDING")).isEmpty();
+    }
+
+    @Test
     void everyCancellationWritesExactlyOneStatusHistoryRow() {
         UUID id = submittedContract();
         long before = historyRows();
@@ -519,6 +556,21 @@ class CancelStaleClaimForcesDispatchTest {
     private static final long FRESH = 0;
 
     /** Rewrites {@code claimed_at} directly: a relay worker's claim is not reachable from the API. */
+    private List<String> auditRows(UUID documentId, String action) {
+        return tx.execute(s -> outbox.findAll().stream()
+                .filter(row -> "audit.recorded".equals(row.getEventType()))
+                .filter(row -> documentId.equals(row.getAggregateId()))
+                .map(OutboxEvent::getPayload)
+                .filter(payload -> java.util.regex.Pattern.compile(field("action", action))
+                        .matcher(payload).find())
+                .toList());
+    }
+
+    // jsonb round-trips with its own spacing, so match the field, not the formatting
+    private static String field(String name, String value) {
+        return "\"" + name + "\"\\s*:\\s*\"" + value + "\"";
+    }
+
     private void instanceIs(UUID contractId, String status) {
         when(workflow.getInstanceByDocument(eq("CONTRACT"), eq(contractId)))
                 .thenReturn(Optional.of(GetInstanceByDocumentResponse.newBuilder()

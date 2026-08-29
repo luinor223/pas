@@ -1,5 +1,6 @@
 package com.abclogistics.pas.contract.service;
 
+import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.ForbiddenException;
 import com.abclogistics.pas.common.error.NotFoundException;
@@ -25,6 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** The M2 cancel-vs-dispatch handoff, and the only legitimate route to UNDER_REVIEW -> CANCELLED. */
@@ -44,6 +46,7 @@ public class DocumentCancellationService {
     private final WorkflowGrpcClient workflow;
     private final OutboxRelayProperties relayProperties;
     private final ObjectMapper objectMapper;
+    private final AuditRecorder audit;
     private final TransactionTemplate tx;
 
     public DocumentCancellationService(ContractRepository contracts, AddendumRepository addenda,
@@ -51,7 +54,8 @@ public class DocumentCancellationService {
                                        StatusTransitionService transitions,
                                        WorkflowGrpcClient workflow,
                                        OutboxRelayProperties relayProperties,
-                                       ObjectMapper objectMapper, TransactionTemplate tx) {
+                                       ObjectMapper objectMapper, AuditRecorder audit,
+                                       TransactionTemplate tx) {
         this.contracts = contracts;
         this.addenda = addenda;
         this.outbox = outbox;
@@ -59,6 +63,7 @@ public class DocumentCancellationService {
         this.workflow = workflow;
         this.relayProperties = relayProperties;
         this.objectMapper = objectMapper;
+        this.audit = audit;
         this.tx = tx;
     }
 
@@ -142,15 +147,15 @@ public class DocumentCancellationService {
 
         // INCONCLUSIVE: workflow may not have caught up, or the dispatch may land at any moment
         if (row.getPublishedAt() != null || !isStale(row)) {
-            log.debug("Cancel of {} {} inconclusive (published={}, claimedAt={}), staying pending",
-                    type, id, row.getPublishedAt(), row.getClaimedAt());
-            return Outcome.PENDING;
+            return pending(type, id, reason,
+                    "no instance for the key yet, and its dispatch may still land (published=%s, claimedAt=%s)"
+                            .formatted(row.getPublishedAt(), row.getClaimedAt()));
         }
 
         // stale: take it over and finish the dispatch; the UNIQUE on idempotency_key makes the
         // original worker's later call a harmless no-op
         if (!forceDispatch(row)) {
-            return Outcome.PENDING;
+            return pending(type, id, reason, "the stale dispatch could not be taken over");
         }
         return resolve(type, id, reason, workflow.cancelInstance(id, type.name(), idempotencyKey));
     }
@@ -181,7 +186,8 @@ public class DocumentCancellationService {
                                         ? "no reason given" : result.detail()));
             }
             // still nothing after the forced dispatch: not terminal, so the document stays put
-            case NOT_FOUND -> Outcome.PENDING;
+            case NOT_FOUND -> pending(type, id, reason,
+                    "no instance even after its dispatch was forced to completion");
         };
     }
 
@@ -190,6 +196,20 @@ public class DocumentCancellationService {
         return workflow.getInstanceByDocument(type.name(), id)
                 .filter(instance -> "CANCELLED".equals(instance.getStatus()))
                 .isPresent();
+    }
+
+    // 202 is not a job: nothing here retries, and the client is told to call again. The attempt
+    // is audited so a cancel that never completed leaves a trace — the document itself has none,
+    // by design, since its status must not move on an inconclusive read.
+    private Outcome pending(EntityType type, UUID id, String reason, String why) {
+        log.info("Cancel of {} {} stays pending: {}", type, id, why);
+        tx.executeWithoutResult(s -> {
+            ApprovableDocument document = load(type, id);
+            audit.record(type.name(), id, document.getDocumentNo(), "CANCEL_PENDING",
+                    document.getStatus().name(), null,
+                    RequestValues.blankToNull(reason), Map.of("detail", why));
+        });
+        return Outcome.PENDING;
     }
 
     private boolean forceDispatch(OutboxEvent row) {
