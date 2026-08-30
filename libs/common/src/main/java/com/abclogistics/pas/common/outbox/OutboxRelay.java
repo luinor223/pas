@@ -86,7 +86,6 @@ public abstract class OutboxRelay {
                 log.debug("Outbox event {} claim lost (concurrent worker won), skipping", event.getId());
                 continue;
             }
-            event.setClaimedAt(now);
             try {
                 dispatch(event);
                 markPublished(event.getId());
@@ -116,13 +115,7 @@ public abstract class OutboxRelay {
     }
 
     protected void markPublished(java.util.UUID id) {
-        tx.executeWithoutResult(status -> outbox.findById(id).ifPresent(e -> {
-            e.markPublished();
-            if (e.getClaimedAt() == null) {
-                e.markClaimed();
-            }
-            outbox.save(e);
-        }));
+        tx.executeWithoutResult(status -> outbox.markPublished(id, Instant.now()));
     }
 
     /** True for a refusal that will never succeed (e.g. gRPC FAILED_PRECONDITION). Default false —
@@ -148,10 +141,7 @@ public abstract class OutboxRelay {
     }
 
     protected void markFailed(java.util.UUID id) {
-        tx.executeWithoutResult(status -> outbox.findById(id).ifPresent(e -> {
-            e.releaseClaim();
-            outbox.save(e);
-        }));
+        tx.executeWithoutResult(status -> outbox.releaseClaim(id));
     }
 
     /** Cancel a row only if never claimed. True = cancelled; false = already claimed (caller must
