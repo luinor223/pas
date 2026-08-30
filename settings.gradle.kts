@@ -5,6 +5,7 @@ include("proto")
 
 include("services:identity")
 include("services:workflow")
+include("services:operations")
 include("services:contract")
 include("services:pricing")
 

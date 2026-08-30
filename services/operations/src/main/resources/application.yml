@@ -1,0 +1,75 @@
+server:
+  port: 8004
+
+spring:
+  application:
+    name: operations-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_operations}
+    username: ${DB_USER:operations}
+    password: ${DB_PASSWORD:operations}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: operations
+
+  flyway:
+    enabled: true
+    schemas: operations
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+
+  grpc:
+    server:
+      port: 50054
+    client:
+      contract:
+        address: static://contract-service:50052
+        negotiationType: PLAINTEXT
+      pricing:
+        address: static://pricing-service:50053
+        negotiationType: PLAINTEXT
+
+contract:
+  grpc:
+    host: ${CONTRACT_GRPC_HOST:localhost}
+    port: ${CONTRACT_GRPC_PORT:50052}
+pricing:
+  grpc:
+    host: ${PRICING_GRPC_HOST:localhost}
+    port: ${PRICING_GRPC_PORT:50053}
+
+redis:
+  perm-cache-ttl: PT6H
+  perm-prefix: "perm:role:"
+
+outbox:
+  relay:
+    enabled: true
+    claim-lease: PT60S
+    batch-size: 100
+    poll-interval: PT5S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -166,6 +166,45 @@ services:
       - "traefik.http.routers.workflow-docs.service=workflow"
       - "traefik.http.routers.workflow-docs.middlewares=workflow-docs-strip"
 
+  operations-service:
+    build:
+      context: .
+      dockerfile: services/operations/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_operations
+      DB_USER: operations
+      DB_PASSWORD: operations
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CONTRACT_GRPC_HOST: contract-service
+      CONTRACT_GRPC_PORT: 50052
+      PRICING_GRPC_HOST: pricing-service
+      PRICING_GRPC_PORT: 50053
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8004/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.operations.loadbalancer.server.port=8004"
+      - "traefik.http.middlewares.operations-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.operations-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.operations.rule=PathPrefix(`/api/v1/periods`) || PathPrefix(`/api/v1/volume-records`)"
+      - "traefik.http.routers.operations.entrypoints=web"
+      - "traefik.http.routers.operations.middlewares=operations-ratelimit,jwt-auth@file,api-v1-strip"
+
   contract-service:
     build:
       context: .
