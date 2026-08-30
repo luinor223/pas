@@ -95,6 +95,15 @@ public class OutboxEvent {
     }
 
     public void markClaimed() { this.claimedAt = Instant.now(); }
+
+    /**
+     * Failure path: drop the claim and count the attempt so the next poll reclaims immediately.
+     * Public because the cancel handoff releases the claim from outside this package.
+     */
+    public void releaseClaim() {
+        this.claimedAt = null;
+        this.retryCount++;
+    }
     public void markPublished() { this.publishedAt = Instant.now(); }
     public void markCancelled() { this.cancelledAt = Instant.now(); }
     public void incrementRetry() { this.retryCount++; }

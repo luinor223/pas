@@ -44,6 +44,12 @@ public interface OutboxRepository extends JpaRepository<OutboxEvent, UUID> {
     @Query("update OutboxEvent o set o.cancelledAt = :now where o.id = :id and o.claimedAt is null and o.publishedAt is null and o.cancelledAt is null")
     int cancelIfNotClaimed(@Param("id") UUID id, @Param("now") Instant now);
 
+    /** A document's events of one type, newest first, cancelled excluded — only the newest can
+     *  still be in flight. Used by the cancel handoff. */
+    @Query("select o from OutboxEvent o where o.aggregateId = :aggregateId and o.eventType = :eventType and o.cancelledAt is null order by o.createdAt desc")
+    List<OutboxEvent> findForAggregate(@Param("aggregateId") UUID aggregateId,
+                                       @Param("eventType") String eventType, Limit limit);
+
     /** Legacy alias kept for compatibility — delegates to stale-aware poll with far-past threshold. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@jakarta.persistence.QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))

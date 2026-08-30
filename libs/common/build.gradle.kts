@@ -13,6 +13,10 @@ dependencies {
     api(libs.spring.kafka)
 
     testImplementation(libs.spring.boot.starter.test)
+    // Hibernate picks its JSON FormatMapper by classpath detection and looks for Jackson 2, not
+    // Jackson 3 — so OutboxEvent.payload (@JdbcTypeCode JSON) cannot be written without it. Every
+    // service already has it transitively; this slim library does not.
+    testImplementation("com.fasterxml.jackson.core:jackson-databind")
     testImplementation(libs.spring.boot.starter.data.jpa)
     testImplementation(libs.spring.boot.starter.data.redis)
     testImplementation(libs.postgresql)
@@ -25,5 +29,15 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
+    // Same convention as the services: Docker-backed tests are opt-in, so the default
+    // build stays runnable without a container runtime.
+    useJUnitPlatform {
+        val include = project.findProperty("includeIntegration") != null
+                || System.getProperty("includeIntegration") != null
+        if (include) {
+            includeTags("integration")
+        } else {
+            excludeTags("integration")
+        }
+    }
 }
