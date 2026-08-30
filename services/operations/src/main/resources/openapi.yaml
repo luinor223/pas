@@ -121,15 +121,19 @@ paths:
     get:
       summary: List volume records
       operationId: listVolumes
+      description: Filter by periodCode, contractId, or both (AND when both supplied). Billing calls ListVolumes(contract_id, period_code) with both.
       security:
         - bearerAuth: []
       parameters:
         - name: periodCode
           in: query
+          description: YYYY-MM, when supplied filters to that period; combined with contractId via AND
           schema:
             type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
         - name: contractId
           in: query
+          description: Contract UUID, when supplied filters to that contract; combined with periodCode via AND
           schema:
             type: string
             format: uuid

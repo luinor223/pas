@@ -61,11 +61,14 @@ public class OperationsInternalGrpcService extends OperationsInternalGrpc.Operat
                     .setPeriodEnd(period.getEndDate().format(DateTimeFormatter.ISO_DATE));
 
             for (VolumeRecord v : volumes) {
+                // 00-registry.md:93 defines quantity as double in proto; numeric(18,3) -> double loses exactness
+                // but spec is double, so we round to 3 decimals explicitly (BigDecimal halved) before doubleValue()
+                double qty = v.getQuantity().setScale(3, java.math.RoundingMode.HALF_UP).doubleValue();
                 com.abclogistics.pas.operations.grpc.VolumeRecord grpcRecord = com.abclogistics.pas.operations.grpc.VolumeRecord.newBuilder()
                         .setRecordNo(v.getRecordNo())
                         .setServiceCode(v.getServiceCode())
                         .setUnit(v.getUnit())
-                        .setQuantity(v.getQuantity().doubleValue())
+                        .setQuantity(qty)
                         .setServiceName(v.getServiceName())
                         .build();
                 builder.addVolumes(grpcRecord);

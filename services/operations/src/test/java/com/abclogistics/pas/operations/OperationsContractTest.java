@@ -9,14 +9,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class OperationsContractTest {
 
+    private static Path findFile(String relativeFromRoot) {
+        // Walk up from user.dir and from class location to find repo root (where settings.gradle.kts exists)
+        Path start = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        for (Path cur = start; cur != null; cur = cur.getParent()) {
+            Path candidate = cur.resolve(relativeFromRoot);
+            if (Files.exists(candidate)) return candidate;
+            if (Files.exists(cur.resolve("settings.gradle.kts")) || Files.exists(cur.resolve("build.gradle.kts"))) {
+                Path alt = cur.resolve(relativeFromRoot);
+                if (Files.exists(alt)) return alt;
+            }
+        }
+        // fallback to classpath resource (for CI where file may be copied)
+        try {
+            var res = OperationsContractTest.class.getClassLoader().getResource(relativeFromRoot);
+            if (res != null) return Path.of(res.toURI());
+        } catch (Exception ignored) {}
+        return Path.of(relativeFromRoot);
+    }
+
     @Test
     void protoHasListVolumesWithPeriodBounds() throws Exception {
-        Path base = Path.of(System.getProperty("user.dir"));
-        Path proto = base.resolve("proto/src/main/proto/operations/v1/operations_internal.proto");
-        if (!Files.exists(proto)) proto = base.resolve("../../proto/src/main/proto/operations/v1/operations_internal.proto");
-        if (!Files.exists(proto)) proto = Path.of("proto/src/main/proto/operations/v1/operations_internal.proto");
-        if (!Files.exists(proto)) proto = Path.of("../../proto/src/main/proto/operations/v1/operations_internal.proto");
-        assertThat(Files.exists(proto)).withFailMessage("proto not found at %s", proto.toAbsolutePath()).isTrue();
+        Path proto = findFile("proto/src/main/proto/operations/v1/operations_internal.proto");
+        assertThat(Files.exists(proto)).withFailMessage("proto not found, searched from %s", Path.of(System.getProperty("user.dir")).toAbsolutePath()).isTrue();
         String content = Files.readString(proto);
         assertThat(content).contains("service OperationsInternal");
         assertThat(content).contains("rpc ListVolumes");
@@ -30,12 +45,8 @@ class OperationsContractTest {
 
     @Test
     void openApiDocumentsOperationsEndpoints() throws Exception {
-        Path base = Path.of(System.getProperty("user.dir"));
-        Path openapi = base.resolve("services/operations/src/main/resources/openapi.yaml");
-        if (!Files.exists(openapi)) openapi = base.resolve("src/main/resources/openapi.yaml");
-        if (!Files.exists(openapi)) openapi = Path.of("src/main/resources/openapi.yaml");
-        if (!Files.exists(openapi)) openapi = Path.of("services/operations/src/main/resources/openapi.yaml");
-        assertThat(Files.exists(openapi)).withFailMessage("openapi not found at %s", openapi.toAbsolutePath()).isTrue();
+        Path openapi = findFile("services/operations/src/main/resources/openapi.yaml");
+        assertThat(Files.exists(openapi)).withFailMessage("openapi not found, searched from %s", Path.of(System.getProperty("user.dir")).toAbsolutePath()).isTrue();
         String yaml = Files.readString(openapi);
         assertThat(yaml).contains("/periods");
         assertThat(yaml).contains("/volume-records");
@@ -48,9 +59,7 @@ class OperationsContractTest {
 
     @Test
     void flywayMigrationExistsAndMentionsOutbox() throws Exception {
-        Path base = Path.of(System.getProperty("user.dir"));
-        Path sql = base.resolve("services/operations/src/main/resources/db/migration/V1__init_operations.sql");
-        if (!Files.exists(sql)) sql = Path.of("src/main/resources/db/migration/V1__init_operations.sql");
+        Path sql = findFile("services/operations/src/main/resources/db/migration/V1__init_operations.sql");
         assertThat(Files.exists(sql)).isTrue();
         String content = Files.readString(sql);
         assertThat(content).contains("operation_period");
