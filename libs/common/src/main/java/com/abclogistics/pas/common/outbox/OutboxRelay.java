@@ -1,11 +1,14 @@
 package com.abclogistics.pas.common.outbox;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Limit;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 
@@ -26,6 +29,13 @@ import java.util.List;
  * <p>
  * Lifecycle: PENDING (all timestamps null) → PROCESSING (claimed_at set) → DONE (published_at set),
  * side exit PENDING → CANCELLED (cancelled_at) only from true PENDING (claimed_at IS NULL) — stale claims are not cancellable.
+ * <p>
+ * <b>Transactions are explicit, not annotated.</b> Every database step below is reached from
+ * {@link #pollAndDispatch()} by a plain call, and a Spring transaction proxy does not intercept
+ * self-invocation — an {@code @Transactional} here would silently do nothing, leaving the
+ * pessimistic-lock poll and the bulk-update claim with no transaction to run in. Each step also
+ * has to commit on its own: the claim must be visible before the remote dispatch begins, and the
+ * dispatch must not be made while holding the connection that will record its outcome.
  */
 public abstract class OutboxRelay {
 
@@ -33,10 +43,12 @@ public abstract class OutboxRelay {
 
     private final OutboxRepository outbox;
     private final OutboxRelayProperties props;
+    private final TransactionTemplate tx;
 
-    protected OutboxRelay(OutboxRepository outbox, OutboxRelayProperties props) {
+    protected OutboxRelay(OutboxRepository outbox, OutboxRelayProperties props, TransactionTemplate tx) {
         this.outbox = outbox;
         this.props = props;
+        this.tx = tx;
     }
 
     /**
@@ -53,7 +65,30 @@ public abstract class OutboxRelay {
         return event.topic();
     }
 
-    @Scheduled(fixedDelayString = "#{@outboxRelayProperties.pollInterval.toMillis()}")
+    /**
+     * The wire shape every service publishes and every consumer reads. Key is the aggregate id, so
+     * one document's events stay in one partition and therefore in order.
+     *
+     * <p>{@code event_id} is the outbox row id and the consumer's dedup key — the value it stores
+     * in {@code processed_event}. Without it on the record a consumer cannot tell a redelivery
+     * from a new event, so it is part of the contract, not a convenience.
+     */
+    protected ProducerRecord<String, String> kafkaRecord(OutboxEvent event) {
+        ProducerRecord<String, String> record = new ProducerRecord<>(
+                event.topic(), event.getAggregateId().toString(), event.getPayload());
+        record.headers().add(header("event_id", event.getId().toString()));
+        record.headers().add(header("event_type", event.getEventType()));
+        record.headers().add(header("document_type", event.getAggregateType()));
+        return record;
+    }
+
+    private static RecordHeader header(String name, String value) {
+        return new RecordHeader(name, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    // the property, not #{@outboxRelayProperties…}: @EnableConfigurationProperties registers the
+    // bean under a generated name, so the SpEL reference resolves to nothing and startup fails
+    @Scheduled(fixedDelayString = "${outbox.relay.poll-interval:PT5S}")
     public void relay() {
         if (!props.enabled()) {
             return;
@@ -87,40 +122,81 @@ public abstract class OutboxRelay {
                 markPublished(event.getId());
                 log.debug("Outbox event {} dispatched to {} and marked published", event.getId(), destination(event));
             } catch (Exception e) {
-                log.warn("Outbox dispatch failed for event {} ({}), will retry: {}", event.getId(), event.getEventType(), e.getMessage());
-                markFailed(event.getId());
+                if (isPermanentFailure(e)) {
+                    // Retrying a refusal is not resilience: the row would be re-claimed every poll
+                    // for ever, and the answer would be the same every time.
+                    log.error("Outbox dispatch permanently refused for event {} ({}) to {}: {} —"
+                                    + " parking the row, it will not be retried",
+                            event.getId(), event.getEventType(), destination(event), e.getMessage());
+                    markParked(event.getId(), e);
+                } else {
+                    log.warn("Outbox dispatch failed for event {} ({}), will retry: {}", event.getId(), event.getEventType(), e.getMessage());
+                    markFailed(event.getId());
+                }
             }
         }
     }
 
-    @Transactional
     protected List<OutboxEvent> pollBatch(Instant staleThreshold) {
-        return outbox.findUnpublishedForRelay(staleThreshold, Limit.of(props.batchSize()));
+        List<OutboxEvent> batch = tx.execute(status ->
+                outbox.findUnpublishedForRelay(staleThreshold, Limit.of(props.batchSize())));
+        return batch == null ? List.of() : batch;
     }
 
-    @Transactional
     protected boolean tryClaim(java.util.UUID id, Instant now, Instant staleThreshold) {
-        return outbox.claim(id, now, staleThreshold) == 1;
+        return Boolean.TRUE.equals(tx.execute(status -> outbox.claim(id, now, staleThreshold) == 1));
     }
 
-    @Transactional
     protected void markPublished(java.util.UUID id) {
-        outbox.findById(id).ifPresent(e -> {
+        tx.executeWithoutResult(status -> outbox.findById(id).ifPresent(e -> {
             e.markPublished();
             if (e.getClaimedAt() == null) {
                 e.markClaimed();
             }
             outbox.save(e);
-        });
+        }));
     }
 
-    @Transactional
-    protected void markFailed(java.util.UUID id) {
-        outbox.findById(id).ifPresent(e -> {
-            e.setClaimedAt(null);
+    /**
+     * Is this failure an answer rather than an outage? Default false — every failure is retried,
+     * which is right for a service whose targets can only be unavailable, never refuse. A subclass
+     * dispatching to a target that can say "no" (a gRPC FAILED_PRECONDITION, say) overrides this,
+     * or the relay retries a permanent refusal on every poll for the life of the deployment.
+     */
+    protected boolean isPermanentFailure(Exception e) {
+        return false;
+    }
+
+    /**
+     * Terminal state for a row nothing can deliver. Recorded as cancelled because the poll
+     * predicate is what has to stop seeing it and the schema has no separate dead state; the row
+     * keeps its payload and retry count, so a parked dispatch is still readable after the fact.
+     */
+    protected void markParked(java.util.UUID id, Exception cause) {
+        tx.executeWithoutResult(status -> outbox.findById(id).ifPresent(e -> {
             e.incrementRetry();
+            e.markCancelled();
             outbox.save(e);
-        });
+            // inside the parking transaction, deliberately: a document whose dispatch died has to
+            // say so wherever it says everything else, and a record written afterwards could be
+            // lost exactly when it matters
+            onParked(e, cause);
+        }));
+    }
+
+    /**
+     * Hook for what a subclass owes its own users when a dispatch is abandoned — typically an
+     * audit row naming the action that will now never happen. Runs in {@link #markParked}'s
+     * transaction, so anything written here commits with the parking or not at all.
+     */
+    protected void onParked(OutboxEvent event, Exception cause) {
+    }
+
+    protected void markFailed(java.util.UUID id) {
+        tx.executeWithoutResult(status -> outbox.findById(id).ifPresent(e -> {
+            e.releaseClaim();
+            outbox.save(e);
+        }));
     }
 
     /**
@@ -128,9 +204,8 @@ public abstract class OutboxRelay {
      * Caller must hold the outbox row id (e.g., from the document's submit transaction).
      * Returns true if cancelled directly, false if already claimed (caller must then follow CancelInstance handoff).
      */
-    @Transactional
     public boolean tryCancelIfNotClaimed(java.util.UUID outboxId) {
-        int updated = outbox.cancelIfNotClaimed(outboxId, Instant.now());
-        return updated == 1;
+        return Boolean.TRUE.equals(
+                tx.execute(status -> outbox.cancelIfNotClaimed(outboxId, Instant.now()) == 1));
     }
 }
