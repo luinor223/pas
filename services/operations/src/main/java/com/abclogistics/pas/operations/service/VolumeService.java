@@ -90,28 +90,8 @@ public class VolumeService {
         VolumeRecord record = VolumeRecord.create(
                 period, recordNo, contractId, customerId, customerName,
                 serviceCode, serviceName, unit, quantity, note, actor);
-        // O(1) sequence + retry on duplicate (covers manual inserts / sequence drift)
-        int attempts = 0;
-        while (true) {
-            try {
-                volumeRepo.saveAndFlush(record);
-                break;
-            } catch (DataIntegrityViolationException e) {
-                String msg = e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "";
-                boolean isRecordNoDup = msg != null && msg.toLowerCase().contains("record_no");
-                if (!isRecordNoDup || attempts >= 3) throw e;
-                attempts++;
-                log.warn("Duplicate record_no {} (attempt {}), regenerating via sequence", recordNo, attempts);
-                // detach failed instance from persistence context
-                try { volumeRepo.flush(); } catch (Exception ignored) {}
-                // generate new No with nextval — requires new entity instance because id already assigned
-                String newRecordNo = generateRecordNo(periodCode);
-                record = VolumeRecord.create(
-                        period, newRecordNo, contractId, customerId, customerName,
-                        serviceCode, serviceName, unit, quantity, note, actor);
-                recordNo = newRecordNo;
-            }
-        }
+        // O(1) global sequence avoids O(N) scan and race; nextval is not rolled back on TX rollback, so concurrent creates get distinct values
+        volumeRepo.save(record);
 
         Map<String, Object> changes = Map.of(
                 "contractId", contractId.toString(),
