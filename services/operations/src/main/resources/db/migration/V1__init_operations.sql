@@ -1,10 +1,11 @@
 -- Operations schema (db-operations.md) — pas_operations / schema operations
+-- NOTE: period_code CHECK was tightened in V3 to ^[0-9]{4}-(0[1-9]|1[0-2])$ (was ^[0-9]{4}-[0-9]{2}$ allowed 2026-13); V3 supersedes for already-migrated DBs.
 create schema if not exists operations;
 
 -- operation_period — global monthly period OPEN -> LOCKED (no unlock)
 create table operations.operation_period (
     id              uuid primary key default gen_random_uuid(),
-    period_code     text not null unique check (period_code ~ '^[0-9]{4}-[0-9]{2}$'),
+    period_code     text not null unique check (period_code ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
     start_date      date not null,
     end_date        date not null,
     status          text not null check (status in ('OPEN','LOCKED')),

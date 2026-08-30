@@ -19,7 +19,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -37,73 +40,92 @@ public class VolumeService {
     private final PricingGrpcClient pricingClient;
     private final AuditRecorder audit;
     private final JdbcTemplate jdbc;
+    private final PlatformTransactionManager txManager;
 
     public VolumeService(OperationPeriodRepository periodRepo,
                          VolumeRecordRepository volumeRepo,
                          ContractGrpcClient contractClient,
                          PricingGrpcClient pricingClient,
                          AuditRecorder audit,
-                         JdbcTemplate jdbc) {
+                         JdbcTemplate jdbc,
+                         PlatformTransactionManager txManager) {
         this.periodRepo = periodRepo;
         this.volumeRepo = volumeRepo;
         this.contractClient = contractClient;
         this.pricingClient = pricingClient;
         this.audit = audit;
         this.jdbc = jdbc;
+        this.txManager = txManager;
     }
 
-    @Transactional
+    // Outer validation + 2-try self-healing for manual INSERT / dump / sequence drift (P1 residual)
+    // Sequence is race-free for sole writer, but restored dump may have record_no that collides with nextval
+    // → catch 409 and regenerate once. Cost <5 loc, keeps save() path self-healing instead of bubbling 409.
     public VolumeResponse create(UUID contractId, String periodCode, String serviceCode, BigDecimal quantity, String note) {
         if (quantity == null || quantity.compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("quantity must be >= 0");
         }
-        OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
+        // permission + contract/pricing validation outside TX (no DB write yet)
+        OperationPeriod periodCheck = periodRepo.findByPeriodCode(periodCode)
                 .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
-
-        // guard: if period LOCKED, need volume:write? Actually creation after lock should also require edit_locked
-        // Business rule: adjust before lock; after lock need special permission. Creation is also an edit.
-        if (period.isLocked() && !hasPermission("volume:edit_locked")) {
+        if (periodCheck.isLocked() && !hasPermission("volume:edit_locked")) {
             throw new AccessDeniedException("Period is locked; volume:edit_locked required");
         }
-
-        // validate service_code via pricing (snapshots unit/service_name, fail fast if not found)
         GetServiceItemResponse serviceItem = pricingClient.getServiceItem(serviceCode);
         if (!serviceItem.getIsActive()) {
             throw new com.abclogistics.pas.operations.error.FailedPreconditionException("Service item not active: " + serviceCode);
         }
         String serviceName = serviceItem.getName();
         String unit = serviceItem.getUnit();
-
-        // validate contract and snapshot customer_name/customer_id
         GetContractResponse contract = contractClient.getContract(contractId);
         String customerName = contract.getCustomerName();
-        UUID customerId;
-        try {
-            customerId = UUID.fromString(contract.getCustomerId());
-        } catch (Exception e) {
-            customerId = null;
-        }
-
-        String recordNo = generateRecordNo(periodCode);
-
         UUID actor = SecurityUtils.currentUserId();
-        VolumeRecord record = VolumeRecord.create(
-                period, recordNo, contractId, customerId, customerName,
-                serviceCode, serviceName, unit, quantity, note, actor);
-        // O(1) global sequence avoids O(N) scan and race; nextval is not rolled back on TX rollback, so concurrent creates get distinct values
-        volumeRepo.save(record);
 
-        Map<String, Object> changes = Map.of(
-                "contractId", contractId.toString(),
-                "periodCode", periodCode,
-                "serviceCode", serviceCode,
-                "quantity", quantity.toPlainString()
-        );
-        // mandatory audit for every volume create, especially post-lock path
-        audit.record("VOLUME_RECORD", record.getId(), recordNo, "volume.created",
-                null, null, null, changes);
-
-        return toResponse(record);
+        // 2-try loop with REQUIRES_NEW so duplicate 409 does not mark outer TX rollbackOnly
+        UUID tmpCustomerId;
+        try {
+            tmpCustomerId = UUID.fromString(contract.getCustomerId());
+        } catch (Exception e) {
+            tmpCustomerId = null;
+        }
+        final UUID customerId = tmpCustomerId;
+        final String serviceNameFinal = serviceName;
+        final String unitFinal = unit;
+        final String customerNameFinal = customerName;
+        final BigDecimal quantityFinal = quantity;
+        final String noteFinal = note;
+        final UUID actorFinal = actor;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            String recordNo = generateRecordNo(periodCode);
+            final String currentRecNo = recordNo;
+            try {
+                TransactionTemplate tt = new TransactionTemplate(txManager);
+                tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                return tt.execute(status -> {
+                    OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
+                            .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
+                    VolumeRecord record = VolumeRecord.create(
+                            period, currentRecNo, contractId, customerId, customerNameFinal,
+                            serviceCode, serviceNameFinal, unitFinal, quantityFinal, noteFinal, actorFinal);
+                    volumeRepo.save(record);
+                    Map<String, Object> changes = Map.of(
+                            "contractId", contractId.toString(),
+                            "periodCode", periodCode,
+                            "serviceCode", serviceCode,
+                            "quantity", quantityFinal.toPlainString()
+                    );
+                    audit.record("VOLUME_RECORD", record.getId(), currentRecNo, "volume.created",
+                            null, null, null, changes);
+                    return toResponse(record);
+                });
+            } catch (DataIntegrityViolationException e) {
+                String msg = e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "";
+                boolean isDup = msg != null && msg.toLowerCase().contains("record_no");
+                if (!isDup || attempt == 1) throw e;
+                log.warn("Duplicate record_no {} on attempt {}/2 (dump/sequence drift), retrying with nextval", recordNo, attempt + 1);
+            }
+        }
+        throw new IllegalStateException("Failed to create volume after retry");
     }
 
     @Transactional(readOnly = true)
@@ -158,7 +180,9 @@ public class VolumeService {
 
     private String generateRecordNo(String periodCode) {
         String year = periodCode.substring(0, 4);
-        // O(1) DB sequence — avoids O(N) count + full table scan and race
+        // O(1) global sequence — avoids O(N) count + full scan and race. Known deviation: global monotonic
+        // (VOL-2027-0002 after VOL-2026-0010) not per-year reset; uniqueness per year still via prefix.
+        // Strict per-year would need volume_record_counter + SELECT FOR UPDATE — keep global for simplicity.
         try {
             Long seq = jdbc.queryForObject("SELECT nextval('operations.volume_record_no_seq')", Long.class);
             if (seq != null) {

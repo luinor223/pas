@@ -76,15 +76,12 @@ class OperationsOutboxAndHeaderIT {
     }
 
     @Test
-    void auditRecordedWrittenToOutboxAndPeriodLockedHasCorrectHeaders() throws Exception {
+    void auditRecordedWrittenToOutboxAndPeriodLockedHasCorrectHeaders() {
         String periodCode = "2026-08";
         try { periodService.create(periodCode); } catch (Exception ignored) {}
-        // wait a bit for any async afterCommit to complete before count check
-        Thread.sleep(200);
         long beforeLockOutbox = outbox.count();
         periodService.lock(periodCode);
-        // afterCommit runs inside same thread after TX commit, but give it a moment for async mock
-        Thread.sleep(300);
+        // afterCommit is synchronous on commit thread (PeriodService uses TransactionSynchronization.afterCommit), no sleep needed
 
         // audit via outbox
         boolean hasAudit = outbox.findAll().stream().anyMatch(e -> e.getEventType().equals("audit.recorded") && e.getPayload().contains("period.locked"));
@@ -92,10 +89,10 @@ class OperationsOutboxAndHeaderIT {
         assertThat(outbox.count()).isGreaterThan(beforeLockOutbox);
 
         // verify period_locked was published to pas.events with key=period_code and headers event_type/document_type
-        // TestGrpcConfig mocks KafkaTemplate.send(ProducerRecord) to complete immediately
+        // TestGrpcConfig mocks KafkaTemplate.send(ProducerRecord) to complete immediately; afterCommit is synchronous so timeout 500 is deterministic
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<ProducerRecord<String,String>> captor = org.mockito.ArgumentCaptor.forClass(ProducerRecord.class);
-        verify(kafka, atLeastOnce()).send(captor.capture());
+        verify(kafka, org.mockito.Mockito.timeout(500).atLeastOnce()).send(captor.capture());
         boolean found = captor.getAllValues().stream().anyMatch(rec -> {
             boolean isEvent = "pas.events".equals(rec.topic()) && periodCode.equals(rec.key());
             boolean hasType = rec.headers().headers("event_type").iterator().hasNext()
