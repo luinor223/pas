@@ -40,9 +40,4 @@ public class IdentityOutboxRelay extends OutboxRelay {
         log.debug("Published outbox event {} type={} topic={} key={}", event.getId(),
                 event.getEventType(), event.topic(), event.getAggregateId());
     }
-
-    @Override
-    protected String destination(OutboxEvent event) {
-        return event.topic();
-    }
 }
