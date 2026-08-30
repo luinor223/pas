@@ -2,6 +2,8 @@ package com.abclogistics.pas.common.outbox;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Limit;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +35,10 @@ public abstract class OutboxRelay {
 
     private final OutboxRepository outbox;
     private final OutboxRelayProperties props;
+
+    @Autowired
+    @Lazy
+    private OutboxRelay self;
 
     protected OutboxRelay(OutboxRepository outbox, OutboxRelayProperties props) {
         this.outbox = outbox;
@@ -68,14 +74,15 @@ public abstract class OutboxRelay {
     public void pollAndDispatch() {
         Instant now = Instant.now();
         Instant staleThreshold = now.minus(props.claimLease());
-        List<OutboxEvent> batch = pollBatch(staleThreshold);
+        OutboxRelay target = self != null ? self : this;
+        List<OutboxEvent> batch = target.pollBatch(staleThreshold);
         if (batch.isEmpty()) {
             return;
         }
         log.debug("Outbox relay polling {} events (staleThreshold={}, lease={})", batch.size(), staleThreshold, props.claimLease());
         for (OutboxEvent event : batch) {
             // Attempt atomic claim — same predicate as poll, so stale claims are reclaimable but cancellable only via separate path
-            boolean claimed = tryClaim(event.getId(), now, staleThreshold);
+            boolean claimed = target.tryClaim(event.getId(), now, staleThreshold);
             if (!claimed) {
                 log.debug("Outbox event {} claim lost (concurrent worker won), skipping", event.getId());
                 continue;
@@ -84,11 +91,11 @@ public abstract class OutboxRelay {
             event.setClaimedAt(now);
             try {
                 dispatch(event);
-                markPublished(event.getId());
+                target.markPublished(event.getId());
                 log.debug("Outbox event {} dispatched to {} and marked published", event.getId(), destination(event));
             } catch (Exception e) {
                 log.warn("Outbox dispatch failed for event {} ({}), will retry: {}", event.getId(), event.getEventType(), e.getMessage());
-                markFailed(event.getId());
+                target.markFailed(event.getId());
             }
         }
     }

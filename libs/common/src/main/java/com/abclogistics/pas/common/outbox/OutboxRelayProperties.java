@@ -1,7 +1,5 @@
 package com.abclogistics.pas.common.outbox;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.time.Duration;
 
 /**
@@ -12,20 +10,58 @@ import java.time.Duration;
  * The lease has no fencing (timestamp only), so a stale claim is never treated as cancellable —
  * only {@code claimed_at IS NULL} rows may be cancelled directly; stale rows are re-claimed and forced to dispatch.
  */
-@ConfigurationProperties(prefix = "outbox.relay")
-public record OutboxRelayProperties(
-        boolean enabled,
-        Duration claimLease,
-        int batchSize,
-        Duration pollInterval
-) {
-    public OutboxRelayProperties {
-        if (claimLease == null) claimLease = Duration.ofSeconds(60);
-        if (pollInterval == null) pollInterval = Duration.ofSeconds(5);
-        if (batchSize <= 0) batchSize = 100;
+public class OutboxRelayProperties {
+
+    private boolean enabled = true;
+    private Duration claimLease = Duration.ofSeconds(60);
+    private int batchSize = 100;
+    private Duration pollInterval = Duration.ofSeconds(5);
+
+    public boolean isEnabled() {
+        return enabled;
     }
 
-    public OutboxRelayProperties() {
-        this(true, Duration.ofSeconds(60), 100, Duration.ofSeconds(5));
+    public boolean enabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public Duration getClaimLease() {
+        return claimLease;
+    }
+
+    public Duration claimLease() {
+        return claimLease;
+    }
+
+    public void setClaimLease(Duration claimLease) {
+        this.claimLease = claimLease;
+    }
+
+    public int getBatchSize() {
+        return batchSize;
+    }
+
+    public int batchSize() {
+        return batchSize;
+    }
+
+    public void setBatchSize(int batchSize) {
+        this.batchSize = batchSize;
+    }
+
+    public Duration getPollInterval() {
+        return pollInterval;
+    }
+
+    public Duration pollInterval() {
+        return pollInterval;
+    }
+
+    public void setPollInterval(Duration pollInterval) {
+        this.pollInterval = pollInterval;
     }
 }
