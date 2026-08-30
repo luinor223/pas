@@ -97,9 +97,8 @@ public class OutboxEvent {
     public void markClaimed() { this.claimedAt = Instant.now(); }
 
     /**
-     * Failure path: drop the claim and count the attempt, so the next poll reclaims immediately
-     * rather than waiting out the lease. Public because the M2 cancel handoff forces a stale
-     * dispatch from outside this package and must release the claim the same way the relay does.
+     * Failure path: drop the claim and count the attempt so the next poll reclaims immediately.
+     * Public because the cancel handoff releases the claim from outside this package.
      */
     public void releaseClaim() {
         this.claimedAt = null;
