@@ -1,11 +1,12 @@
 -- Operations schema (db-operations.md) — pas_operations / schema operations
--- NOTE: period_code CHECK was tightened in V3 to ^[0-9]{4}-(0[1-9]|1[0-2])$ (was ^[0-9]{4}-[0-9]{2}$ allowed 2026-13); V3 supersedes for already-migrated DBs.
 create schema if not exists operations;
+
+create sequence if not exists operations.volume_record_no_seq start 1;
 
 -- operation_period — global monthly period OPEN -> LOCKED (no unlock)
 create table operations.operation_period (
     id              uuid primary key default gen_random_uuid(),
-    period_code     text not null unique check (period_code ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    period_code     text not null unique constraint chk_period_code_format check (period_code ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
     start_date      date not null,
     end_date        date not null,
     status          text not null check (status in ('OPEN','LOCKED')),
@@ -44,6 +45,7 @@ create table operations.volume_record (
 create index idx_volume_record_period on operations.volume_record(period_id);
 create index idx_volume_record_contract_period on operations.volume_record(contract_id, period_id);
 create index idx_volume_record_service_code on operations.volume_record(service_code);
+create index idx_volume_record_record_no_prefix on operations.volume_record(record_no text_pattern_ops);
 
 -- outbox (M2/D6/D15) — audit.recorded via pas.audit, no workflow.* in this service, no processed_event (consumes nothing)
 create table operations.outbox (
