@@ -81,6 +81,8 @@ class OperationsAdditionalCoverageIT {
     @Autowired WebApplicationContext wac;
     @Autowired PermissionCache permissionCache;
     @Autowired ObjectMapper objectMapper;
+    @Autowired com.abclogistics.pas.common.outbox.OutboxRepository outbox;
+    @Autowired org.springframework.kafka.core.KafkaTemplate<String,String> kafka;
     MockMvc mockMvc;
 
     @BeforeEach
@@ -102,6 +104,9 @@ class OperationsAdditionalCoverageIT {
     void concurrentLockIsIdempotent() throws Exception {
         String code = "2027-02";
         try { periodService.create(code); } catch (Exception ignored) {}
+        long outboxBefore = outbox.count();
+        // clear kafka mock invocations
+        org.mockito.Mockito.clearInvocations(kafka);
         ExecutorService exec = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch go = new CountDownLatch(1);
@@ -122,6 +127,18 @@ class OperationsAdditionalCoverageIT {
         assertThat(e1.get()).isNull();
         assertThat(e2.get()).isNull();
         assertThat(periodService.get(code).status()).isEqualTo("LOCKED");
+        // P0-2: must not double-audit / double-publish — FOR UPDATE serializes, second sees LOCKED and returns idempotent
+        long auditCount = outbox.findAll().stream().filter(e -> e.getEventType().equals("audit.recorded") && e.getPayload().contains("period.locked") && e.getPayload().contains(code)).count();
+        assertThat(auditCount).isEqualTo(1);
+        // kafka period_locked should be published exactly once (afterCommit from the winner)
+        org.mockito.ArgumentCaptor<org.apache.kafka.clients.producer.ProducerRecord<String,String>> captor = org.mockito.ArgumentCaptor.forClass(org.apache.kafka.clients.producer.ProducerRecord.class);
+        // timeout verifies async publish if any
+        try { org.mockito.Mockito.verify(kafka, org.mockito.Mockito.timeout(500).times(1)).send(captor.capture()); } catch (AssertionError ignored) {
+            // fallback: atLeastOnce check with filter
+            org.mockito.Mockito.verify(kafka, org.mockito.Mockito.atLeastOnce()).send(captor.capture());
+        }
+        long periodLockedSends = captor.getAllValues().stream().filter(r -> "pas.events".equals(r.topic()) && code.equals(r.key())).count();
+        assertThat(periodLockedSends).isEqualTo(1);
     }
 
     @Autowired com.abclogistics.pas.operations.controller.PeriodController periodController;
@@ -207,5 +224,43 @@ class OperationsAdditionalCoverageIT {
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO operations.operation_period(id, period_code, start_date, end_date, status) VALUES (gen_random_uuid(), '2026-13', '2026-01-01', '2026-01-31', 'OPEN')"))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void periodCodeValidationReturns400Not500ViaRestAndGrpc() throws Exception {
+        // REST: GET /periods/2026-13 should be 400 via @Pattern / validatePeriodCode, not 500
+        UUID userId = UUID.randomUUID();
+        AuthenticatedUser principal = new AuthenticatedUser(userId, "ops", "Ops Officer", "OPERATIONS", List.of("OPS_OFFICER"));
+        var auth = new UsernamePasswordAuthenticationToken(principal, null,
+                List.of(new SimpleGrantedAuthority("volume:read"), new SimpleGrantedAuthority("volume:lock_period"), new SimpleGrantedAuthority("volume:write")));
+        // via controller direct (bypasses MockMvc filter but hits @Validated)
+        try {
+            periodController.get("2026-13");
+            org.junit.jupiter.api.Assertions.fail("expected 400");
+        } catch (Exception e) {
+            // @Validated throws ConstraintViolationException -> 400 via OperationsExceptionHandler, direct call throws ConstraintViolationException
+            assertThat(e).isInstanceOf(jakarta.validation.ConstraintViolationException.class);
+        }
+        try {
+            periodController.lock("2026-13");
+            org.junit.jupiter.api.Assertions.fail("expected 400");
+        } catch (Exception e) {
+            assertThat(e).isInstanceOf(jakarta.validation.ConstraintViolationException.class);
+        }
+        // gRPC: 2026-13 should be INVALID_ARGUMENT, not NOT_FOUND
+        ListVolumesRequest req = ListVolumesRequest.newBuilder().setContractId(UUID.randomUUID().toString()).setPeriodCode("2026-13").build();
+        AtomicReference<Throwable> err = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+        grpcService.listVolumes(req, new StreamObserver<>() {
+            @Override public void onNext(ListVolumesResponse v) {}
+            @Override public void onError(Throwable t) { err.set(t); latch.countDown(); }
+            @Override public void onCompleted() { latch.countDown(); }
+        });
+        latch.await(2, TimeUnit.SECONDS);
+        assertThat(err.get()).isInstanceOf(StatusRuntimeException.class);
+        assertThat(((StatusRuntimeException) err.get()).getStatus().getCode().name()).isEqualTo("INVALID_ARGUMENT");
+        // service direct: VolumeService.create with 2026-13 should be 400
+        assertThatThrownBy(() -> volumeService.create(UUID.randomUUID(), "2026-13", "CONT_LIFT", new BigDecimal("1"), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

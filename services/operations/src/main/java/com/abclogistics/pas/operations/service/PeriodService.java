@@ -73,6 +73,7 @@ public class PeriodService {
 
     @Transactional(readOnly = true)
     public PeriodResponse get(String periodCode) {
+        validatePeriodCode(periodCode);
         OperationPeriod p = periodRepo.findByPeriodCode(periodCode)
                 .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
         return toResponse(p);
@@ -80,11 +81,13 @@ public class PeriodService {
 
     @Transactional
     public PeriodResponse lock(String periodCode) {
-        OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
+        validatePeriodCode(periodCode);
+        // P0-2 fix: SELECT FOR UPDATE to serialize concurrent lock — prevents double audit/publish on READ COMMITTED
+        OperationPeriod period = periodRepo.findByPeriodCodeForUpdate(periodCode)
                 .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
 
         if ("LOCKED".equals(period.getStatus())) {
-            // idempotent — no duplicate audit, no duplicate event
+            // idempotent — no duplicate audit, no duplicate event (lock held until commit, second waiter sees LOCKED)
             return toResponse(period);
         }
 

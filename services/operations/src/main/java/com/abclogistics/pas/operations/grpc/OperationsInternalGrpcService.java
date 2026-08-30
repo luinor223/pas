@@ -12,7 +12,9 @@ import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +38,15 @@ public class OperationsInternalGrpcService extends OperationsInternalGrpc.Operat
 
             if (periodCode == null || periodCode.isBlank() || contractIdStr == null || contractIdStr.isBlank()) {
                 responseObserver.onError(Status.INVALID_ARGUMENT.withDescription("contract_id and period_code required").asRuntimeException());
+                return;
+            }
+            // P0-3: validate period_code format early → INVALID_ARGUMENT, not NOT_FOUND
+            try {
+                YearMonth.parse(periodCode);
+                // also ensure month 01-12 via regex already covered by YearMonth, but keep explicit
+                if (!periodCode.matches("^\\d{4}-(0[1-9]|1[0-2])$")) throw new DateTimeParseException("Invalid period_code", periodCode, 0);
+            } catch (DateTimeParseException e) {
+                responseObserver.onError(Status.INVALID_ARGUMENT.withDescription("Invalid period_code, expected YYYY-MM: " + periodCode).asRuntimeException());
                 return;
             }
 

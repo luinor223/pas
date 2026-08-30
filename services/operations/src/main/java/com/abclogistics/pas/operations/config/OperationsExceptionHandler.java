@@ -2,6 +2,7 @@ package com.abclogistics.pas.operations.config;
 
 import com.abclogistics.pas.common.error.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -42,5 +43,15 @@ public class OperationsExceptionHandler {
         ApiError body = new ApiError(Instant.now(), HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
                 "Duplicate record or constraint violation", req.getRequestURI(), List.of());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest req) {
+        String msg = ex.getConstraintViolations().stream()
+                .map(v -> v.getMessage())
+                .findFirst().orElse("Validation failed");
+        ApiError body = new ApiError(Instant.now(), HttpStatus.BAD_REQUEST.value(), HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                msg, req.getRequestURI(), List.of());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 }

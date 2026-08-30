@@ -65,6 +65,7 @@ public class VolumeService {
         if (quantity == null || quantity.compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("quantity must be >= 0");
         }
+        validatePeriodCode(periodCode);
         // permission + contract/pricing validation outside TX (no DB write yet)
         OperationPeriod periodCheck = periodRepo.findByPeriodCode(periodCode)
                 .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
@@ -95,6 +96,7 @@ public class VolumeService {
         final BigDecimal quantityFinal = quantity;
         final String noteFinal = note;
         final UUID actorFinal = actor;
+        // generateRecordNo outside new TX is intentional (nextval not rolled back), but period lock re-check must be inside
         for (int attempt = 0; attempt < 2; attempt++) {
             String recordNo = generateRecordNo(periodCode);
             final String currentRecNo = recordNo;
@@ -104,6 +106,10 @@ public class VolumeService {
                 return tt.execute(status -> {
                     OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
                             .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
+                    // P0-1 fix: re-validate isLocked inside new TX after period is re-read (TOCTOU)
+                    if (period.isLocked() && !hasPermission("volume:edit_locked")) {
+                        throw new AccessDeniedException("Period is locked; volume:edit_locked required");
+                    }
                     VolumeRecord record = VolumeRecord.create(
                             period, currentRecNo, contractId, customerId, customerNameFinal,
                             serviceCode, serviceNameFinal, unitFinal, quantityFinal, noteFinal, actorFinal);
@@ -194,6 +200,15 @@ public class VolumeService {
         // Fallback (should not happen in prod): count-based
         long count = volumeRepo.countByRecordNoStartingWith("VOL-" + year + "-");
         return String.format("VOL-%s-%04d", year, count + 1);
+    }
+
+    private void validatePeriodCode(String code) {
+        try {
+            java.time.YearMonth.parse(code);
+            if (!code.matches("^\\d{4}-(0[1-9]|1[0-2])$")) throw new java.time.format.DateTimeParseException("Invalid", code, 0);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException("Invalid period_code, expected YYYY-MM: " + code);
+        }
     }
 
     private boolean hasPermission(String permission) {
