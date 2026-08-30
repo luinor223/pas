@@ -40,13 +40,6 @@ spring:
   grpc:
     server:
       port: 50054
-    client:
-      contract:
-        address: static://contract-service:50052
-        negotiationType: PLAINTEXT
-      pricing:
-        address: static://pricing-service:50053
-        negotiationType: PLAINTEXT
 
 contract:
   grpc:

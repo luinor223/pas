@@ -34,6 +34,7 @@ dependencies {
     runtimeOnly(libs.jjwt.jackson)
 
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.generic)

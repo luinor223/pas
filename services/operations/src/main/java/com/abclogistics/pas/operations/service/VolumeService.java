@@ -173,13 +173,10 @@ public class VolumeService {
     }
 
     private boolean hasPermission(String permission) {
-        return SecurityUtils.currentUser()
-                .map(AuthenticatedUser::userId) // just to ensure authenticated
-                .isPresent() && currentPermissions().contains(permission);
+        return SecurityUtils.currentUser().isPresent() && currentPermissions().contains(permission);
     }
 
     private java.util.Set<String> currentPermissions() {
-        // resolve via SecurityContext authorities (HeaderAuthenticationFilter sets them)
         var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return java.util.Set.of();
         return auth.getAuthorities().stream()
