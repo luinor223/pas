@@ -13,6 +13,10 @@ import com.abclogistics.pas.operations.grpc.PricingGrpcClient;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
 import com.abclogistics.pas.operations.repository.VolumeRecordRepository;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,22 +29,27 @@ import java.util.UUID;
 @Service
 public class VolumeService {
 
+    private static final Logger log = LoggerFactory.getLogger(VolumeService.class);
+
     private final OperationPeriodRepository periodRepo;
     private final VolumeRecordRepository volumeRepo;
     private final ContractGrpcClient contractClient;
     private final PricingGrpcClient pricingClient;
     private final AuditRecorder audit;
+    private final JdbcTemplate jdbc;
 
     public VolumeService(OperationPeriodRepository periodRepo,
                          VolumeRecordRepository volumeRepo,
                          ContractGrpcClient contractClient,
                          PricingGrpcClient pricingClient,
-                         AuditRecorder audit) {
+                         AuditRecorder audit,
+                         JdbcTemplate jdbc) {
         this.periodRepo = periodRepo;
         this.volumeRepo = volumeRepo;
         this.contractClient = contractClient;
         this.pricingClient = pricingClient;
         this.audit = audit;
+        this.jdbc = jdbc;
     }
 
     @Transactional
@@ -81,7 +90,28 @@ public class VolumeService {
         VolumeRecord record = VolumeRecord.create(
                 period, recordNo, contractId, customerId, customerName,
                 serviceCode, serviceName, unit, quantity, note, actor);
-        volumeRepo.save(record);
+        // O(1) sequence + retry on duplicate (covers manual inserts / sequence drift)
+        int attempts = 0;
+        while (true) {
+            try {
+                volumeRepo.saveAndFlush(record);
+                break;
+            } catch (DataIntegrityViolationException e) {
+                String msg = e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "";
+                boolean isRecordNoDup = msg != null && msg.toLowerCase().contains("record_no");
+                if (!isRecordNoDup || attempts >= 3) throw e;
+                attempts++;
+                log.warn("Duplicate record_no {} (attempt {}), regenerating via sequence", recordNo, attempts);
+                // detach failed instance from persistence context
+                try { volumeRepo.flush(); } catch (Exception ignored) {}
+                // generate new No with nextval — requires new entity instance because id already assigned
+                String newRecordNo = generateRecordNo(periodCode);
+                record = VolumeRecord.create(
+                        period, newRecordNo, contractId, customerId, customerName,
+                        serviceCode, serviceName, unit, quantity, note, actor);
+                recordNo = newRecordNo;
+            }
+        }
 
         Map<String, Object> changes = Map.of(
                 "contractId", contractId.toString(),
@@ -118,6 +148,9 @@ public class VolumeService {
 
     @Transactional
     public VolumeResponse update(UUID id, BigDecimal quantity, String note) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("quantity must be >= 0");
+        }
         VolumeRecord record = volumeRepo.findById(id)
                 .orElseThrow(() -> new NotFoundException("Volume record not found: " + id));
 
@@ -145,16 +178,17 @@ public class VolumeService {
 
     private String generateRecordNo(String periodCode) {
         String year = periodCode.substring(0, 4);
-        String prefix = "VOL-" + year + "-";
-        long count = volumeRepo.countByRecordNoStartingWith(prefix);
-        // try until unique (handle race with DB constraint fallback)
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String candidate = String.format("VOL-%s-%04d", year, count + 1 + attempt);
-            if (volumeRepo.findAll().stream().noneMatch(v -> candidate.equals(v.getRecordNo()))) {
-                // still need DB unique check; just return candidate, DB will enforce
-                return candidate;
+        // O(1) DB sequence — avoids O(N) count + full table scan and race
+        try {
+            Long seq = jdbc.queryForObject("SELECT nextval('operations.volume_record_no_seq')", Long.class);
+            if (seq != null) {
+                return String.format("VOL-%s-%04d", year, seq);
             }
+        } catch (Exception e) {
+            log.warn("Sequence nextval failed, falling back to count: {}", e.getMessage());
         }
+        // Fallback (should not happen in prod): count-based
+        long count = volumeRepo.countByRecordNoStartingWith("VOL-" + year + "-");
         return String.format("VOL-%s-%04d", year, count + 1);
     }
 

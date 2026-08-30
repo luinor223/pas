@@ -117,7 +117,7 @@ paths:
           description: Period locked without volume:edit_locked
         '404':
           description: Period/contract/service not found
-      x-permission: volume:write
+      x-permission: volume:write or volume:edit_locked
     get:
       summary: List volume records
       operationId: listVolumes

@@ -21,7 +21,7 @@ public class PricingGrpcClient {
             @Value("${pricing.grpc.host:localhost}") String host,
             @Value("${pricing.grpc.port:50053}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
-        this.stub = PricingInternalGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS);
+        this.stub = PricingInternalGrpc.newBlockingStub(channel);
     }
 
     protected PricingGrpcClient() {
@@ -32,7 +32,7 @@ public class PricingGrpcClient {
     public GetServiceItemResponse getServiceItem(String code) {
         GetServiceItemRequest req = GetServiceItemRequest.newBuilder().setCode(code).build();
         try {
-            return stub.getServiceItem(req);
+            return stub.withDeadlineAfter(2, TimeUnit.SECONDS).getServiceItem(req);
         } catch (StatusRuntimeException e) {
             throw mapStatus(e, code);
         }
@@ -41,8 +41,11 @@ public class PricingGrpcClient {
     private RuntimeException mapStatus(StatusRuntimeException e, String code) {
         return switch (e.getStatus().getCode()) {
             case NOT_FOUND -> new com.abclogistics.pas.common.error.NotFoundException("Service item not found: " + code);
-            case UNAVAILABLE -> new com.abclogistics.pas.common.error.ConflictException("Pricing service unavailable: " + e.getStatus().getDescription());
-            default -> new com.abclogistics.pas.operations.error.FailedPreconditionException("Service item lookup failed: " + e.getStatus().getDescription());
+            case UNAVAILABLE -> new com.abclogistics.pas.operations.error.ServiceUnavailableException("Pricing service unavailable: " + e.getStatus().getDescription());
+            case FAILED_PRECONDITION -> new com.abclogistics.pas.operations.error.FailedPreconditionException("Service item lookup failed: " + e.getStatus().getDescription());
+            case ABORTED -> new com.abclogistics.pas.common.error.ConflictException("Pricing concurrent conflict: " + e.getStatus().getDescription());
+            case INVALID_ARGUMENT -> new IllegalArgumentException("Pricing invalid argument: " + e.getStatus().getDescription());
+            default -> new com.abclogistics.pas.common.error.ConflictException("Pricing lookup failed (" + e.getStatus().getCode() + "): " + e.getStatus().getDescription());
         };
     }
 

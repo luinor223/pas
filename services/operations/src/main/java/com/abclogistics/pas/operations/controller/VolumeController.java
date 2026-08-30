@@ -32,7 +32,7 @@ public class VolumeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('volume:write')")
+    @PreAuthorize("hasAuthority('volume:write') or hasAuthority('volume:edit_locked')")
     public VolumeResponse create(@Valid @RequestBody CreateVolumeRequest request) {
         return volumeService.create(
                 request.contractId(),

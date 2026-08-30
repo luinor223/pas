@@ -22,7 +22,7 @@ public class ContractGrpcClient {
             @Value("${contract.grpc.host:localhost}") String host,
             @Value("${contract.grpc.port:50052}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
-        this.stub = ContractInternalGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS);
+        this.stub = ContractInternalGrpc.newBlockingStub(channel);
     }
 
     /** For test mocks. */
@@ -34,7 +34,8 @@ public class ContractGrpcClient {
     public GetContractResponse getContract(UUID contractId) {
         GetContractRequest req = GetContractRequest.newBuilder().setId(contractId.toString()).build();
         try {
-            return stub.getContract(req);
+            // per-call deadline — not one-shot at construction (P0-2)
+            return stub.withDeadlineAfter(2, TimeUnit.SECONDS).getContract(req);
         } catch (StatusRuntimeException e) {
             throw mapStatus(e);
         }
@@ -43,8 +44,11 @@ public class ContractGrpcClient {
     private RuntimeException mapStatus(StatusRuntimeException e) {
         return switch (e.getStatus().getCode()) {
             case NOT_FOUND -> new com.abclogistics.pas.common.error.NotFoundException("Contract not found: " + e.getStatus().getDescription());
-            case UNAVAILABLE -> new com.abclogistics.pas.common.error.ConflictException("Contract service unavailable: " + e.getStatus().getDescription());
-            default -> new com.abclogistics.pas.operations.error.FailedPreconditionException("Contract lookup failed: " + e.getStatus().getDescription());
+            case UNAVAILABLE -> new com.abclogistics.pas.operations.error.ServiceUnavailableException("Contract service unavailable: " + e.getStatus().getDescription());
+            case FAILED_PRECONDITION -> new com.abclogistics.pas.operations.error.FailedPreconditionException("Contract lookup failed: " + e.getStatus().getDescription());
+            case ABORTED -> new com.abclogistics.pas.common.error.ConflictException("Contract concurrent conflict: " + e.getStatus().getDescription());
+            case INVALID_ARGUMENT -> new IllegalArgumentException("Contract invalid argument: " + e.getStatus().getDescription());
+            default -> new com.abclogistics.pas.common.error.ConflictException("Contract lookup failed (" + e.getStatus().getCode() + "): " + e.getStatus().getDescription());
         };
     }
 
