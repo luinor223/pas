@@ -44,6 +44,16 @@ public interface OutboxRepository extends JpaRepository<OutboxEvent, UUID> {
     @Query("update OutboxEvent o set o.cancelledAt = :now where o.id = :id and o.claimedAt is null and o.publishedAt is null and o.cancelledAt is null")
     int cancelIfNotClaimed(@Param("id") UUID id, @Param("now") Instant now);
 
+    /** Stamp published in one UPDATE (coalesce keeps a set claimed_at). No entity load on the relay hot path. */
+    @Modifying
+    @Query("update OutboxEvent o set o.publishedAt = :now, o.claimedAt = coalesce(o.claimedAt, :now) where o.id = :id")
+    int markPublished(@Param("id") UUID id, @Param("now") Instant now);
+
+    /** Release the claim and count the attempt in one UPDATE, so the next poll reclaims immediately. */
+    @Modifying
+    @Query("update OutboxEvent o set o.claimedAt = null, o.retryCount = o.retryCount + 1 where o.id = :id")
+    int releaseClaim(@Param("id") UUID id);
+
     /** A document's events of one type, newest first, cancelled excluded — only the newest can
      *  still be in flight. Used by the cancel handoff. */
     @Query("select o from OutboxEvent o where o.aggregateId = :aggregateId and o.eventType = :eventType and o.cancelledAt is null order by o.createdAt desc")
