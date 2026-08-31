@@ -96,10 +96,8 @@ public class WorkflowEventListener {
             return;
         }
         UUID instanceId = uuid(payload, "instance_id");
-        transitions.transition(document.entityType(), document.getId(), document.getDocumentNo(),
-                DocumentStatus.SUBMITTED, DocumentStatus.UNDER_REVIEW, TriggerKind.W, instanceId,
+        transitions.transition(document, DocumentStatus.UNDER_REVIEW, TriggerKind.W, instanceId,
                 "Approval instance started");
-        document.setStatus(DocumentStatus.UNDER_REVIEW);
     }
 
     @Transactional
@@ -110,9 +108,7 @@ public class WorkflowEventListener {
         }
         DocumentStatus outcome = outcomeOf(payload);
         UUID instanceId = uuid(payload, "instance_id");
-        transitions.transitionOrderTolerant(document.entityType(), document.getId(),
-                document.getDocumentNo(), document.getStatus(), outcome, instanceId);
-        document.setStatus(outcome);
+        transitions.transitionOrderTolerant(document, outcome, instanceId);
     }
 
     private ApprovableDocument target(String documentType, String eventId, UUID documentId) {

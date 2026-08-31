@@ -163,14 +163,12 @@ class StatusHistoryEveryTransitionTest {
     void aFailedTransactionLeavesNeitherStatusNorHistory() {
         // A row surviving a rolled back status change would claim a transition that never happened.
         UUID id = draftContract();
-        String no = contractNoOf(id);
         // the baseline, not zero: creating the customer and the contract audited themselves
         long auditRowsBefore = outboxRows();
 
         assertThatThrownBy(() -> tx.executeWithoutResult(s -> {
-            transitions.transition(EntityType.CONTRACT, id, no,
-                    DocumentStatus.DRAFT, DocumentStatus.SUBMITTED, TriggerKind.U, null, "submit");
-            contracts.get(id).setStatus(DocumentStatus.SUBMITTED);
+            transitions.transition(contracts.get(id), DocumentStatus.SUBMITTED,
+                    TriggerKind.U, null, "submit");
             throw new IllegalStateException("something later in the same transaction failed");
         })).isInstanceOf(IllegalStateException.class);
 
@@ -185,15 +183,13 @@ class StatusHistoryEveryTransitionTest {
         // No update or delete path may exist. The append-only guarantee is what makes the status
         // column cross-checkable against the log.
         UUID id = draftContract();
-        String no = contractNoOf(id);
-        tx.executeWithoutResult(s -> transitions.transition(EntityType.CONTRACT, id, no,
-                DocumentStatus.DRAFT, DocumentStatus.SUBMITTED, TriggerKind.U, null, "submit"));
-        tx.executeWithoutResult(s -> contracts.get(id).setStatus(DocumentStatus.SUBMITTED));
+        tx.executeWithoutResult(s -> transitions.transition(contracts.get(id),
+                DocumentStatus.SUBMITTED, TriggerKind.U, null, "submit"));
         StatusHistory first = historyOf(id).getFirst();
 
         // the next transition appends; it does not rewrite what is already there
-        tx.executeWithoutResult(s -> transitions.transition(EntityType.CONTRACT, id, no,
-                DocumentStatus.SUBMITTED, DocumentStatus.CANCELLED, TriggerKind.U, null, "cancel"));
+        tx.executeWithoutResult(s -> transitions.transition(contracts.get(id),
+                DocumentStatus.CANCELLED, TriggerKind.U, null, "cancel"));
 
         assertThat(historyOf(id)).hasSize(2);
         StatusHistory reread = historyOf(id).getFirst();
@@ -300,10 +296,6 @@ class StatusHistoryEveryTransitionTest {
 
     private DocumentStatus statusOf(UUID id) {
         return tx.execute(s -> contracts.get(id).getStatus());
-    }
-
-    private String contractNoOf(UUID id) {
-        return tx.execute(s -> contracts.get(id).getContractNo());
     }
 
     private long outboxRows() {

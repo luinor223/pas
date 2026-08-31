@@ -102,11 +102,7 @@ public class AddendumService {
                 numbers.nextDocumentNo(EntityType.ADDENDUM, request.effectiveFrom().getYear()),
                 parent, changeType, request.effectiveFrom());
         applyFields(addendum, request, changeType);
-        SecurityUtils.currentUser().ifPresent(user -> {
-            addendum.setCreatedBy(user.userId());
-            addendum.setCreatedByName(user.fullName());
-            addendum.setCreatedByDepartment(user.department());
-        });
+        RecordStamp.creator(addendum);
         Addendum saved = addenda.save(addendum);
 
         audit.record(EntityType.ADDENDUM.name(), saved.getId(), saved.getAddendumNo(),
@@ -143,18 +139,13 @@ public class AddendumService {
 
         Map<String, Object> was = snapshot(addendum);
         applyFields(addendum, request, changeType);
-        SecurityUtils.currentUser().ifPresent(user -> {
-            addendum.setUpdatedBy(user.userId());
-            addendum.setUpdatedByName(user.fullName());
-        });
+        RecordStamp.editor(addendum);
         audit.record(EntityType.ADDENDUM.name(), addendum.getId(), addendum.getAddendumNo(),
                 "UPDATE", null, null, null, FieldDiff.between(was, snapshot(addendum)));
 
         if (before == DocumentStatus.REVISION_REQUESTED) {
-            transitions.transition(EntityType.ADDENDUM, addendum.getId(), addendum.getAddendumNo(),
-                    before, DocumentStatus.DRAFT, TriggerKind.U, null,
+            transitions.transition(addendum, DocumentStatus.DRAFT, TriggerKind.U, null,
                     "Returned to DRAFT by being edited after a revision request");
-            addendum.setStatus(DocumentStatus.DRAFT);
         }
         return addendum;
     }
@@ -182,11 +173,9 @@ public class AddendumService {
     private void commitSubmission(UUID id) {
         Addendum addendum = requireDraft(id);
         requireSubmittable(addendum);
-        DocumentStatus before = addendum.getStatus();
 
-        transitions.transition(EntityType.ADDENDUM, addendum.getId(), addendum.getAddendumNo(),
-                before, DocumentStatus.SUBMITTED, TriggerKind.U, null, "Submitted for approval");
-        addendum.setStatus(DocumentStatus.SUBMITTED);
+        transitions.transition(addendum, DocumentStatus.SUBMITTED, TriggerKind.U, null,
+                "Submitted for approval");
 
         AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         WorkflowStartRequested payload = new WorkflowStartRequested(
@@ -212,10 +201,8 @@ public class AddendumService {
                     "Addendum %s is %s; only a REJECTED addendum is revised (CTR-04)"
                             .formatted(addendum.getAddendumNo(), before));
         }
-        transitions.transition(EntityType.ADDENDUM, addendum.getId(), addendum.getAddendumNo(),
-                before, DocumentStatus.DRAFT, TriggerKind.U, null,
+        transitions.transition(addendum, DocumentStatus.DRAFT, TriggerKind.U, null,
                 "Reopened for revision after rejection (CTR-04)");
-        addendum.setStatus(DocumentStatus.DRAFT);
         return addendum;
     }
 
@@ -430,10 +417,8 @@ public class AddendumService {
         if (before != DocumentStatus.APPROVED) {
             return;
         }
-        transitions.transition(EntityType.ADDENDUM, addendum.getId(), addendum.getAddendumNo(),
-                before, DocumentStatus.ACTIVE, TriggerKind.S, null,
+        transitions.transition(addendum, DocumentStatus.ACTIVE, TriggerKind.S, null,
                 "Effective date reached (D14d)");
-        addendum.setStatus(DocumentStatus.ACTIVE);
         // same transaction: if the effect fails, the flip goes with it
         applyEffectsToParent(addendum);
     }

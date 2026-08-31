@@ -20,7 +20,7 @@ import java.util.UUID;
 /** Service contract (4.2). The status column is a cache of the newest {@link StatusHistory} row. */
 @Entity
 @Table(name = "contract", schema = "contract")
-public class Contract extends BaseEntity implements ApprovableDocument {
+public class Contract extends BaseEntity implements ApprovableDocument, ActorStamped {
 
     @Id
     @UuidGenerator

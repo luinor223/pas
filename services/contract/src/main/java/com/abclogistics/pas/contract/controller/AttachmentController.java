@@ -23,6 +23,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * No {@code @PreAuthorize} here on purpose: the permission depends on the attachment's owner type
+ * ({@code contract:read} vs {@code addendum:read}), which on download and delete is only known once
+ * the row is read. {@code AttachmentService} checks it on every operation instead.
+ */
 @RestController
 @RequestMapping("/attachments")
 public class AttachmentController {

@@ -117,11 +117,7 @@ public class ContractService {
                 reference.serviceGroup(),
                 request.validFrom(), request.validTo());
         applyFields(contract, request, reference);
-        SecurityUtils.currentUser().ifPresent(user -> {
-            contract.setCreatedBy(user.userId());
-            contract.setCreatedByName(user.fullName());
-            contract.setCreatedByDepartment(user.department());
-        });
+        RecordStamp.creator(contract);
         contracts.save(contract);
 
         audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
@@ -164,20 +160,15 @@ public class ContractService {
         }
         Map<String, Object> was = snapshot(contract);
         applyFields(contract, request, reference);
-        SecurityUtils.currentUser().ifPresent(user -> {
-            contract.setUpdatedBy(user.userId());
-            contract.setUpdatedByName(user.fullName());
-        });
+        RecordStamp.editor(contract);
 
         // D15: the row carries which fields changed and from what; nothing else keeps a prior value
         audit.record(EntityType.CONTRACT.name(), contract.getId(), contract.getContractNo(),
                 "UPDATE", null, null, null, FieldDiff.between(was, snapshot(contract)));
 
         if (before == DocumentStatus.REVISION_REQUESTED) {
-            transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
-                    before, DocumentStatus.DRAFT, TriggerKind.U, null,
+            transitions.transition(contract, DocumentStatus.DRAFT, TriggerKind.U, null,
                     "Returned to DRAFT by being edited after a revision request");
-            contract.setStatus(DocumentStatus.DRAFT);
         }
         return contract;
     }
@@ -288,11 +279,9 @@ public class ContractService {
     private void commitSubmission(UUID id) {
         Contract contract = requireDraft(id);
         requireSubmittable(contract);
-        DocumentStatus before = contract.getStatus();
 
-        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
-                before, DocumentStatus.SUBMITTED, TriggerKind.U, null, "Submitted for approval");
-        contract.setStatus(DocumentStatus.SUBMITTED);
+        transitions.transition(contract, DocumentStatus.SUBMITTED, TriggerKind.U, null,
+                "Submitted for approval");
 
         AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         WorkflowStartRequested payload = new WorkflowStartRequested(
@@ -370,10 +359,8 @@ public class ContractService {
                     "Contract %s is %s; only a REJECTED contract is revised (CTR-04)"
                             .formatted(contract.getContractNo(), before));
         }
-        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
-                before, DocumentStatus.DRAFT, TriggerKind.U, null,
+        transitions.transition(contract, DocumentStatus.DRAFT, TriggerKind.U, null,
                 "Reopened for revision after rejection (CTR-04)");
-        contract.setStatus(DocumentStatus.DRAFT);
         return contract;
     }
 
@@ -459,10 +446,8 @@ public class ContractService {
         if (before != DocumentStatus.APPROVED) {
             return;
         }
-        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
-                before, DocumentStatus.ACTIVE, TriggerKind.S, null,
+        transitions.transition(contract, DocumentStatus.ACTIVE, TriggerKind.S, null,
                 "Effective date reached (CTR-05, D14d)");
-        contract.setStatus(DocumentStatus.ACTIVE);
     }
 
     /**
@@ -481,10 +466,8 @@ public class ContractService {
         if (!contract.getValidTo().isBefore(today)) {
             return;
         }
-        transitions.transition(EntityType.CONTRACT, contract.getId(), contract.getContractNo(),
-                before, DocumentStatus.EXPIRED, TriggerKind.S, null,
+        transitions.transition(contract, DocumentStatus.EXPIRED, TriggerKind.S, null,
                 "End date passed (D14d)");
-        contract.setStatus(DocumentStatus.EXPIRED);
     }
 
     /**

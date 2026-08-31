@@ -3,8 +3,6 @@ package com.abclogistics.pas.contract.service;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
-import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
@@ -74,7 +72,7 @@ public class CustomerService {
     public Customer create(CustomerRequest request) {
         Customer customer = Customer.create(numbers.nextCustomerCode(), request.name());
         applyFields(customer, request);
-        stampCreator(customer);
+        RecordStamp.creator(customer);
         customers.save(customer);
         replaceContacts(customer, request.contacts());
 
@@ -96,7 +94,7 @@ public class CustomerService {
         // taken before anything is applied: the audit row is the only record of the prior value
         Map<String, Object> was = snapshot(customer, contactsOf(id));
         applyFields(customer, request);
-        stampEditor(customer);
+        RecordStamp.editor(customer);
         List<CustomerContact> contactsAfter = replaceContacts(customer, request.contacts());
 
         audit.record(ENTITY, customer.getId(), customer.getCode(), "UPDATE",
@@ -112,7 +110,7 @@ public class CustomerService {
             throw new ConflictException("Customer %s is already suspended".formatted(customer.getCode()));
         }
         customer.setStatus(CustomerStatus.SUSPENDED);
-        stampEditor(customer);
+        RecordStamp.editor(customer);
         audit.record(ENTITY, customer.getId(), customer.getCode(), "SUSPEND",
                 CustomerStatus.ACTIVE.name(), CustomerStatus.SUSPENDED.name(), reason, Map.of());
     }
@@ -124,7 +122,7 @@ public class CustomerService {
             throw new ConflictException("Customer %s is already active".formatted(customer.getCode()));
         }
         customer.setStatus(CustomerStatus.ACTIVE);
-        stampEditor(customer);
+        RecordStamp.editor(customer);
         audit.record(ENTITY, customer.getId(), customer.getCode(), "ACTIVATE",
                 CustomerStatus.SUSPENDED.name(), CustomerStatus.ACTIVE.name(), null, Map.of());
     }
@@ -184,18 +182,4 @@ public class CustomerService {
                 .toList();
     }
 
-    private void stampCreator(Customer customer) {
-        SecurityUtils.currentUser().ifPresent(user -> {
-            customer.setCreatedBy(user.userId());
-            customer.setCreatedByName(user.fullName());
-            customer.setCreatedByDepartment(user.department());
-        });
-    }
-
-    private void stampEditor(Customer customer) {
-        SecurityUtils.currentUser().ifPresent((AuthenticatedUser user) -> {
-            customer.setUpdatedBy(user.userId());
-            customer.setUpdatedByName(user.fullName());
-        });
-    }
 }

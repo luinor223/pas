@@ -23,7 +23,7 @@ import java.util.UUID;
 /** Contract addendum (4.3) — own row, own workflow instance, same status enum as {@link Contract}. */
 @Entity
 @Table(name = "addendum", schema = "contract")
-public class Addendum extends BaseEntity implements ApprovableDocument {
+public class Addendum extends BaseEntity implements ApprovableDocument, ActorStamped {
 
     @Id
     @UuidGenerator

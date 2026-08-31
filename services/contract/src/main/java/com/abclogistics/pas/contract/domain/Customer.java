@@ -13,7 +13,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "customer", schema = "contract")
-public class Customer extends BaseEntity {
+public class Customer extends BaseEntity implements ActorStamped {
 
     @Id
     @UuidGenerator

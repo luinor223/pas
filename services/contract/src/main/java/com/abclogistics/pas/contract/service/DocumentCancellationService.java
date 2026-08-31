@@ -245,12 +245,8 @@ public class DocumentCancellationService {
     }
 
     private void applyCancellation(EntityType type, UUID id, String reason) {
-        ApprovableDocument document = load(type, id);
-        DocumentStatus before = document.getStatus();
-        transitions.transition(type, document.getId(), document.getDocumentNo(),
-                before, DocumentStatus.CANCELLED, TriggerKind.U, null,
+        transitions.transition(load(type, id), DocumentStatus.CANCELLED, TriggerKind.U, null,
                 RequestValues.blankToNull(reason));
-        document.setStatus(DocumentStatus.CANCELLED);
     }
 
     private boolean isStale(OutboxEvent row) {
