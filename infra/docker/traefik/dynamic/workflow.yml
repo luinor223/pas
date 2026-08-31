@@ -1,0 +1,19 @@
+http:
+  routers:
+    workflow:
+      rule: PathPrefix(`/api/v1/workflow-definitions`) || PathPrefix(`/api/v1/workflow-steps`) || PathPrefix(`/api/v1/inbox`)
+      entryPoints: [web]
+      middlewares: [workflow-ratelimit, jwt-auth@file, api-v1-strip]
+      service: workflow
+
+  middlewares:
+    workflow-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+
+  services:
+    workflow:
+      loadBalancer:
+        servers:
+          - url: http://workflow-service:8006

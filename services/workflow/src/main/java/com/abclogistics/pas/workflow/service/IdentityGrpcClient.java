@@ -5,6 +5,7 @@ import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;
 import com.abclogistics.pas.identity.grpc.UserRef;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -20,12 +21,13 @@ public class IdentityGrpcClient {
     private final ManagedChannel channel;
     private final IdentityInternalGrpc.IdentityInternalBlockingStub stub;
 
+    @Autowired
     public IdentityGrpcClient(@Value("${identity.grpc.host:localhost}") String host,
                               @Value("${identity.grpc.port:50051}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port)
                 .usePlaintext()
                 .build();
-        this.stub = IdentityInternalGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS);
+        this.stub = IdentityInternalGrpc.newBlockingStub(channel);
     }
 
     /** For test doubles that don't need a real channel. */
@@ -36,7 +38,7 @@ public class IdentityGrpcClient {
 
     public List<UserRef> listUsersByRole(String roleCode) {
         ListUsersByRoleRequest req = ListUsersByRoleRequest.newBuilder().setRoleCode(roleCode).build();
-        return stub.listUsersByRole(req).getUsersList();
+        return stub.withDeadlineAfter(2, TimeUnit.SECONDS).listUsersByRole(req).getUsersList();
     }
 
     public void shutdown() {
