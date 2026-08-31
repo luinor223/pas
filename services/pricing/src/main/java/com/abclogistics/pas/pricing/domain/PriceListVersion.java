@@ -48,6 +48,9 @@ public class PriceListVersion extends BaseEntity {
     @Column(name = "addendum_id")
     private UUID addendumId;
 
+    @Column(name = "expiry_warned_at")
+    private java.time.Instant expiryWarnedAt;
+
     @Version
     @Column(nullable = false)
     private int version;
@@ -73,7 +76,9 @@ public class PriceListVersion extends BaseEntity {
     public String getScopeKey() { return scopeKey; }
     public UUID getAddendumId() { return addendumId; }
     public int getVersion() { return version; }
+    public java.time.Instant getExpiryWarnedAt() { return expiryWarnedAt; }
 
     public void setStatus(PriceListVersionStatus status) { this.status = status; }
     public void setValidTo(LocalDate validTo) { this.validTo = validTo; }
+    public void setExpiryWarnedAt(java.time.Instant expiryWarnedAt) { this.expiryWarnedAt = expiryWarnedAt; }
 }

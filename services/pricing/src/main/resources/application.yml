@@ -58,6 +58,9 @@ workflow:
 pricing:
   kafka:
     listener-enabled: true
+  status-sweep-interval: PT60S
+  status-sweep-enabled: true
+  expiry-warning-days: 30
 
 redis:
   perm-cache-ttl: PT6H
