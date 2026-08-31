@@ -37,10 +37,27 @@ spring:
       properties:
         enable.idempotence: true
         max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: pricing-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
 
   grpc:
     server:
       port: 50053
+
+workflow:
+  grpc:
+    host: ${WORKFLOW_GRPC_HOST:localhost}
+    port: ${WORKFLOW_GRPC_PORT:50056}
+
+pricing:
+  kafka:
+    listener-enabled: true
 
 redis:
   perm-cache-ttl: PT6H
