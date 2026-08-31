@@ -1,6 +1,6 @@
 package com.abclogistics.pas.contract;
 
-import com.abclogistics.pas.contract.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelOutcome;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient.CancelResult;

@@ -8,7 +8,7 @@ import com.abclogistics.pas.contract.domain.Contract;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
-import com.abclogistics.pas.contract.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.service.AddendumService;

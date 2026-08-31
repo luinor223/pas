@@ -7,7 +7,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.domain.TriggerKind;
-import com.abclogistics.pas.contract.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;

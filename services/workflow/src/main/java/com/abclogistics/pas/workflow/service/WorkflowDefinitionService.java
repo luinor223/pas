@@ -3,7 +3,7 @@ package com.abclogistics.pas.workflow.service;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.security.SecurityUtils;
-import com.abclogistics.pas.workflow.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.domain.DocumentTypeConfig;
 import com.abclogistics.pas.workflow.domain.WorkflowDefinition;
 import com.abclogistics.pas.workflow.domain.WorkflowStepDefinition;
