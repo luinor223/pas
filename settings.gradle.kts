@@ -5,6 +5,7 @@ include("proto")
 
 include("services:identity")
 include("services:workflow")
+include("services:contract")
 
 // services:identity -> identity-service, libs:common -> common
 rootProject.children.forEach { group ->

@@ -3,7 +3,7 @@ package com.abclogistics.pas.workflow.grpc;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.workflow.error.AbortedException;
-import com.abclogistics.pas.workflow.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.domain.StepAssignee;
 import com.abclogistics.pas.workflow.domain.WorkflowAction;
 import com.abclogistics.pas.workflow.domain.WorkflowInstance;

@@ -1,6 +1,5 @@
-package com.abclogistics.pas.workflow.error;
+package com.abclogistics.pas.common.error;
 
-import com.abclogistics.pas.common.error.DomainException;
 import org.springframework.http.HttpStatus;
 
 /**

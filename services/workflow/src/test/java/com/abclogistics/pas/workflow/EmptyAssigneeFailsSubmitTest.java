@@ -1,7 +1,7 @@
 package com.abclogistics.pas.workflow;
 
 import com.abclogistics.pas.identity.grpc.UserRef;
-import com.abclogistics.pas.workflow.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.service.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.service.WorkflowInstanceService;
 import org.junit.jupiter.api.BeforeEach;

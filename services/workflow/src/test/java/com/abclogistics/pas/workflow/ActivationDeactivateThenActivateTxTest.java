@@ -3,7 +3,7 @@ package com.abclogistics.pas.workflow;
 import com.abclogistics.pas.workflow.dto.CreateDefinitionRequest;
 import com.abclogistics.pas.workflow.dto.UpdateStepsRequest;
 import com.abclogistics.pas.workflow.dto.WorkflowDefinitionResponse;
-import com.abclogistics.pas.workflow.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.repository.WorkflowDefinitionRepository;
 import com.abclogistics.pas.workflow.service.WorkflowDefinitionService;
 import org.junit.jupiter.api.Tag;

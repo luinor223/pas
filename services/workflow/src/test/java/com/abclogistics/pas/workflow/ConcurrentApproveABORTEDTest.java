@@ -1,5 +1,6 @@
 package com.abclogistics.pas.workflow;
 
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.identity.grpc.UserRef;
 import com.abclogistics.pas.workflow.domain.WorkflowInstance;
@@ -134,7 +135,7 @@ class ConcurrentApproveABORTEDTest {
         assertThat(successes).isEqualTo(1);
         assertThat(losers).isEqualTo(1);
         Exception loser = ex1.get() != null ? ex1.get() : ex2.get();
-        assertThat(loser).isInstanceOfAny(AbortedException.class, com.abclogistics.pas.workflow.error.FailedPreconditionException.class, org.springframework.dao.OptimisticLockingFailureException.class);
+        assertThat(loser).isInstanceOfAny(AbortedException.class, FailedPreconditionException.class, org.springframework.dao.OptimisticLockingFailureException.class);
 
         // verify step now APPROVED
         WorkflowStepInstance after = stepRepo.findById(stepId).orElseThrow();
