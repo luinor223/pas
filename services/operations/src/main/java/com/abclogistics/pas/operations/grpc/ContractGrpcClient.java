@@ -3,9 +3,14 @@ package com.abclogistics.pas.operations.grpc;
 import com.abclogistics.pas.contract.grpc.ContractInternalGrpc;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
+import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.operations.error.FailedPreconditionException;
+import com.abclogistics.pas.operations.error.ServiceUnavailableException;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -18,7 +23,7 @@ public class ContractGrpcClient {
     private final ManagedChannel channel;
     private final ContractInternalGrpc.ContractInternalBlockingStub stub;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public ContractGrpcClient(
             @Value("${contract.grpc.host:localhost}") String host,
             @Value("${contract.grpc.port:50052}") int port) {
@@ -34,7 +39,7 @@ public class ContractGrpcClient {
 
     public GetContractResponse getContract(UUID contractId) {
         if (stub == null) {
-            throw new com.abclogistics.pas.operations.error.ServiceUnavailableException("Contract stub not initialized");
+            throw new ServiceUnavailableException("Contract stub not initialized");
         }
         GetContractRequest req = GetContractRequest.newBuilder().setId(contractId.toString()).build();
         try {
@@ -47,12 +52,12 @@ public class ContractGrpcClient {
 
     private RuntimeException mapStatus(StatusRuntimeException e) {
         return switch (e.getStatus().getCode()) {
-            case NOT_FOUND -> new com.abclogistics.pas.common.error.NotFoundException("Contract not found: " + e.getStatus().getDescription());
-            case UNAVAILABLE -> new com.abclogistics.pas.operations.error.ServiceUnavailableException("Contract service unavailable: " + e.getStatus().getDescription());
-            case FAILED_PRECONDITION -> new com.abclogistics.pas.operations.error.FailedPreconditionException("Contract lookup failed: " + e.getStatus().getDescription());
-            case ABORTED -> new com.abclogistics.pas.common.error.ConflictException("Contract concurrent conflict: " + e.getStatus().getDescription());
+            case NOT_FOUND -> new NotFoundException("Contract not found: " + e.getStatus().getDescription());
+            case UNAVAILABLE -> new ServiceUnavailableException("Contract service unavailable: " + e.getStatus().getDescription());
+            case FAILED_PRECONDITION -> new FailedPreconditionException("Contract lookup failed: " + e.getStatus().getDescription());
+            case ABORTED -> new ConflictException("Contract concurrent conflict: " + e.getStatus().getDescription());
             case INVALID_ARGUMENT -> new IllegalArgumentException("Contract invalid argument: " + e.getStatus().getDescription());
-            default -> new com.abclogistics.pas.common.error.ConflictException("Contract lookup failed (" + e.getStatus().getCode() + "): " + e.getStatus().getDescription());
+            default -> new ConflictException("Contract lookup failed (" + e.getStatus().getCode() + "): " + e.getStatus().getDescription());
         };
     }
 

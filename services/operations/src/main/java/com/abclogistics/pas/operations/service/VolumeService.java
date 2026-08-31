@@ -8,6 +8,7 @@ import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import com.abclogistics.pas.operations.domain.OperationPeriod;
 import com.abclogistics.pas.operations.domain.VolumeRecord;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
+import com.abclogistics.pas.operations.error.FailedPreconditionException;
 import com.abclogistics.pas.operations.grpc.ContractGrpcClient;
 import com.abclogistics.pas.operations.grpc.PricingGrpcClient;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
@@ -18,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -74,7 +76,7 @@ public class VolumeService {
         }
         GetServiceItemResponse serviceItem = pricingClient.getServiceItem(serviceCode);
         if (!serviceItem.getIsActive()) {
-            throw new com.abclogistics.pas.operations.error.FailedPreconditionException("Service item not active: " + serviceCode);
+            throw new FailedPreconditionException("Service item not active: " + serviceCode);
         }
         String serviceName = serviceItem.getName();
         String unit = serviceItem.getUnit();
@@ -216,7 +218,7 @@ public class VolumeService {
     }
 
     private java.util.Set<String> currentPermissions() {
-        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        var auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return java.util.Set.of();
         return auth.getAuthorities().stream()
                 .map(a -> a.getAuthority())

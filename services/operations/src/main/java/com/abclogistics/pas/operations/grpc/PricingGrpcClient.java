@@ -3,9 +3,14 @@ package com.abclogistics.pas.operations.grpc;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemRequest;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
 import com.abclogistics.pas.pricing.grpc.PricingInternalGrpc;
+import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.operations.error.FailedPreconditionException;
+import com.abclogistics.pas.operations.error.ServiceUnavailableException;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,7 +22,7 @@ public class PricingGrpcClient {
     private final ManagedChannel channel;
     private final PricingInternalGrpc.PricingInternalBlockingStub stub;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public PricingGrpcClient(
             @Value("${pricing.grpc.host:localhost}") String host,
             @Value("${pricing.grpc.port:50053}") int port) {
@@ -32,7 +37,7 @@ public class PricingGrpcClient {
 
     public GetServiceItemResponse getServiceItem(String code) {
         if (stub == null) {
-            throw new com.abclogistics.pas.operations.error.ServiceUnavailableException("Pricing stub not initialized");
+            throw new ServiceUnavailableException("Pricing stub not initialized");
         }
         GetServiceItemRequest req = GetServiceItemRequest.newBuilder().setCode(code).build();
         try {
@@ -44,12 +49,12 @@ public class PricingGrpcClient {
 
     private RuntimeException mapStatus(StatusRuntimeException e, String code) {
         return switch (e.getStatus().getCode()) {
-            case NOT_FOUND -> new com.abclogistics.pas.common.error.NotFoundException("Service item not found: " + code);
-            case UNAVAILABLE -> new com.abclogistics.pas.operations.error.ServiceUnavailableException("Pricing service unavailable: " + e.getStatus().getDescription());
-            case FAILED_PRECONDITION -> new com.abclogistics.pas.operations.error.FailedPreconditionException("Service item lookup failed: " + e.getStatus().getDescription());
-            case ABORTED -> new com.abclogistics.pas.common.error.ConflictException("Pricing concurrent conflict: " + e.getStatus().getDescription());
+            case NOT_FOUND -> new NotFoundException("Service item not found: " + code);
+            case UNAVAILABLE -> new ServiceUnavailableException("Pricing service unavailable: " + e.getStatus().getDescription());
+            case FAILED_PRECONDITION -> new FailedPreconditionException("Service item lookup failed: " + e.getStatus().getDescription());
+            case ABORTED -> new ConflictException("Pricing concurrent conflict: " + e.getStatus().getDescription());
             case INVALID_ARGUMENT -> new IllegalArgumentException("Pricing invalid argument: " + e.getStatus().getDescription());
-            default -> new com.abclogistics.pas.common.error.ConflictException("Pricing lookup failed (" + e.getStatus().getCode() + "): " + e.getStatus().getDescription());
+            default -> new ConflictException("Pricing lookup failed (" + e.getStatus().getCode() + "): " + e.getStatus().getDescription());
         };
     }
 

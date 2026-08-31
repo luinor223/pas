@@ -6,6 +6,7 @@ import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -13,8 +14,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.concurrent.TimeUnit;
 
 @Component
-@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
-        prefix = "outbox.relay", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "outbox.relay", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class OperationsOutboxRelay extends OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(OperationsOutboxRelay.class);
