@@ -82,6 +82,7 @@ public class PriceListVersionService {
             requireStatus(version, PriceListVersionStatus.DRAFT, "submit");
             PriceList list = lists.findById(version.getPriceListId())
                     .orElseThrow(() -> new NotFoundException("No price list " + version.getPriceListId()));
+            assertNoBlockingOverlap(version);
 
             transition(version, PriceListVersionStatus.SUBMITTED, TriggerKind.U, null, "Submitted for approval");
 
@@ -112,9 +113,68 @@ public class PriceListVersionService {
             log.debug("workflow.completed for {} ignored: already {}", versionId, version.getStatus());
             return;
         }
-        PriceListVersionStatus target = "APPROVED".equals(outcome)
-                ? PriceListVersionStatus.APPROVED : PriceListVersionStatus.REJECTED;
-        transition(version, target, TriggerKind.W, instanceId, "Workflow outcome " + outcome);
+        if ("APPROVED".equals(outcome)) {
+            truncateOverlappingPredecessors(version);   // §9³, before the APPROVED flip trips EXCLUDE
+            transition(version, PriceListVersionStatus.APPROVED, TriggerKind.W, instanceId, "Workflow outcome APPROVED");
+        } else {
+            transition(version, PriceListVersionStatus.REJECTED, TriggerKind.W, instanceId, "Workflow outcome " + outcome);
+        }
+    }
+
+    /** Scheduler: APPROVED → EFFECTIVE at valid_from, superseding the effective predecessor (PRC-04). */
+    @Transactional
+    public void activate(UUID versionId) {
+        PriceListVersion version = versions.findById(versionId)
+                .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
+        requireStatus(version, PriceListVersionStatus.APPROVED, "activate");
+        for (PriceListVersion predecessor :
+                versions.effectivePredecessors(version.getScopeKey(), version.getId(), version.getValidFrom())) {
+            transition(predecessor, PriceListVersionStatus.SUPERSEDED, TriggerKind.S, version.getId(),
+                    "Superseded by v" + version.getVersionNo());
+        }
+        transition(version, PriceListVersionStatus.EFFECTIVE, TriggerKind.S, null, "Became effective");
+    }
+
+    /** Stamps a version as warned after the D9 warning is acked, so it does not re-fire next sweep. */
+    @Transactional
+    public void markExpiryWarned(UUID versionId) {
+        versions.findById(versionId).ifPresent(v -> v.setExpiryWarnedAt(java.time.Instant.now()));
+    }
+
+    /** Scheduler: EFFECTIVE → EXPIRED after valid_to. */
+    @Transactional
+    public void expire(UUID versionId) {
+        PriceListVersion version = versions.findById(versionId)
+                .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
+        requireStatus(version, PriceListVersionStatus.EFFECTIVE, "expire");
+        transition(version, PriceListVersionStatus.EXPIRED, TriggerKind.S, null, "Validity ended");
+    }
+
+    /** Rejects a submit that overlaps a peer we cannot truncate (one starting on/after this version's
+     *  valid_from). A true predecessor (earlier valid_from) is fine — it is truncated at approval. */
+    private void assertNoBlockingOverlap(PriceListVersion version) {
+        for (PriceListVersion peer : versions.overlapping(
+                version.getScopeKey(), version.getId(), version.getValidFrom(), version.getValidTo())) {
+            if (!peer.getValidFrom().isBefore(version.getValidFrom())) {
+                throw new ConflictException("Validity overlaps an existing effective version of the same scope (PRC-03)");
+            }
+        }
+    }
+
+    /** Truncates each overlapping predecessor's valid_to to the day before this version starts, in the
+     *  same transaction, so the successor's APPROVED flip does not trip the PRC-03 EXCLUDE constraint. */
+    private void truncateOverlappingPredecessors(PriceListVersion successor) {
+        java.time.LocalDate cutoff = successor.getValidFrom().minusDays(1);
+        for (PriceListVersion predecessor : versions.overlapping(
+                successor.getScopeKey(), successor.getId(), successor.getValidFrom(), successor.getValidTo())) {
+            if (predecessor.getValidFrom().isBefore(successor.getValidFrom())
+                    && predecessor.getValidTo().isAfter(cutoff)) {
+                predecessor.setValidTo(cutoff);
+                history.save(new StatusHistory(predecessor.getId(), predecessor.getStatus(), predecessor.getStatus(),
+                        TriggerKind.S, successor.getId(), "Truncated by successor v" + successor.getVersionNo(),
+                        SecurityUtils.currentUserId()));
+            }
+        }
     }
 
     /** Sets the status, appends the history row, and writes the audit record — one transaction. */
