@@ -1,0 +1,64 @@
+server:
+  port: 8009
+
+spring:
+  application:
+    name: audit-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_audit}
+    username: ${DB_USER:audit}
+    password: ${DB_PASSWORD:audit}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: audit
+
+  flyway:
+    enabled: true
+    schemas: audit
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    consumer:
+      group-id: audit-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+  grpc:
+    server:
+      port: 50059
+
+redis:
+  perm-cache-ttl: PT6H
+  perm-prefix: "perm:role:"
+
+# audit-service audits nothing of its own and produces no events (db-audit.md).
+outbox:
+  relay:
+    enabled: false
+
+audit:
+  kafka:
+    dlt-suffix: ".DLT"
+    retry-attempts: 3
+    retry-backoff: PT2S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
