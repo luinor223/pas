@@ -18,6 +18,7 @@ public class ContractGrpcClient {
     private final ManagedChannel channel;
     private final ContractInternalGrpc.ContractInternalBlockingStub stub;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ContractGrpcClient(
             @Value("${contract.grpc.host:localhost}") String host,
             @Value("${contract.grpc.port:50052}") int port) {
@@ -32,6 +33,9 @@ public class ContractGrpcClient {
     }
 
     public GetContractResponse getContract(UUID contractId) {
+        if (stub == null) {
+            throw new com.abclogistics.pas.operations.error.ServiceUnavailableException("Contract stub not initialized");
+        }
         GetContractRequest req = GetContractRequest.newBuilder().setId(contractId.toString()).build();
         try {
             // per-call deadline — not one-shot at construction (P0-2)

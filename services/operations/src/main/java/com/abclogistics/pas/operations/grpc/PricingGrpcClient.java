@@ -17,6 +17,7 @@ public class PricingGrpcClient {
     private final ManagedChannel channel;
     private final PricingInternalGrpc.PricingInternalBlockingStub stub;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public PricingGrpcClient(
             @Value("${pricing.grpc.host:localhost}") String host,
             @Value("${pricing.grpc.port:50053}") int port) {
@@ -30,6 +31,9 @@ public class PricingGrpcClient {
     }
 
     public GetServiceItemResponse getServiceItem(String code) {
+        if (stub == null) {
+            throw new com.abclogistics.pas.operations.error.ServiceUnavailableException("Pricing stub not initialized");
+        }
         GetServiceItemRequest req = GetServiceItemRequest.newBuilder().setCode(code).build();
         try {
             return stub.withDeadlineAfter(2, TimeUnit.SECONDS).getServiceItem(req);

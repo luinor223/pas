@@ -1,0 +1,30 @@
+http:
+  routers:
+    operations:
+      rule: PathPrefix(`/api/v1/periods`) || PathPrefix(`/api/v1/volume-records`)
+      entryPoints: [web]
+      middlewares: [operations-ratelimit, jwt-auth@file, api-v1-strip]
+      service: operations
+    operations-docs:
+      rule: PathPrefix(`/docs/operations`)
+      entryPoints: [web]
+      middlewares: [operations-docs-strip]
+      service: operations
+
+  middlewares:
+    api-v1-strip:
+      stripPrefix:
+        prefixes: [/api/v1]
+    operations-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+    operations-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/operations]
+
+  services:
+    operations:
+      loadBalancer:
+        servers:
+          - url: http://operations-service:8004
