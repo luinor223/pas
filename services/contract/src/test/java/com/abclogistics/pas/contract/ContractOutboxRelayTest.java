@@ -430,13 +430,26 @@ class ContractOutboxRelayTest {
                 payload.documentId(), MAPPER.writeValueAsString(payload));
     }
 
-    /** Wires the mocks so {@code pollAndDispatch} sees these rows and wins every claim. */
+    /** Wires the mocks so {@code pollAndDispatch} sees these rows and wins every claim. The two
+     *  bulk UPDATEs are stubbed to apply what their JPQL does, or every outcome assertion below
+     *  passes vacuously. */
     private OutboxEvent queued(OutboxEvent... events) {
         when(outbox.findUnpublishedForRelay(any(Instant.class), any(Limit.class)))
                 .thenReturn(List.of(events));
         when(outbox.claim(any(UUID.class), any(Instant.class), any(Instant.class))).thenReturn(1);
         for (OutboxEvent event : events) {
             when(outbox.findById(event.getId())).thenReturn(Optional.of(event));
+            when(outbox.markPublished(eq(event.getId()), any(Instant.class))).thenAnswer(call -> {
+                event.markPublished();
+                if (event.getClaimedAt() == null) {
+                    event.markClaimed();   // the query coalesces claimed_at
+                }
+                return 1;
+            });
+            when(outbox.releaseClaim(event.getId())).thenAnswer(call -> {
+                event.releaseClaim();
+                return 1;
+            });
         }
         return events[0];
     }
