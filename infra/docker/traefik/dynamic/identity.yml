@@ -10,6 +10,11 @@ http:
       entryPoints: [web]
       middlewares: [identity-ratelimit, jwt-auth@file, api-v1-strip]
       service: identity
+    identity-docs:
+      rule: PathPrefix(`/docs/identity`)
+      entryPoints: [web]
+      middlewares: [identity-docs-strip]
+      service: identity
 
   middlewares:
     identity-ratelimit:
@@ -19,6 +24,9 @@ http:
     api-v1-strip:
       stripPrefix:
         prefixes: [/api/v1]
+    identity-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/identity]
 
   services:
     identity:

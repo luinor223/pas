@@ -107,6 +107,7 @@ services:
       - "traefik.http.middlewares.identity-ratelimit.ratelimit.average=100"
       - "traefik.http.middlewares.identity-ratelimit.ratelimit.burst=50"
       - "traefik.http.middlewares.api-v1-strip.stripprefix.prefixes=/api/v1"
+      - "traefik.http.middlewares.identity-docs-strip.stripprefix.prefixes=/docs/identity"
       # public — no auth (login/refresh/logout must be reachable without a token)
       - "traefik.http.routers.identity-public.rule=PathPrefix(`/api/v1/auth`)"
       - "traefik.http.routers.identity-public.entrypoints=web"
@@ -115,6 +116,11 @@ services:
       - "traefik.http.routers.identity.rule=PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`)"
       - "traefik.http.routers.identity.entrypoints=web"
       - "traefik.http.routers.identity.middlewares=identity-ratelimit,jwt-auth@file,api-v1-strip"
+      # docs - public
+      - "traefik.http.routers.identity-docs.rule=PathPrefix(`/docs/identity`)"
+      - "traefik.http.routers.identity-docs.entrypoints=web"
+      - "traefik.http.routers.identity-docs.service=identity"
+      - "traefik.http.routers.identity-docs.middlewares=identity-docs-strip"
 
   workflow-service:
     build:
@@ -145,9 +151,15 @@ services:
       - "traefik.http.services.workflow.loadbalancer.server.port=8006"
       - "traefik.http.middlewares.workflow-ratelimit.ratelimit.average=100"
       - "traefik.http.middlewares.workflow-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.workflow-docs-strip.stripprefix.prefixes=/docs/workflow"
       - "traefik.http.routers.workflow.rule=PathPrefix(`/api/v1/workflow-definitions`) || PathPrefix(`/api/v1/workflow-steps`) || PathPrefix(`/api/v1/inbox`)"
       - "traefik.http.routers.workflow.entrypoints=web"
       - "traefik.http.routers.workflow.middlewares=workflow-ratelimit,jwt-auth@file,api-v1-strip"
+      # docs - public
+      - "traefik.http.routers.workflow-docs.rule=PathPrefix(`/docs/workflow`)"
+      - "traefik.http.routers.workflow-docs.entrypoints=web"
+      - "traefik.http.routers.workflow-docs.service=workflow"
+      - "traefik.http.routers.workflow-docs.middlewares=workflow-docs-strip"
 
 volumes:
   pgdata:

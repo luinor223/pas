@@ -5,12 +5,20 @@ http:
       entryPoints: [web]
       middlewares: [workflow-ratelimit, jwt-auth@file, api-v1-strip]
       service: workflow
+    workflow-docs:
+      rule: PathPrefix(`/docs/workflow`)
+      entryPoints: [web]
+      middlewares: [workflow-docs-strip]
+      service: workflow
 
   middlewares:
     workflow-ratelimit:
       rateLimit:
         average: 100
         burst: 50
+    workflow-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/workflow]
 
   services:
     workflow:
