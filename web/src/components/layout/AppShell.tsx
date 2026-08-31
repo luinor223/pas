@@ -69,9 +69,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ))}
             {/* future: hide Audit Log unless audit:view_all */}
           </nav>
-          <div className="mt-6 text-xs text-muted-foreground px-3">
-            <div>Logged: {user?.username}</div>
-            <div className="truncate">Roles: {user?.roles.join(", ")}</div>
+          <div className="mt-auto pt-6">
+            {user && (
+              <div className="flex items-center gap-3 px-3 py-3 rounded-lg bg-muted/50 border">
+                <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold shrink-0">
+                  {user.fullName
+                    .split(" ")
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")
+                    .toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium leading-none truncate">{user.fullName}</div>
+                  <div className="text-xs text-muted-foreground truncate">{user.roles[0]?.replace("_", " ") ?? user.roles.join(", ")}</div>
+                </div>
+              </div>
+            )}
           </div>
         </aside>
 
