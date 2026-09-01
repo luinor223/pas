@@ -1,7 +1,7 @@
-import { createRootRouteWithContext, Outlet, redirect } from "@tanstack/react-router";
+import { createRootRouteWithContext, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/app/AppShell";
-import { currentUserQuery, useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { currentUserQuery } from "@/features/auth/hooks/useCurrentUser";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   beforeLoad: async ({ location, context }) => {
@@ -20,8 +20,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function Root() {
-  const { data: user } = useCurrentUser();
-  if (!user) return <Outlet />;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (pathname === "/login") return <Outlet />;
   return (
     <AppShell>
       <Outlet />
