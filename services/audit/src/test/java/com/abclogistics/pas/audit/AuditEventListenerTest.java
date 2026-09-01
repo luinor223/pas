@@ -40,8 +40,7 @@ class AuditEventListenerTest {
 
     @Test
     void theDedupKeyIsTheEventIdHeader() {
-        // this id becomes the row's primary key, which is the whole reason this service needs no
-        // processed_event table — reading it from the wrong place would silently break dedup
+        // this id becomes the row's primary key — the reason this service needs no processed_event
         ConsumerRecord<String, String> record = AuditEventFixtures.recorded(
                 AuditEventFixtures.fieldEdit(UUID.randomUUID(), "HD-2026-0001", Instant.now()));
 
@@ -70,8 +69,7 @@ class AuditEventListenerTest {
 
     @Test
     void aRecordWithNoEventIdIsPermanentlyMalformed() {
-        // there is no second key to fall back on: without the header the row has no primary key,
-        // so a retry can only insert a duplicate under a fresh id
+        // there is no second key to fall back on: without the header the row has no primary key
         ConsumerRecord<String, String> noId = EventRecords.withoutHeader(
                 AuditEventFixtures.recorded(
                         AuditEventFixtures.fieldEdit(UUID.randomUUID(), "HD-2026-0001", Instant.now())),
@@ -83,14 +81,32 @@ class AuditEventListenerTest {
     }
 
     @Test
-    void nothingOnThisTopicIsFilteredOut() {
-        // pas.audit carries one event type and this is its only consumer (registry §4), so an
-        // unrecognized record is a producer bug that must reach the DLT — not routine traffic to
-        // skip, which is the opposite of the notification listener's rule
+    void anEventTypeOtherThanAuditRecordedNeverReachesIngest() {
+        // pas.audit carries one event type and this is its only consumer (registry §4)
         ConsumerRecord<String, String> odd = EventRecords.consumed(EventRecords.outboxed(
                 "something.unexpected", "CONTRACT", UUID.randomUUID(), "{}"));
 
-        listener.onAuditRecorded(odd);
+        assertThatThrownBy(() -> listener.onAuditRecorded(odd))
+                .isInstanceOf(MalformedEventException.class);
+        verify(ingest, never()).ingest(any(), anyString());
+    }
+
+    @Test
+    void aMissingEventTypeHeaderIsMalformed() {
+        ConsumerRecord<String, String> headerless = EventRecords.withoutHeader(
+                AuditEventFixtures.recorded(
+                        AuditEventFixtures.fieldEdit(UUID.randomUUID(), "HD-2026-0001", Instant.now())),
+                EventHeaders.EVENT_TYPE);
+
+        assertThatThrownBy(() -> listener.onAuditRecorded(headerless))
+                .isInstanceOf(MalformedEventException.class);
+        verify(ingest, never()).ingest(any(), anyString());
+    }
+
+    @Test
+    void aGenuineAuditRecordedEventIsIngested() {
+        listener.onAuditRecorded(AuditEventFixtures.recorded(
+                AuditEventFixtures.fieldEdit(UUID.randomUUID(), "HD-2026-0001", Instant.now())));
 
         verify(ingest).ingest(any(), anyString());
     }

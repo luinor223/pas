@@ -23,7 +23,7 @@ import java.util.UUID;
 @Component
 public class SlaScheduler {
 
-    static final String EVENT_TYPE = "workflow.step_overdue";
+    public static final String EVENT_TYPE = "workflow.step_overdue";
 
     private static final Logger log = LoggerFactory.getLogger(SlaScheduler.class);
     private final StepAssigneeRepository assigneeRepo;
@@ -88,15 +88,13 @@ public class SlaScheduler {
 
     /**
      * Derived, not random — the same reasoning that gave {@code document.expiring} its id
-     * (registry §4 change log). This event has no outbox row, and the ack and the
-     * {@code overdue_notified_at} stamp cannot be made atomic: a crash between them re-sends, and
-     * two replicas sweeping at once can both send before either stamps. A fresh uuid would make
-     * each of those a new event, so notification-service could not dedupe it and would nag twice.
-     *
-     * <p>The deadline is part of the key deliberately — a step whose SLA was extended is overdue
-     * against a different deadline, which is a genuinely new warning and earns a new id.
+     * (registry §4 change log). This event has no outbox row, and the ack and the {@code
+     * overdue_notified_at} stamp cannot be made atomic: a crash between them re-sends, and two
+     * replicas sweeping at once can both send before either stamps. A fresh uuid would make
+     * each of those a new event, so notification-service could not dedupe it and would nag
+     * twice.
      */
-    static UUID eventId(UUID stepInstanceId, Instant deadline) {
+    public static UUID eventId(UUID stepInstanceId, Instant deadline) {
         String name = "%s:%s:%s".formatted(EVENT_TYPE, stepInstanceId, deadline);
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8));
     }

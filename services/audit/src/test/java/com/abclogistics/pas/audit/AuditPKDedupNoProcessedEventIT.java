@@ -28,13 +28,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * db-audit.md's central claim: {@code id = outbox row id = envelope event_id}, so the primary key
- * <em>is</em> the dedup key and this service needs no {@code processed_event} table. That second
- * half is asserted too — a {@code processed_event} appearing here would mean someone stopped
- * trusting the PK and added a redundant round trip on the hottest write path in the system.
- *
- * <p>Driven through the listener with records shaped by the real relay, so the ingest path is
- * exercised end to end rather than from a hand-written string that no producer sends.
+ * db-audit.md's central claim: {@code id = outbox row id = envelope event_id}, so the primary
+ * key <em>is</em> the dedup key and this service needs no {@code processed_event} table. That
+ * second half is asserted too — a {@code processed_event} appearing here would mean someone
+ * stopped trusting the PK and added a redundant round trip on the hottest write path in the
+ * system.
  */
 @Tag("integration")
 @Testcontainers
@@ -64,8 +62,7 @@ class AuditPKDedupNoProcessedEventIT {
     @Autowired AuditRecordRepository records;
     @Autowired JdbcTemplate jdbc;
 
-    // the container is shared across the class and the trail has no delete path, so the fixture
-    // clears it directly — the tests below count rows, which only means something from empty
+    // the container is shared across the class and the trail has no delete path
     @BeforeEach
     void empty() {
         jdbc.execute("truncate table audit.audit_record");
@@ -87,8 +84,7 @@ class AuditPKDedupNoProcessedEventIT {
 
     @Test
     void aRedeliveryDoesNotOverwriteWhatWasStored() {
-        // ON CONFLICT DO NOTHING, never DO UPDATE: the trail is append-only, and a replayed record
-        // with a mangled payload must not be able to rewrite the original
+        // ON CONFLICT DO NOTHING, never DO UPDATE
         UUID entityId = UUID.randomUUID();
         AuditPayload original = AuditEventFixtures.statusChange(
                 entityId, "CREATE", null, "DRAFT", UUID.randomUUID(), Instant.now());

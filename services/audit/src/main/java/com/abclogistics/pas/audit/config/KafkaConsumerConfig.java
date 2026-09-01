@@ -1,6 +1,6 @@
 package com.abclogistics.pas.audit.config;
 
-import com.abclogistics.pas.common.events.MalformedEventException;
+import com.abclogistics.pas.common.events.ConsumerErrorHandling;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,23 +10,11 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.util.backoff.FixedBackOff;
-import tools.jackson.core.JacksonException;
 
 import java.time.Duration;
 
-/**
- * The consumer half of registry §4's "a record that can never be processed goes to
- * {@code <topic>.DLT} so the offset can advance".
- *
- * <p>Unlike a requeue, a stuck record blocks its whole partition — and the partition is keyed on
- * the document, so one poison event about one contract would stall every event about every
- * document that hashes with it. Hence the split the tests pin: a **transient** failure (Postgres
- * down, a lock contended) is retried with backoff, because it will succeed later; a
- * **permanent** one (no {@code event_id} header, a value that is not JSON) goes to the DLT on the
- * first attempt, because no number of retries makes it parseable and each one costs the partition.
- */
+/** This service's retry/DLT policy; the behaviour lives in {@link ConsumerErrorHandling}. */
 @Configuration
 public class KafkaConsumerConfig {
 
@@ -44,8 +32,7 @@ public class KafkaConsumerConfig {
 
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
-            ConsumerFactory<String, String> consumerFactory,
-            DefaultErrorHandler errorHandler) {
+            ConsumerFactory<String, String> consumerFactory, DefaultErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
@@ -55,28 +42,14 @@ public class KafkaConsumerConfig {
 
     @Bean
     public DefaultErrorHandler errorHandler(KafkaTemplate<String, String> kafkaTemplate) {
-        DefaultErrorHandler handler =
-                new DefaultErrorHandler(new DeadLetterPublishingRecoverer(kafkaTemplate, this::dlt), backOff());
-        handler.addNotRetryableExceptions(MalformedEventException.class, JacksonException.class);
-        return handler;
+        return ConsumerErrorHandling.errorHandler(kafkaTemplate, dltSuffix, retryAttempts, retryBackoff);
     }
 
-    /**
-     * Where a record goes when it cannot be recovered: {@code <topic>.DLT}, on the <b>same
-     * partition</b> it failed on, so one document's failures stay together and stay replayable in
-     * the order they happened. Each topic gets its own DLT — mixing {@code pas.audit} and
-     * {@code pas.events} poison would make either one's replay unsafe.
-     */
-    public TopicPartition dlt(ConsumerRecord<?, ?> record, Exception exception) {
-        return new TopicPartition(record.topic() + dltSuffix, record.partition());
+    public TopicPartition dlt(ConsumerRecord<?, ?> record) {
+        return ConsumerErrorHandling.dlt(record, dltSuffix);
     }
 
-    /**
-     * {@code retryAttempts} counts <em>retries</em>, so a transient failure is attempted
-     * {@code retryAttempts + 1} times before recovery. These are correctness-adjacent, not tuning:
-     * the whole partition waits out every backoff.
-     */
     public FixedBackOff backOff() {
-        return new FixedBackOff(retryBackoff.toMillis(), retryAttempts);
+        return ConsumerErrorHandling.backOff(retryAttempts, retryBackoff);
     }
 }

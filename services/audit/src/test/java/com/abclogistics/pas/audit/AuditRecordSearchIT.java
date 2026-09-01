@@ -24,14 +24,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * The admin UC "Tra cứu audit log" (seq-02) against real SQL.
- *
- * <p>{@link AuditRecordSearchTest} mocks the repository, so it can only prove the service passes
- * its arguments down — it cannot see a predicate ORed instead of ANDed, an exclusive date bound, a
- * missing {@code order by}, or a page count that double-counts a join. Those are the ways this
- * query actually breaks, and all of them need a database.
- */
+/** The admin UC "Tra cứu audit log" (seq-02) against real SQL. */
 @Tag("integration")
 @Testcontainers
 @SpringBootTest
@@ -90,7 +83,6 @@ class AuditRecordSearchIT {
     @Test
     void actorAndDateBoundTheSearchTogetherRatherThanSeparately() {
         // "what did Lan do in February" — an OR here would return Minh's February row and Lan's
-        // January and March ones, which is every row in the table
         Page<AuditRecord> page = audit.search(null, null, lan, null, null,
                 Instant.parse("2026-02-01T00:00:00Z"), Instant.parse("2026-02-28T23:59:59Z"), first());
 
@@ -100,8 +92,7 @@ class AuditRecordSearchIT {
 
     @Test
     void theDateBoundsAreInclusive() {
-        // from/to come off a date picker: a user picking 15 Jan to 15 Mar means those two days are
-        // in, and an exclusive bound silently drops the edge rows they were looking for
+        // from/to come off a date picker: a user picking 15 Jan to 15 Mar means those two days
         Page<AuditRecord> page = audit.search(null, null, null, null, null, JAN, MAR, first());
 
         assertThat(page.getTotalElements()).isEqualTo(4);
@@ -133,8 +124,7 @@ class AuditRecordSearchIT {
 
     @Test
     void aFilterMatchingNothingReturnsAnEmptyPageNotEverything() {
-        // the `:x is null or ...` idiom fails open if a parameter is bound wrong, and "no matches"
-        // silently becoming "all rows" is the worst possible failure for an audit search
+        // the `:x is null or ...` idiom fails open if a parameter is bound wrong
         Page<AuditRecord> page = audit.search(null, null, UUID.randomUUID(), null, null, null, null, first());
 
         assertThat(page.getContent()).isEmpty();

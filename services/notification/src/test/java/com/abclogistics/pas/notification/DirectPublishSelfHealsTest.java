@@ -17,15 +17,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * D9, for <b>both</b> events that publish without an outbox row. Neither has a row to lose, so the
- * producer re-publishes on every sweep until the document stops qualifying — "self-heals next run"
- * is the whole retry story. That only works because the id is <b>derived</b> rather than random:
- * the ack and the producer's own stamp cannot be made atomic, so a crash between them re-sends,
- * and two replicas sweeping at once can both send before either stamps.
- *
- * <p>Testing only {@code document.expiring} was how {@code workflow.step_overdue} stayed broken:
- * it had no {@code event_id} at all (registry §4 known issue, fixed in the same session as this
- * spec), so every re-send was undedupable and the assignees would have been nagged twice.
+ * D9, for <b>both</b> events that publish without an outbox row. Neither has a row to lose, so
+ * the producer re-publishes on every sweep until the document stops qualifying — "self-heals
+ * next run" is the whole retry story. That only works because the id is <b>derived</b> rather
+ * than random: the ack and the producer's own stamp cannot be made atomic, so a crash between
+ * them re-sends, and two replicas sweeping at once can both send before either stamps.
  */
 class DirectPublishSelfHealsTest {
 
@@ -77,8 +73,7 @@ class DirectPublishSelfHealsTest {
 
     @Test
     void reNaggingTheSameOverdueStepDoesNotDoubleTheInbox() {
-        // SlaScheduler sweeps every 60s and stamps only after the ack, so this is the common case,
-        // not an edge one
+        // SlaScheduler sweeps every 60s and stamps only after the ack
         UUID documentId = UUID.randomUUID();
         UUID stepInstanceId = UUID.randomUUID();
         List<UUID> assignees = List.of(UUID.randomUUID());
@@ -96,8 +91,7 @@ class DirectPublishSelfHealsTest {
 
     @Test
     void aStepOverdueAgainstANewDeadlineIsANewWarning() {
-        // the deadline is in the derived key for the same reason valid_to is in the expiry one: a
-        // step whose SLA was extended is overdue against something else now
+        // the deadline is in the derived key for the same reason valid_to is in the expiry one
         UUID documentId = UUID.randomUUID();
         UUID stepInstanceId = UUID.randomUUID();
         List<UUID> assignees = List.of(UUID.randomUUID());
@@ -111,8 +105,7 @@ class DirectPublishSelfHealsTest {
 
     @Test
     void everyDirectPublishCarriesTheDedupKeyItsRetryStoryDependsOn() {
-        // the invariant behind all four tests above, stated once: a D9 event with no event_id is
-        // not "missing a field", it is an event that cannot be retried safely at all
+        // the invariant behind all four tests above, stated once
         assertThat(EventFixtures.envelope(
                 EventFixtures.documentExpiring(UUID.randomUUID(), "2026-12-31", UUID.randomUUID()))
                 .eventId()).isNotNull();

@@ -10,7 +10,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -27,22 +29,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
-/**
- * D6 against a real database, because the mocked half cannot see any of this.
- *
- * <p>{@link ProcessedEventDedupTest} stubs {@code existsById}, so it proves the service asks the
- * question — not that the answer is safe. Two things only Postgres can settle: that the
- * {@code processed_event} primary key rejects a duplicate the check raced past (a rebalance can
- * hand the same record to two consumers, and check-then-act has a window between them), and that
- * the notification rows and the {@code processed_event} row commit <em>together</em> — a partial
- * commit leaves the event unprocessed with its rows already written, so the redelivery doubles
- * the inbox, which is the exact failure D6 exists to prevent.
- */
+/** D6 against a real database, because the mocked half cannot see any of this. */
 @Tag("integration")
 @Testcontainers
 @SpringBootTest
@@ -69,7 +64,7 @@ class NotificationDedupAtomicityIT {
 
     @Autowired NotificationService service;
     @Autowired NotificationRepository notifications;
-    @Autowired ProcessedEventRepository processed;
+    @MockitoSpyBean ProcessedEventRepository processed;
     @MockitoBean IdentityGrpcClient identity;
 
     @Test
@@ -86,22 +81,19 @@ class NotificationDedupAtomicityIT {
 
     @Test
     void twoConsumersProcessingTheSameRecordAtOnceWriteOneSetBetweenThem() throws Exception {
-        // the check-then-act window: both see existsById == false, both fan out, and only the
-        // processed_event primary key can stop the second one committing
+        // check-then-act: both see existsById == false, and only the PK stops the second commit
         EventEnvelope event = EventFixtures.envelope(EventFixtures.stepAssigned(
                 UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID())));
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch startTogether = new CountDownLatch(1);
-        AtomicInteger succeeded = new AtomicInteger();
         for (int i = 0; i < 2; i++) {
             pool.submit(() -> {
                 startTogether.await();
                 try {
                     service.fanOut(event);
-                    succeeded.incrementAndGet();
-                } catch (RuntimeException duplicate) {
-                    // the PK did its job; the redelivery is retried and then dedups cleanly
+                } catch (RuntimeException loser) {
+                    // either outcome is correct: throw on the PK, or claim and write nothing
                 }
                 return null;
             });
@@ -110,23 +102,33 @@ class NotificationDedupAtomicityIT {
         pool.shutdown();
         assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
 
-        assertThat(succeeded.get()).isEqualTo(1);
+        // the business outcome, whichever way the loser reported it
         assertThat(notifications.findByEventId(event.eventId())).hasSize(2);
+        assertThat(processed.existsById(event.eventId())).isTrue();
     }
 
     @Test
-    void aFailurePartWayThroughTheFanOutWritesNothingAtAll() {
-        // three recipients, and identity is what fails: the transaction must roll back the rows
-        // already written, or the redelivery adds a second copy of them
+    void aFailureAfterSomeRowsAreWrittenRollsThemBack() {
+        // the failure must land *after* the inserts, or this passes without @Transactional
+        EventEnvelope event = EventFixtures.envelope(EventFixtures.stepAssigned(
+                UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID())));
+        doThrow(new CannotAcquireLockException("processed_event write failed"))
+                .when(processed).save(any());
+
+        assertThatThrownBy(() -> service.fanOut(event))
+                .isInstanceOf(CannotAcquireLockException.class);
+
+        assertThat(notifications.findByEventId(event.eventId())).isEmpty();
+        assertThat(processed.existsById(event.eventId())).isFalse();
+    }
+
+    @Test
+    void aFailureResolvingRecipientsWritesNothingEither() {
         when(identity.listUsersByRole("ACCOUNTANT"))
                 .thenThrow(new IllegalStateException("identity unreachable"));
         EventEnvelope event = EventFixtures.envelope(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"));
 
-        try {
-            service.fanOut(event);
-        } catch (RuntimeException expected) {
-            // rethrown so the error handler can retry it — the point is what is left behind
-        }
+        assertThatThrownBy(() -> service.fanOut(event)).isInstanceOf(RuntimeException.class);
 
         assertThat(notifications.findByEventId(event.eventId())).isEmpty();
         assertThat(processed.existsById(event.eventId())).isFalse();
@@ -134,20 +136,16 @@ class NotificationDedupAtomicityIT {
 
     @Test
     void theRedeliveryAfterARollbackWritesExactlyOneCompleteSet() {
-        UUID accountant = UUID.randomUUID();
-        when(identity.listUsersByRole("ACCOUNTANT"))
-                .thenThrow(new IllegalStateException("identity unreachable"));
-        EventEnvelope event = EventFixtures.envelope(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"));
+        EventEnvelope event = EventFixtures.envelope(EventFixtures.stepAssigned(
+                UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID())));
+        doThrow(new CannotAcquireLockException("processed_event write failed"))
+                .when(processed).save(any());
+        assertThatThrownBy(() -> service.fanOut(event)).isInstanceOf(CannotAcquireLockException.class);
 
-        try {
-            service.fanOut(event);
-        } catch (RuntimeException expected) {
-            // first delivery fails
-        }
-        when(identity.listUsersByRole("ACCOUNTANT")).thenReturn(List.of(accountant));
+        reset(processed);
 
-        assertThat(service.fanOut(event)).isEqualTo(1);
-        assertThat(notifications.findByEventId(event.eventId())).hasSize(1);
+        assertThat(service.fanOut(event)).isEqualTo(2);
+        assertThat(notifications.findByEventId(event.eventId())).hasSize(2);
     }
 
     @Test

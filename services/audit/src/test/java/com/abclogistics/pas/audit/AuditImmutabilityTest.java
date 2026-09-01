@@ -13,8 +13,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * db-audit.md: INSERT + SELECT grants only — "a business service can no longer rewrite its own
- * history" is the real gain of centralizing, so it is asserted structurally rather than trusted.
- * Same shape as contract's status_history append-only test (D17).
+ * history" is the real gain of centralizing, so it is asserted structurally rather than
+ * trusted. Same shape as contract's status_history append-only test (D17).
  */
 class AuditImmutabilityTest {
 
@@ -38,10 +38,7 @@ class AuditImmutabilityTest {
 
     @Test
     void theRepositoryInheritsNoMutationPath() {
-        // getMethods(), not getDeclaredMethods(): the previous version of this test used the
-        // latter, which cannot see inherited methods, so it passed while the repository extended
-        // JpaRepository and quietly offered save / saveAll / delete / deleteAll / deleteById to
-        // every caller. The trail's whole guarantee was untested.
+        // getMethods(), not getDeclaredMethods() — the latter cannot see inherited save/delete
         assertThat(publicMethodNames())
                 .noneMatch(name -> name.startsWith("delete")
                         || name.startsWith("remove")
@@ -52,8 +49,7 @@ class AuditImmutabilityTest {
 
     @Test
     void theRepositorySurfaceIsEnumeratedNotInherited() {
-        // stated positively so a future `extends JpaRepository` fails here even if the base class
-        // gains a mutation method under a name the blocklist above never anticipated
+        // stated positively, so a future `extends JpaRepository` fails here whatever it adds
         assertThat(publicMethodNames()).containsExactlyInAnyOrder(
                 "insertIgnoringDuplicate",
                 "findByEntityTypeAndEntityIdOrderByOccurredAtDesc",
@@ -64,8 +60,7 @@ class AuditImmutabilityTest {
 
     @Test
     void theOnlyWritePathRefusesToOverwrite() {
-        // ON CONFLICT DO NOTHING, never DO UPDATE — asserted on the query text because that one
-        // clause is the difference between a replay being a no-op and a replay rewriting history
+        // ON CONFLICT DO NOTHING, never DO UPDATE
         String sql = insertQuery().toLowerCase();
         assertThat(sql).contains("on conflict (id) do nothing");
         assertThat(sql).doesNotContain("do update");
@@ -74,8 +69,7 @@ class AuditImmutabilityTest {
 
     @Test
     void theRecordCarriesNoVersionOrUpdatedAt() {
-        // not a BaseEntity: an updated_at on an immutable row would be a lie, and a version
-        // column would imply someone expects to write it again
+        // not a BaseEntity: an updated_at on an immutable row would be a lie
         assertThat(Stream.of(AuditRecord.class.getDeclaredFields()).map(Field::getName))
                 .doesNotContain("version", "updatedAt", "updatedBy");
     }

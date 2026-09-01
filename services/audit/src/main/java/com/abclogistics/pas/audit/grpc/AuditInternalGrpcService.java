@@ -5,18 +5,16 @@ import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
 
 /**
- * {@code AuditInternal.ListRecords} — the non-status half of a document's History tab (registry §5).
- * The status timeline is the owning service's local {@code status_history} and never comes from
- * here (D15/D17).
- *
- * <p>Read-only by construction: this is the only gRPC method audit-service exposes, and there is no
- * write path to expose. Errors reach the caller through {@code onError} with §5.1's status codes —
- * a bad {@code entity_type} or {@code entity_id} is {@code INVALID_ARGUMENT}, while an entity with
- * no rows yet is an <em>empty page</em>, not {@code NOT_FOUND}: a document whose history is empty
- * is normal, and a History tab must render it rather than report a failure.
+ * {@code AuditInternal.ListRecords} — the non-status half of a document's History tab (registry
+ * §5). The status timeline is the owning service's local {@code status_history} and never comes
+ * from here (D15/D17).
  */
 @GrpcService
 public class AuditInternalGrpcService extends AuditInternalGrpc.AuditInternalImplBase {
+
+    /** A History tab shows a page, not a table; an unbounded size would let one call read it all. */
+    public static final int MAX_PAGE_SIZE = 200;
+    public static final int DEFAULT_PAGE_SIZE = 20;
 
     private final AuditQueryService audit;
 

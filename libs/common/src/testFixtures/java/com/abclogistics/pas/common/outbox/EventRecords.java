@@ -8,20 +8,7 @@ import org.apache.kafka.common.header.internals.RecordHeader;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
-/**
- * The wire shape, built by the producer rather than restated by the consumer.
- *
- * <p>A consumer spec that hand-assembles its own records can only prove the consumer agrees with
- * itself — session 8's first spec pass wrote full-envelope fixtures against producers that publish
- * a bare payload, and every test passed. So {@link #outboxed} runs a real {@link OutboxEvent}
- * through the real {@link OutboxRelay#kafkaRecord}: if the relay's shape changes, every consumer
- * test built on this fixture changes with it.
- *
- * <p>{@link #directPublish} is the D9 exception — those three events have no outbox row, so their
- * record is assembled here. It is a restatement, and the producers' own tests
- * ({@code SchedulerActivatesAndExpiresTest}, {@code SlaSchedulerTest}) are what keep it honest:
- * value = payload alone, all three headers set, key = the document id.
- */
+/** The wire shape, built by the producer rather than restated by the consumer. */
 public final class EventRecords {
 
     /** {@link OutboxRelay} exists to be subclassed per service; this one only shapes records. */
@@ -57,8 +44,8 @@ public final class EventRecords {
     }
 
     /**
-     * The same, for the one direct-publish event that is not about a document:
-     * {@code operations.period_locked} keys on {@code period_code} (registry §4).
+     * The same, for the one direct-publish event that is not about a document: {@code
+     * operations.period_locked} keys on {@code period_code} (registry §4).
      */
     public static ProducerRecord<String, String> directPublish(UUID eventId, String eventType,
                                                                String documentType, String key,

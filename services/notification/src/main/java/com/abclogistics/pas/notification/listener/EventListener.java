@@ -12,13 +12,6 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * The `notification-service` consumer group on `pas.events` — the events registry §4 lists it
  * against, and no others.
- *
- * <p>Two rules the tests pin. **Filter before deserializing:** the `event_type` header exists so a
- * record this service does not handle costs a header read, not a parse; `pas.events` carries every
- * event in the system and most of them are not ours. **Never swallow:** a record that cannot be
- * processed is rethrown so the error handler can route it to `pas.events.DLT`, because a swallowed
- * failure commits the offset and loses the event silently, and a retried-for-ever one blocks the
- * partition for every document that shares it.
  */
 @Component
 public class EventListener {
@@ -35,8 +28,8 @@ public class EventListener {
             containerFactory = "kafkaListenerContainerFactory",
             autoStartup = "${notification.kafka.listener-enabled:true}")
     public void onEvent(ConsumerRecord<String, String> record) {
-        String eventType = EventHeaders.of(record, EventHeaders.EVENT_TYPE);
-        if (!NotificationCategories.handles(eventType)) {
+        // present but not ours = routine, skipped before deserializing
+        if (!NotificationCategories.handles(EventHeaders.required(record, EventHeaders.EVENT_TYPE))) {
             return;
         }
         notifications.fanOut(EventEnvelope.from(record, objectMapper));

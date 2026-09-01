@@ -20,17 +20,13 @@ public class AuditIngestService {
     }
 
     /**
-     * {@code INSERT … ON CONFLICT DO NOTHING} keyed on the envelope {@code event_id}: the PK is the
-     * dedup key, so a redelivery is a no-op and no {@code processed_event} table exists here
-     * (db-audit.md).
-     *
-     * @param eventId   from the {@code event_id} header — the producer's outbox row id
-     * @param payloadJson the record value, which is the serialized {@code AuditPayload} alone
-     *                    (registry §4: the value carries the payload, never an envelope)
-     * @return true when this call inserted the row, false when it was already there
-     * @throws com.abclogistics.pas.common.events.MalformedEventException when the value is not an
-     *         {@code AuditPayload} — permanent, so it reaches {@code pas.audit.DLT} rather than
-     *         blocking the partition on retries that cannot succeed
+     * {@code INSERT … ON CONFLICT DO NOTHING} keyed on the envelope {@code event_id}: the PK is
+     * the dedup key, so no {@code processed_event} table exists here (db-audit.md). @param
+     * eventId from the {@code event_id} header — the producer's outbox row id @param
+     * payloadJson the record value: a serialized {@code AuditPayload}, never an envelope
+     * @return true when this call inserted the row, false when it was already there @throws
+     * com.abclogistics.pas.common.events.MalformedEventException when the value is not an
+     * {@code AuditPayload} — permanent, so it reaches the DLT rather than retrying
      */
     @Transactional
     public boolean ingest(UUID eventId, String payloadJson) {

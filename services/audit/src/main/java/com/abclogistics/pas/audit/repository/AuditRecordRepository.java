@@ -12,26 +12,13 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * INSERT + SELECT only — the grants say so, and so does this interface.
- *
- * <p>It deliberately extends {@link Repository}, the marker interface, rather than
- * {@code JpaRepository}: the convenient base ships {@code save}, {@code saveAll}, {@code delete},
- * {@code deleteAll} and {@code deleteById}, and inheriting them would hand every caller in this
- * service the ability to rewrite or erase the trail. The whole argument for centralizing audit
- * (D15) is that a service can no longer edit its own history, so the surface here is enumerated,
- * not inherited. {@code AuditImmutabilityTest} asserts the exact public surface — including
- * inherited methods, which an earlier version of that test could not see.
- */
+/** INSERT + SELECT only — the grants say so, and so does this interface. */
 public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
 
     /**
-     * The ingest path. Native because the dedup is {@code ON CONFLICT DO NOTHING} on the primary
-     * key, which JPA has no vocabulary for: {@code save} would issue a SELECT-then-UPDATE and let a
-     * replayed record overwrite the original. {@code id} is the producer's outbox row id, i.e. the
-     * envelope {@code event_id} — which is why this service needs no {@code processed_event}.
-     *
-     * @return 1 when the row was inserted, 0 when this event had already been recorded
+     * The ingest path. Native because {@code ON CONFLICT DO NOTHING} has no JPA equivalent:
+     * {@code save} would SELECT-then-UPDATE and let a replay overwrite the original. @return 1
+     * when the row was inserted, 0 when this event had already been recorded
      */
     @Modifying
     @Query(value = """

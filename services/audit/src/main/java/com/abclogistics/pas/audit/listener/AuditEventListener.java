@@ -2,22 +2,20 @@ package com.abclogistics.pas.audit.listener;
 
 import com.abclogistics.pas.audit.service.AuditIngestService;
 import com.abclogistics.pas.common.events.EventHeaders;
+import com.abclogistics.pas.common.events.MalformedEventException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 /**
- * The `audit-service` group on `pas.audit` — the topic's only consumer, and the only event on it
- * is `audit.recorded` (registry §4).
- *
- * <p>Two differences from the notification listener, both deliberate. There is no event-type filter
- * worth applying: everything on this topic is ours, so a record with an unexpected type is a
- * producer bug rather than routine traffic and must not be silently dropped. And there is no
- * `processed_event` lookup: the row's primary key *is* the `event_id`, so the insert dedups itself
- * (db-audit.md) and a redelivery costs one conflicting insert rather than a read plus a write.
+ * The `audit-service` group on `pas.audit` — the topic's only consumer, and the only event on
+ * it is `audit.recorded` (registry §4).
  */
 @Component
 public class AuditEventListener {
+
+    static final String TOPIC = "pas.audit";
+    static final String EVENT_TYPE = "audit.recorded";
 
     private final AuditIngestService ingest;
 
@@ -25,10 +23,16 @@ public class AuditEventListener {
         this.ingest = ingest;
     }
 
-    @KafkaListener(topics = "pas.audit", groupId = "audit-service",
+    @KafkaListener(topics = TOPIC, groupId = "audit-service",
             containerFactory = "kafkaListenerContainerFactory",
             autoStartup = "${audit.kafka.listener-enabled:true}")
     public void onAuditRecorded(ConsumerRecord<String, String> record) {
+        String eventType = EventHeaders.required(record, EventHeaders.EVENT_TYPE);
+        if (!EVENT_TYPE.equals(eventType)) {
+            // not skipped, like the notification listener does for another service's event
+            throw new MalformedEventException(
+                    "%s carries %s only, got %s".formatted(TOPIC, EVENT_TYPE, eventType));
+        }
         ingest.ingest(EventHeaders.eventId(record), record.value());
     }
 }

@@ -21,10 +21,9 @@ paths:
         call. `unread` and `category` are the tab axes (§8: All / Unread / Approvals / E-signature
         / Expiring) and combine — "unread approvals" is reachable. `unreadCount` is unfiltered by
         both, because the badge sits beside the tabs and must not describe only the open one.
-        Per-tab counters are deliberately absent: §8 gives the bell one badge and four tabs, not a
-        count per tab, and serving four extra aggregates on every poll of the hottest read in the
-        system to render numbers no screen shows would be pure cost. If a tab badge is wanted
-        later it is a category count on this same response, not a new endpoint.
+        `counts` carries what each tab shows (14-notifications.png renders All 32, Unread 8,
+        Approvals 5, E-signature 3, Expiring 4) — keyed `all`, `unread` and by category, from one
+        group-by rather than a query per tab, and unfiltered for the same reason `unreadCount` is.
       parameters:
         - { name: unread, in: query, schema: { type: boolean, default: false } }
         - name: category
@@ -79,6 +78,10 @@ components:
           type: integer
           format: int64
           description: unfiltered by unread/category, so the badge stays correct while the list is filtered
+        counts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+          description: "tab counters: all, unread, APPROVAL, ESIGN, EXPIRY, SYSTEM"
     NotificationResponse:
       type: object
       properties:

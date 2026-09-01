@@ -11,15 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Records as the producers actually send them, not as this service wishes they arrived.
- *
- * <p>Every fixture goes through {@link EventRecords}, which shapes relayed events with the real
- * {@code OutboxRelay#kafkaRecord}: value = {@code payload{}} alone, envelope fields in headers,
- * key = the document id. The first version of this file hand-built full-envelope values, which no
- * producer has ever sent — the tests all passed and the consumer would have failed on its first
- * real message. Payload keys below are copied from registry §4's "Payload extras" column.
- */
+/** Records as the producers actually send them, not as this service wishes they arrived. */
 final class EventFixtures {
 
     static final ObjectMapper MAPPER = new ObjectMapper();
@@ -83,8 +75,9 @@ final class EventFixtures {
     // ---- direct publishes (D9: no outbox row, derived event_id) -------------------------------
 
     /**
-     * {@code ContractStatusScheduler#eventId} restated: the id is derived from the document and the
-     * term being warned for, so a re-warn carries the same id and an extension earns a new one.
+     * {@code ContractStatusScheduler#eventId} restated: the id is derived from the document and
+     * the term being warned for, so a re-warn carries the same id and an extension earns a new
+     * one.
      */
     static ConsumerRecord<String, String> documentExpiring(UUID documentId, String expiresOn, UUID ownerUserId) {
         Map<String, Object> payload = new LinkedHashMap<>();

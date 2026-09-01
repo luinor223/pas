@@ -28,11 +28,10 @@ public class NotificationService {
     }
 
     /**
-     * One event becomes one row per recipient, written in the same transaction as the
-     * {@code processed_event} row — a redelivery must not double the inbox (D6). An event that
-     * resolves to nobody is still marked processed, or it is retried for ever.
-     *
-     * @return how many notification rows this call wrote; 0 on a redelivery
+     * One event becomes one row per recipient, written in the same transaction as the {@code
+     * processed_event} row — a redelivery must not double the inbox (D6). An event that
+     * resolves to nobody is still marked processed, or it is retried for ever. @return how many
+     * notification rows this call wrote; 0 on a redelivery
      */
     @Transactional
     public int fanOut(EventEnvelope event) {
@@ -40,10 +39,9 @@ public class NotificationService {
     }
 
     /**
-     * The bell list and its badge in one call. {@code unreadCount} is deliberately <b>not</b>
-     * filtered by {@code unreadOnly} or {@code category}: the Figma header renders the badge beside
-     * whichever tab is open, and a badge describing only the open tab would drop to zero the moment
-     * the user opened Approvals with an unread e-signature waiting.
+     * The bell list plus every tab's counter in one call. The counters are <b>not</b> filtered by
+     * this request's own {@code unreadOnly} / {@code category} — a tab's badge must not change
+     * because that tab is open.
      */
     @Transactional(readOnly = true)
     public InboxResponse inbox(UUID recipient, boolean unreadOnly, NotificationCategory category,

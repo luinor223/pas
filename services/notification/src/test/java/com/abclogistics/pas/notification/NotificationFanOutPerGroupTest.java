@@ -24,14 +24,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 4.9's fan-out: one event becomes one row per recipient. The rule that gives this test its name
- * is registry §4 — fan-out is a consumer group per service, so this service resolves the whole
- * recipient set itself rather than relying on the broker to route.
- *
- * <p>Every event registry §4 lists this service against has a recipient case here. That is the
- * §7.2 coverage rule applied per row: a consumed event with no recipient test is an event whose
- * fan-out nobody specified, which is how {@code workflow.instance_started} reached Phase A as a
- * consumer of an event carrying nobody to notify.
+ * 4.9's fan-out: one event becomes one row per recipient. The rule that gives this test its
+ * name is registry §4 — fan-out is a consumer group per service, so this service resolves the
+ * whole recipient set itself rather than relying on the broker to route.
  */
 class NotificationFanOutPerGroupTest {
 
@@ -107,8 +102,7 @@ class NotificationFanOutPerGroupTest {
 
     @Test
     void theRequesterIsNotifiedWhenAStepIsActioned() {
-        // 4.9's "hồ sơ bị từ chối": the submitter is the one who has to do something about it,
-        // and requested_by is a uuid — it carried a display name until the producer was fixed
+        // 4.9's "hồ sơ bị từ chối": the submitter is the one who has to do something about it
         UUID requestedBy = UUID.randomUUID();
 
         assertThat(fanOut(EventFixtures.stepActioned(UUID.randomUUID(), requestedBy, "REQUEST_REVISION")))
@@ -139,8 +133,7 @@ class NotificationFanOutPerGroupTest {
 
     @Test
     void aFailedSigningIsStillNews() {
-        // result carries SIGNED | FAILED | CANCELLED (registry §4) and all three are worth telling
-        // the owner about — a silent failure is how a document sits unsigned for a week
+        // result carries SIGNED | FAILED | CANCELLED (registry §4) and all three are worth tell
         UUID requestedBy = UUID.randomUUID();
 
         assertThat(fanOut(EventFixtures.esignCompleted(UUID.randomUUID(), requestedBy, "FAILED")))
@@ -158,8 +151,7 @@ class NotificationFanOutPerGroupTest {
 
     @Test
     void eachRowIsFiledUnderItsEventsTab() {
-        // the category is written at fan-out, not derived on read: the Figma tab filter is a
-        // column predicate, and re-deriving it per row would make the filter unindexable
+        // the category is written at fan-out, not derived on read
         fanOut(EventFixtures.esignCompleted(UUID.randomUUID(), UUID.randomUUID(), "SIGNED"));
 
         assertThat(saved().getFirst().getCategory()).isEqualTo(NotificationCategory.ESIGN);
@@ -167,8 +159,7 @@ class NotificationFanOutPerGroupTest {
 
     @Test
     void theRowSnapshotsTheDocumentItIsAbout() {
-        // title and body are written once and never re-resolved, so a renamed document does not
-        // rewrite an old notification (same rule as audit's actor snapshot)
+        // title and body are written once and never re-resolved
         UUID documentId = UUID.randomUUID();
 
         fanOut(EventFixtures.stepAssigned(documentId, List.of(UUID.randomUUID())));

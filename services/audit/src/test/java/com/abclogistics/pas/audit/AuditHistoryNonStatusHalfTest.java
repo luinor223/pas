@@ -22,16 +22,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * seq-02(d) and D15/D17. A document's History tab reads <b>two</b> sources with different
- * consistency: the owning service's local {@code status_history} (synchronous) and this service's
- * {@code ListRecords} (eventual). They are not substitutes, and this half must never be the one a
- * business rule reads.
- *
- * <p>This class covers <b>only the audit half</b>, which is all audit-service can see — it has no
- * access to another service's {@code status_history} table, so the two sources cannot be compared
- * from here. It was called {@code AuditHistoryTwoSourcesTest}, which promised a comparison it
- * never made. The composition itself belongs to the owning service (a contract-side test that the
- * tab renders both) or to session 9's end-to-end pass; until one of those exists, the second
- * source is untested and that is a known gap, not a covered case.
+ * consistency: the owning service's local {@code status_history} (synchronous) and this
+ * service's {@code ListRecords} (eventual). They are not substitutes, and this half must never
+ * be the one a business rule reads.
  */
 class AuditHistoryNonStatusHalfTest {
 
@@ -61,8 +54,7 @@ class AuditHistoryNonStatusHalfTest {
 
     @Test
     void theHistoryHalfCarriesFieldEditsThatMovedNoStatus() {
-        // the reason this source exists at all: a field edit writes no status_history row, so the
-        // status timeline alone would show nothing happened
+        // the reason this source exists at all: a field edit writes no status_history row
         UUID entityId = UUID.randomUUID();
         AuditRecord edit = record(entityId, "UPDATE", Instant.now());
         when(records.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
@@ -79,8 +71,7 @@ class AuditHistoryNonStatusHalfTest {
 
     @Test
     void actorNameIsTheWriteTimeSnapshotNotAResolvedLookup() {
-        // 4.10: "không phụ thuộc dữ liệu hiển thị hiện tại" — a renamed or disabled user must not
-        // change what a past record shows, so nothing here calls identity
+        // 4.10: "không phụ thuộc dữ liệu hiển thị hiện tại"
         UUID entityId = UUID.randomUUID();
         AuditRecord r = record(entityId, "UPDATE", Instant.now());
         when(records.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(

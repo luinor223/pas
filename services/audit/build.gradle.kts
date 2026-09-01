@@ -30,6 +30,8 @@ dependencies {
     implementation(libs.spring.boot.kafka)
 
     testImplementation(libs.spring.boot.starter.test)
+    // @WithMockUser: Phase A pins the permission gates, which nothing else exercises
+    testImplementation("org.springframework.security:spring-security-test")
     // records shaped by the real OutboxRelay, so this consumer's spec cannot drift from what
     // the seven producers actually publish
     testImplementation(testFixtures(project(":libs:common")))

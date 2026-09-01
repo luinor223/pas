@@ -9,13 +9,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * {@code audit.recorded} records as the seven producers actually send them.
- *
- * <p>The value is the serialized {@link AuditPayload} — the same object {@code AuditRecorder}
- * writes to the outbox — with the {@code event_id} in a header, shaped by the real relay. The
- * first spec pass hand-wrote a full-envelope JSON string here, which nothing has ever published.
- */
+/** {@code audit.recorded} records as the seven producers actually send them. */
 final class AuditEventFixtures {
 
     static final ObjectMapper MAPPER = new ObjectMapper();

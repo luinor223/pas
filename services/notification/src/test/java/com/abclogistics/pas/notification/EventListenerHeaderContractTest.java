@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,17 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-/**
- * The wire contract, which is where this service meets the other seven (registry §4).
- *
- * <p>The first spec pass had no test here at all: every test called {@code fanOut} with an envelope
- * it had built itself, so nothing checked what arrives on the topic. That is exactly where the
- * spec was wrong — it assumed a full envelope in the value while every producer sends the bare
- * payload with the envelope fields in headers.
- *
- * <p>Three rules: the dedup key comes from the {@code event_id} header, the {@code event_type}
- * header decides whether to parse at all, and nothing is swallowed.
- */
+/** The wire contract, which is where this service meets the other seven (registry §4). */
 class EventListenerHeaderContractTest {
 
     private NotificationService notifications;
@@ -45,8 +36,7 @@ class EventListenerHeaderContractTest {
 
     @Test
     void theDedupKeyIsReadFromTheHeaderNotTheValue() {
-        // registry §4 change log: event_id is mirrored into a header precisely so no consumer needs
-        // a payload-parsing path for it. The value carries the payload alone and has no event_id.
+        // §4: event_id is in a header precisely so no consumer parses the payload for it
         ConsumerRecord<String, String> record =
                 EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID()));
         assertThat(record.value()).doesNotContain("event_id");
@@ -72,8 +62,7 @@ class EventListenerHeaderContractTest {
 
     @Test
     void anEventThisServiceDoesNotConsumeIsSkippedWithoutDeserializing() {
-        // pas.events carries every event in the system; most are not ours. The header filter is
-        // what keeps that cheap — and the record must not reach fanOut at all.
+        // pas.events carries every event in the system; most are not ours
         listener.onEvent(EventFixtures.instanceStarted(UUID.randomUUID()));
 
         verify(notifications, never()).fanOut(any());
@@ -88,22 +77,57 @@ class EventListenerHeaderContractTest {
     }
 
     @Test
-    void aRecordWithNoEventTypeHeaderIsSkipped() {
-        // nothing can be decided about it and it is not addressed to us; it is not ours to poison
+    void aMissingEventTypeHeaderIsMalformedNotSkipped() {
+        // the distinction that matters: an event_type that is *present but not ours* is routine
         ConsumerRecord<String, String> headerless = EventRecords.withoutHeader(
                 EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())),
                 EventHeaders.EVENT_TYPE);
 
-        listener.onEvent(headerless);
-
+        assertThatThrownBy(() -> listener.onEvent(headerless))
+                .isInstanceOf(MalformedEventException.class);
         verify(notifications, never()).fanOut(any());
     }
 
     @Test
+    void aMissingDocumentTypeHeaderIsMalformed() {
+        // §4 makes all three headers mandatory; document_type is what the owner-service groups
+        ConsumerRecord<String, String> headerless = EventRecords.withoutHeader(
+                EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())),
+                EventHeaders.DOCUMENT_TYPE);
+
+        assertThatThrownBy(() -> listener.onEvent(headerless))
+                .isInstanceOf(MalformedEventException.class);
+    }
+
+    @Test
+    void anEmptyHeaderCountsAsMissing() {
+        // a zero-length header value is a producer bug that would otherwise pass every null check
+        ConsumerRecord<String, String> blank = EventRecords.withoutHeader(
+                EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())),
+                EventHeaders.EVENT_TYPE);
+        blank.headers().add(EventHeaders.EVENT_TYPE, "".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> listener.onEvent(blank))
+                .isInstanceOf(MalformedEventException.class);
+    }
+
+    @Test
+    void aValueThatIsJsonButNotAnObjectIsMalformed() {
+        // "null", "[]" and "42" all parse; none is a payload
+        for (String notAnObject : List.of("null", "[1,2,3]", "42", "\"a string\"")) {
+            ConsumerRecord<String, String> record = EventRecords.withValue(
+                    EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())),
+                    notAnObject);
+
+            assertThatThrownBy(() -> listener.onEvent(record))
+                    .as("value %s", notAnObject)
+                    .isInstanceOf(MalformedEventException.class);
+        }
+    }
+
+    @Test
     void anEventWeConsumeWithNoEventIdIsPermanentlyMalformed() {
-        // this is the shape SlaScheduler published before the derived id landed. Without the
-        // header there is no dedup key, so redelivering it can only duplicate the inbox — it is
-        // DLT material, not retry material.
+        // this is the shape SlaScheduler published before the derived id landed
         ConsumerRecord<String, String> noId = EventRecords.withoutHeader(
                 EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())),
                 EventHeaders.EVENT_ID);
@@ -118,7 +142,7 @@ class EventListenerHeaderContractTest {
         ConsumerRecord<String, String> bad = EventRecords.consumed(EventRecords.directPublish(
                 UUID.randomUUID(), "document.expiring", "CONTRACT", UUID.randomUUID(), "{}"));
         bad.headers().remove(EventHeaders.EVENT_ID);
-        bad.headers().add(EventHeaders.EVENT_ID, "not-a-uuid".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        bad.headers().add(EventHeaders.EVENT_ID, "not-a-uuid".getBytes(StandardCharsets.UTF_8));
 
         assertThatThrownBy(() -> listener.onEvent(bad)).isInstanceOf(MalformedEventException.class);
     }
@@ -136,8 +160,7 @@ class EventListenerHeaderContractTest {
 
     @Test
     void aTransientFailureIsRethrownRatherThanSwallowed() {
-        // the DB being down must not commit the offset: swallowing loses the event silently, which
-        // is the one outcome 4.9 cannot tolerate
+        // the DB being down must not commit the offset
         org.mockito.Mockito.when(notifications.fanOut(any()))
                 .thenThrow(new org.springframework.dao.CannotAcquireLockException("db down"));
 
@@ -148,8 +171,7 @@ class EventListenerHeaderContractTest {
 
     @Test
     void aRoleAddressedEventKeyedOnSomethingOtherThanADocumentStillParses() {
-        // operations.period_locked keys on period_code, so a uuid-only key rule would make the one
-        // event that is not about a document undeliverable
+        // operations.period_locked keys on period_code
         listener.onEvent(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"));
 
         EventEnvelope envelope = captured();

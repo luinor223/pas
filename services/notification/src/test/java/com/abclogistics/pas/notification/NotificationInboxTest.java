@@ -42,12 +42,12 @@ class NotificationInboxTest {
                 new RecipientResolver(mock(IdentityGrpcClient.class)));
         when(notifications.inboxOf(any(), anyBoolean(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
+        when(notifications.countByCategoryFor(any())).thenReturn(List.of());
     }
 
     @Test
     void theUnreadBadgeIsNotFilteredByTheListFilter() {
         // the Figma header shows the list and the badge together; filtering to unread must not
-        // make the badge describe the filtered page instead of the inbox
         UUID me = UUID.randomUUID();
         when(notifications.countByRecipientUserIdAndReadAtIsNull(me)).thenReturn(7L);
 
@@ -59,8 +59,7 @@ class NotificationInboxTest {
 
     @Test
     void unreadTrueActuallyFiltersTheList() {
-        // asserting the badge alone was the gap: the count could be right while the list ignored
-        // the filter entirely
+        // asserting the badge alone was the gap: the count could be right while the list ignore
         UUID me = UUID.randomUUID();
 
         service.inbox(me, true, null, FIRST_PAGE);
@@ -98,8 +97,7 @@ class NotificationInboxTest {
 
     @Test
     void theInboxIsScopedToTheCallerNotFilteredAfterwards() {
-        // the recipient is a query predicate: a post-filter would page over other users' rows and
-        // return short pages, and one missed filter would leak an inbox
+        // the recipient is a query predicate: a post-filter would page over other users' rows a
         UUID me = UUID.randomUUID();
 
         service.inbox(me, false, null, FIRST_PAGE);
@@ -123,6 +121,48 @@ class NotificationInboxTest {
                 .containsExactly("HD-2026-0002", "HD-2026-0001");
         // the total is the query's, not the page's — the Figma list pages against it
         assertThat(response.total()).isEqualTo(42);
+    }
+
+    @Test
+    void everyFigmaTabGetsItsCounter() {
+        // 14-notifications.png renders All / Unread / Approvals / E-signature / Expiring with counts
+        UUID me = UUID.randomUUID();
+        when(notifications.countByRecipientUserIdAndReadAtIsNull(me)).thenReturn(8L);
+        when(notifications.countByCategoryFor(me)).thenReturn(List.of(
+                categoryCount(NotificationCategory.APPROVAL, 5),
+                categoryCount(NotificationCategory.ESIGN, 3),
+                categoryCount(NotificationCategory.EXPIRY, 4),
+                categoryCount(NotificationCategory.SYSTEM, 20)));
+
+        var counts = service.inbox(me, false, null, FIRST_PAGE).counts();
+
+        assertThat(counts).containsEntry("all", 32L).containsEntry("unread", 8L);
+        assertThat(counts).containsEntry("APPROVAL", 5L).containsEntry("ESIGN", 3L)
+                .containsEntry("EXPIRY", 4L);
+    }
+
+    @Test
+    void aTabWithNothingInItStillReportsZero() {
+        // the group-by returns no row for an empty category; the tab must show 0, not vanish
+        UUID me = UUID.randomUUID();
+        when(notifications.countByCategoryFor(me))
+                .thenReturn(List.of(categoryCount(NotificationCategory.APPROVAL, 5)));
+
+        assertThat(service.inbox(me, false, null, FIRST_PAGE).counts())
+                .containsEntry("ESIGN", 0L).containsEntry("EXPIRY", 0L);
+    }
+
+    @Test
+    void theCountersDoNotChangeWithTheOpenTab() {
+        UUID me = UUID.randomUUID();
+        when(notifications.countByCategoryFor(me)).thenReturn(List.of(
+                categoryCount(NotificationCategory.APPROVAL, 5),
+                categoryCount(NotificationCategory.ESIGN, 3)));
+
+        var unfiltered = service.inbox(me, false, null, FIRST_PAGE).counts();
+        var onApprovals = service.inbox(me, true, NotificationCategory.APPROVAL, FIRST_PAGE).counts();
+
+        assertThat(onApprovals).isEqualTo(unfiltered);
     }
 
     @Test
@@ -158,13 +198,19 @@ class NotificationInboxTest {
 
     @Test
     void markAllReadTouchesOnlyTheCallersUnreadRows() {
-        // scoped in the update itself. "Mark all as read" is the one write that could reach beyond
-        // the caller, and an unscoped update would silently clear the whole system's inboxes.
+        // scoped in the update itself: an unscoped one would clear every inbox in the system
         UUID me = UUID.randomUUID();
 
         service.markAllRead(me);
 
         verify(notifications).markAllReadFor(eq(me), any());
+    }
+
+    private static NotificationRepository.CategoryCount categoryCount(NotificationCategory c, long n) {
+        return new NotificationRepository.CategoryCount() {
+            @Override public NotificationCategory getCategory() { return c; }
+            @Override public long getTotal() { return n; }
+        };
     }
 
     private static Notification notificationFor(UUID recipient) {

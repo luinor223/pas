@@ -28,13 +28,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * Registry §4 and seq-02(e): "a record that can never succeed goes to {@code pas.events.DLT},
- * because unlike a requeue a stuck record blocks its whole partition." The partition is keyed on
- * the document, so one poison event would stall every document that shares it — which makes the
- * retry/recover split a correctness rule, not tuning.
- *
- * <p>Driven through the real {@link DefaultErrorHandler} rather than by inspecting how it was
- * configured: what matters is what the handler <em>does</em> with an exception, and a test that
- * restates the policy it was built from proves only that the test and the config agree.
+ * because unlike a requeue a stuck record blocks its whole partition." The partition is keyed
+ * on the document, so one poison event would stall every document that shares it — which makes
+ * the retry/recover split a correctness rule, not tuning.
  */
 class DeadLetterRoutingTest {
 
@@ -58,8 +54,7 @@ class DeadLetterRoutingTest {
 
     @Test
     void aMalformedRecordIsRecoveredOnTheFirstAttempt() {
-        // no redelivery makes a record without an event_id dedupable, and every attempt costs the
-        // whole partition its progress
+        // no redelivery makes a record without an event_id dedupable
         boolean recovered = handle(new MalformedEventException("missing event_id"), aRecord());
 
         assertThat(recovered).isTrue();
@@ -77,8 +72,7 @@ class DeadLetterRoutingTest {
 
     @Test
     void aTransientFailureIsGivenUpOnAfterTheConfiguredAttempts() {
-        // it cannot retry for ever either — the partition is blocked for the whole of it — so the
-        // policy is bounded: 3 retries, then the DLT so the offset can finally advance
+        // it cannot retry for ever either — the partition is blocked for the whole of it
         ConsumerRecord<String, String> record = aRecord();
         CannotAcquireLockException stillDown = new CannotAcquireLockException("db down");
 
@@ -92,8 +86,7 @@ class DeadLetterRoutingTest {
 
     @Test
     void theConfiguredBackoffIsWhatTheHandlerWaits() {
-        // pinned because it is the difference between "briefly delayed" and "partition stalled for
-        // minutes": 3 retries at 2s means every other document on that partition waits ~6s too
+        // pinned because it is the difference between "briefly delayed" and "partition stalled
         assertThat(config.backOff().getMaxAttempts()).isEqualTo(3);
         assertThat(config.backOff().getInterval()).isEqualTo(Duration.ofSeconds(2).toMillis());
     }
@@ -109,17 +102,10 @@ class DeadLetterRoutingTest {
 
     @Test
     void theDestinationKeepsTheSourcePartition() {
-        // same partition on the DLT as on the source: a document's failures stay together and stay
-        // replayable in the order they failed.
-        //
-        // Asserted on the resolver rather than on the published record, because the recoverer
-        // deliberately drops the partition when the destination topic turns out to have fewer —
-        // it logs "non-existent partition" and lets the producer choose. That fallback is correct
-        // (a DLT with one partition must still accept partition 3), so what this service actually
-        // decides is the resolver's answer.
+        // same partition on the DLT as on the source
         ConsumerRecord<String, String> record = aRecord();
 
-        assertThat(config.dlt(record, new MalformedEventException("bad")).partition())
+        assertThat(config.dlt(record).partition())
                 .isEqualTo(record.partition());
     }
 
@@ -135,14 +121,12 @@ class DeadLetterRoutingTest {
     }
 
     @Test
-    void theAuditTopicGetsItsOwnDltRatherThanSharingOne() {
-        // pas.audit is a separate topic with a separate consumer; a shared DLT would mix two
-        // services' poison and make either one's replay unsafe
-        ConsumerRecord<String, String> audited = new ConsumerRecord<>("pas.audit", 3, 0L, "k", "{}");
+    void theSuffixIsAppliedToWhateverTopicFailed() {
+        // each topic gets its own DLT; a shared one would make either service's replay unsafe
+        ConsumerRecord<String, String> other = new ConsumerRecord<>("pas.audit", 3, 0L, "k", "{}");
 
-        assertThat(config.dlt(audited, new MalformedEventException("bad")).topic())
-                .isEqualTo("pas.audit.DLT");
-        assertThat(config.dlt(audited, new MalformedEventException("bad")).partition()).isEqualTo(3);
+        assertThat(config.dlt(other).topic()).isEqualTo("pas.audit.DLT");
+        assertThat(config.dlt(other).partition()).isEqualTo(3);
     }
 
     /** @return true when the handler recovered the record (sent it onward) instead of retrying */

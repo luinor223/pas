@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -27,12 +28,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * The behaviour behind the contract. {@link AuditInternalContractTest} pins the proto's shape —
- * which fields exist — but a matching shape says nothing about whether the values are right, and
- * this is the method every owning service's History tab calls.
- *
- * <p>The mapping matters more than it looks: proto3 scalars have no null, so every nullable column
- * — {@code actor_id} on a scheduler action, {@code before_status} on a field edit — has to become
- * an empty string deliberately rather than by NPE.
+ * which fields exist — but a matching shape says nothing about whether the values are right,
+ * and this is the method every owning service's History tab calls.
  */
 class AuditInternalGrpcServiceTest {
 
@@ -59,8 +56,7 @@ class AuditInternalGrpcServiceTest {
 
     @Test
     void anEmptyEntityTypeIsRejectedRatherThanScanningEverything() {
-        // without the guard the query widens to "every entity with this id" — a cross-entity read
-        // through the per-entity door, which is exactly the split seq-02 draws
+        // without the guard the query widens to "every entity with this id"
         service.listRecords(request("", UUID.randomUUID(), 0, 20), observer);
 
         assertThat(observer.codeOfError()).isEqualTo(Status.Code.INVALID_ARGUMENT);
@@ -69,8 +65,7 @@ class AuditInternalGrpcServiceTest {
 
     @Test
     void anEntityIdThatIsNotAUuidIsInvalidArgumentNotAnInternalError() {
-        // §5.1's status mapping: a caller's bad input is INVALID_ARGUMENT, and INTERNAL would tell
-        // them to retry something that can never succeed
+        // §5.1's status mapping: a caller's bad input is INVALID_ARGUMENT
         ListRecordsRequest request = ListRecordsRequest.newBuilder()
                 .setEntityType("CONTRACT").setEntityId("not-a-uuid").setPage(0).setSize(20).build();
 
@@ -81,8 +76,7 @@ class AuditInternalGrpcServiceTest {
 
     @Test
     void anUnknownEntityIsAnEmptyPageNotNotFound() {
-        // a document with no audit rows yet is normal — its History tab is empty, not broken. This
-        // is the one place the audit read differs from a domain read, where NOT_FOUND is right.
+        // a document with no audit rows yet is normal
         service.listRecords(request("CONTRACT", UUID.randomUUID(), 0, 20), observer);
 
         assertThat(observer.response.getRecordsList()).isEmpty();
@@ -91,13 +85,41 @@ class AuditInternalGrpcServiceTest {
 
     @Test
     void aMissingSizeFallsBackToADefaultRatherThanRequestingZeroRows() {
-        // proto3 has no "absent" for an int32: an unset size arrives as 0, and passing that
-        // straight to PageRequest throws
+        // proto3 has no "absent" for an int32: an unset size arrives as 0
         service.listRecords(ListRecordsRequest.newBuilder()
                 .setEntityType("CONTRACT").setEntityId(UUID.randomUUID().toString()).build(), observer);
 
-        verify(audit).forEntity(any(), any(), (Pageable) org.mockito.ArgumentMatchers
-                .argThat(p -> ((Pageable) p).getPageSize() > 0));
+        verify(audit).forEntity(any(), any(), (Pageable) argThat(
+                p -> ((Pageable) p).getPageSize() == AuditInternalGrpcService.DEFAULT_PAGE_SIZE));
+    }
+
+    @Test
+    void aNegativePageIsInvalidArgument() {
+        service.listRecords(ListRecordsRequest.newBuilder()
+                .setEntityType("CONTRACT").setEntityId(UUID.randomUUID().toString())
+                .setPage(-1).setSize(20).build(), observer);
+
+        assertThat(observer.codeOfError()).isEqualTo(Status.Code.INVALID_ARGUMENT);
+    }
+
+    @Test
+    void aNegativeSizeIsInvalidArgument() {
+        service.listRecords(ListRecordsRequest.newBuilder()
+                .setEntityType("CONTRACT").setEntityId(UUID.randomUUID().toString())
+                .setPage(0).setSize(-5).build(), observer);
+
+        assertThat(observer.codeOfError()).isEqualTo(Status.Code.INVALID_ARGUMENT);
+    }
+
+    @Test
+    void anExcessiveSizeIsCappedRatherThanReadingTheWholeTable() {
+        // the trail is the largest table in the system; one careless caller must not page it all
+        service.listRecords(ListRecordsRequest.newBuilder()
+                .setEntityType("CONTRACT").setEntityId(UUID.randomUUID().toString())
+                .setPage(0).setSize(100_000).build(), observer);
+
+        verify(audit).forEntity(any(), any(), (Pageable) argThat(
+                p -> ((Pageable) p).getPageSize() <= AuditInternalGrpcService.MAX_PAGE_SIZE));
     }
 
     @Test
@@ -131,8 +153,6 @@ class AuditInternalGrpcServiceTest {
     @Test
     void nullColumnsBecomeEmptyStringsRatherThanFailing() {
         // a scheduler action has no actor and a field edit moves no status; proto3 cannot carry
-        // null, so the mapping has to choose — and choosing by NPE would fail the History tab for
-        // exactly the rows D14d's schedulers write
         when(audit.forEntity(any(), any(), any())).thenReturn(new PageImpl<>(List.of(
                 com.abclogistics.pas.audit.domain.AuditRecord.of(
                         UUID.randomUUID(), "contract-service", "CONTRACT", UUID.randomUUID(), null,

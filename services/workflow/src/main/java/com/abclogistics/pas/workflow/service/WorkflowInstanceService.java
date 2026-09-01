@@ -71,8 +71,9 @@ public class WorkflowInstanceService {
     }
 
     /**
-     * Read-only pre-submit check: OK when every step of active definition resolves to >=1 ACTIVE assignee.
-     * Used by owner services before local SUBMITTED commit (ValidateStartable gRPC).
+     * Read-only pre-submit check: OK when every step of active definition resolves to >=1
+     * ACTIVE assignee. Used by owner services before local SUBMITTED commit (ValidateStartable
+     * gRPC).
      */
     @Transactional(readOnly = true)
     public void validateStartable(String documentTypeCode) {

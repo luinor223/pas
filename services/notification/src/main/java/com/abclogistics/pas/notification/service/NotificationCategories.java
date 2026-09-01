@@ -5,14 +5,8 @@ import com.abclogistics.pas.notification.domain.NotificationCategory;
 import java.util.Map;
 
 /**
- * {@code event_type} → Figma tab (registry §8). Every event registry §4 lists notification-service
- * against appears here exactly once; nothing else does.
- *
- * <p>{@code workflow.instance_started} is deliberately absent. §4 listed notification as a consumer
- * of it, but its payload carries no {@code assignee_ids}, no {@code requested_by}, no
- * {@code owner_user_id} and no {@code recipient_role} — there is no one to notify. It fires in the
- * same transaction as {@code workflow.step_assigned}, which does address its reviewers, so the row
- * was consumer-list optimism rather than a designed notification and was dropped from §4.
+ * {@code event_type} → Figma tab (registry §8). Every event registry §4 lists
+ * notification-service against appears here exactly once; nothing else does.
  */
 public final class NotificationCategories {
 
@@ -37,8 +31,8 @@ public final class NotificationCategories {
     }
 
     /**
-     * @throws IllegalArgumentException for an event type this service does not consume. A silent
-     *         {@code SYSTEM} default would hide a new producer event from whoever added it.
+     * @throws IllegalArgumentException for an event type this service does not consume. A
+     * silent {@code SYSTEM} default would hide a new producer event from whoever added it.
      */
     public static NotificationCategory of(String eventType) {
         NotificationCategory category = BY_EVENT_TYPE.get(eventType);
