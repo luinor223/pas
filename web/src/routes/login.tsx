@@ -7,6 +7,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { api } from "@/api/client";
+import { LogoTile } from "@/components/Logo";
 import { useAuthStore } from "@/stores/auth.store";
 import { useState } from "react";
 
@@ -37,8 +38,9 @@ function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">PAS — Sign in</CardTitle>
+        <CardHeader className="items-center text-center">
+          <LogoTile className="h-12 w-12" />
+          <CardTitle className="text-2xl mt-2">Sign in to PAS</CardTitle>
           <p className="text-sm text-muted-foreground">Business Document Management System</p>
         </CardHeader>
         <CardContent>

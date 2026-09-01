@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/shared/components/ui/button";
 import { useAuthStore } from "@/stores/auth.store";
 import { usePermissions } from "@/shared/hooks/usePermission";
+import { LogoMark } from "@/components/Logo";
 import { api } from "@/api/client";
 import { LogOut, LayoutDashboard, Users, Shield, FileText, Bell } from "lucide-react";
 
@@ -36,7 +37,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-muted/30">
       <header className="h-14 border-b bg-white flex items-center justify-between px-4 sticky top-0 z-40">
         <div className="flex items-center gap-6">
-          <Link to="/" className="font-bold text-primary tracking-tight">PAS</Link>
+          <Link to="/" className="flex items-center gap-2 font-bold text-primary tracking-tight">
+            <LogoMark className="h-6 w-6" />PAS
+          </Link>
           <span className="text-xs text-muted-foreground hidden sm:inline">Business Document Management</span>
         </div>
         <div className="flex items-center gap-3">
