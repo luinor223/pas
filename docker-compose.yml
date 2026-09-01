@@ -32,7 +32,7 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "16379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -247,6 +247,40 @@ services:
       - "traefik.http.routers.pricing-docs.entrypoints=web"
       - "traefik.http.routers.pricing-docs.service=pricing"
       - "traefik.http.routers.pricing-docs.middlewares=pricing-docs-strip"
+
+  operations-service:
+    build:
+      context: .
+      dockerfile: services/operations/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_operations
+      DB_USER: operations
+      DB_PASSWORD: operations
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.operations.loadbalancer.server.port=8004"
+      - "traefik.http.middlewares.operations-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.operations-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.operations-docs-strip.stripprefix.prefixes=/docs/operations"
+      - "traefik.http.routers.operations.rule=PathPrefix(`/api/v1/periods`)"
+      - "traefik.http.routers.operations.entrypoints=web"
+      - "traefik.http.routers.operations.middlewares=operations-ratelimit,jwt-auth@file,api-v1-strip"
+      - "traefik.http.routers.operations-docs.rule=PathPrefix(`/docs/operations`)"
+      - "traefik.http.routers.operations-docs.entrypoints=web"
+      - "traefik.http.routers.operations-docs.service=operations"
+      - "traefik.http.routers.operations-docs.middlewares=operations-docs-strip"
 
   web:
     build:
