@@ -1,14 +1,13 @@
 package com.abclogistics.pas.operations.service;
 
 import com.abclogistics.pas.common.audit.AuditRecorder;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
-import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import com.abclogistics.pas.operations.domain.OperationPeriod;
 import com.abclogistics.pas.operations.domain.VolumeRecord;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
-import com.abclogistics.pas.operations.error.FailedPreconditionException;
 import com.abclogistics.pas.operations.grpc.ContractGrpcClient;
 import com.abclogistics.pas.operations.grpc.PricingGrpcClient;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
@@ -17,9 +16,7 @@ import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -30,18 +27,19 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 public class VolumeService {
 
     private static final Logger log = LoggerFactory.getLogger(VolumeService.class);
+    private static final Pattern PERIOD_CODE_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
     private final OperationPeriodRepository periodRepo;
     private final VolumeRecordRepository volumeRepo;
     private final ContractGrpcClient contractClient;
     private final PricingGrpcClient pricingClient;
     private final AuditRecorder audit;
-    private final JdbcTemplate jdbc;
     private final PlatformTransactionManager txManager;
 
     public VolumeService(OperationPeriodRepository periodRepo,
@@ -49,14 +47,12 @@ public class VolumeService {
                          ContractGrpcClient contractClient,
                          PricingGrpcClient pricingClient,
                          AuditRecorder audit,
-                         JdbcTemplate jdbc,
                          PlatformTransactionManager txManager) {
         this.periodRepo = periodRepo;
         this.volumeRepo = volumeRepo;
         this.contractClient = contractClient;
         this.pricingClient = pricingClient;
         this.audit = audit;
-        this.jdbc = jdbc;
         this.txManager = txManager;
     }
 
@@ -71,7 +67,7 @@ public class VolumeService {
         // permission + contract/pricing validation outside TX (no DB write yet)
         OperationPeriod periodCheck = periodRepo.findByPeriodCode(periodCode)
                 .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
-        if (periodCheck.isLocked() && !hasPermission("volume:edit_locked")) {
+        if (periodCheck.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
             throw new AccessDeniedException("Period is locked; volume:edit_locked required");
         }
         GetServiceItemResponse serviceItem = pricingClient.getServiceItem(serviceCode);
@@ -109,7 +105,7 @@ public class VolumeService {
                     OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
                             .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
                     // P0-1 fix: re-validate isLocked inside new TX after period is re-read (TOCTOU)
-                    if (period.isLocked() && !hasPermission("volume:edit_locked")) {
+                    if (period.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
                         throw new AccessDeniedException("Period is locked; volume:edit_locked required");
                     }
                     VolumeRecord record = VolumeRecord.create(
@@ -166,7 +162,7 @@ public class VolumeService {
 
         OperationPeriod period = record.getPeriod();
         // guard OPEN or volume:edit_locked + audit
-        if (period.isLocked() && !hasPermission("volume:edit_locked")) {
+        if (period.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
             throw new AccessDeniedException("Period is locked; volume:edit_locked required to edit");
         }
 
@@ -191,38 +187,14 @@ public class VolumeService {
         // O(1) global sequence — avoids O(N) count + full scan and race. Known deviation: global monotonic
         // (VOL-2027-0002 after VOL-2026-0010) not per-year reset; uniqueness per year still via prefix.
         // Strict per-year would need volume_record_counter + SELECT FOR UPDATE — keep global for simplicity.
-        try {
-            Long seq = jdbc.queryForObject("SELECT nextval('operations.volume_record_no_seq')", Long.class);
-            if (seq != null) {
-                return String.format("VOL-%s-%04d", year, seq);
-            }
-        } catch (Exception e) {
-            log.warn("Sequence nextval failed, falling back to count: {}", e.getMessage());
-        }
-        // Fallback (should not happen in prod): count-based
-        long count = volumeRepo.countByRecordNoStartingWith("VOL-" + year + "-");
-        return String.format("VOL-%s-%04d", year, count + 1);
+        Long seq = volumeRepo.nextRecordNo();
+        return String.format("VOL-%s-%04d", year, seq);
     }
 
     private void validatePeriodCode(String code) {
-        try {
-            java.time.YearMonth.parse(code);
-            if (!code.matches("^\\d{4}-(0[1-9]|1[0-2])$")) throw new java.time.format.DateTimeParseException("Invalid", code, 0);
-        } catch (java.time.format.DateTimeParseException e) {
+        if (code == null || !PERIOD_CODE_PATTERN.matcher(code).matches()) {
             throw new IllegalArgumentException("Invalid period_code, expected YYYY-MM: " + code);
         }
-    }
-
-    private boolean hasPermission(String permission) {
-        return SecurityUtils.currentUser().isPresent() && currentPermissions().contains(permission);
-    }
-
-    private java.util.Set<String> currentPermissions() {
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null) return java.util.Set.of();
-        return auth.getAuthorities().stream()
-                .map(a -> a.getAuthority())
-                .collect(java.util.stream.Collectors.toSet());
     }
 
     private VolumeResponse toResponse(VolumeRecord r) {

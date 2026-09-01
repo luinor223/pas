@@ -1,5 +1,6 @@
 package com.abclogistics.pas.operations.domain;
 
+import com.abclogistics.pas.common.persistence.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -12,7 +13,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "operation_period", schema = "operations")
-public class OperationPeriod {
+public class OperationPeriod extends BaseEntity {
 
     @Id
     @UuidGenerator
@@ -39,18 +40,6 @@ public class OperationPeriod {
     @Column(name = "locked_at")
     private Instant lockedAt;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
-
-    @Column(name = "created_by")
-    private UUID createdBy;
-
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
-
-    @Column(name = "updated_by")
-    private UUID updatedBy;
-
     protected OperationPeriod() {}
 
     public static OperationPeriod create(String periodCode, LocalDate startDate, LocalDate endDate, UUID createdBy) {
@@ -59,10 +48,8 @@ public class OperationPeriod {
         p.startDate = startDate;
         p.endDate = endDate;
         p.status = "OPEN";
-        p.createdAt = Instant.now();
-        p.updatedAt = Instant.now();
-        p.createdBy = createdBy;
-        p.updatedBy = createdBy;
+        p.setCreatedBy(createdBy);
+        p.setUpdatedBy(createdBy);
         return p;
     }
 
@@ -74,8 +61,7 @@ public class OperationPeriod {
         this.lockedBy = userId;
         this.lockedByName = userName;
         this.lockedAt = Instant.now();
-        this.updatedAt = Instant.now();
-        this.updatedBy = userId;
+        setUpdatedBy(userId);
     }
 
     public boolean isLocked() {
@@ -93,10 +79,4 @@ public class OperationPeriod {
     public UUID getLockedBy() { return lockedBy; }
     public String getLockedByName() { return lockedByName; }
     public Instant getLockedAt() { return lockedAt; }
-    public Instant getCreatedAt() { return createdAt; }
-    public UUID getCreatedBy() { return createdBy; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public UUID getUpdatedBy() { return updatedBy; }
-    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
-    public void setUpdatedBy(UUID updatedBy) { this.updatedBy = updatedBy; }
 }

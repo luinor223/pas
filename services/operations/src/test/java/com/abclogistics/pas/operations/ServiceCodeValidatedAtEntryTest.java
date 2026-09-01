@@ -101,7 +101,7 @@ class ServiceCodeValidatedAtEntryTest {
                 .setCode("INACTIVE_SVC").setName("Inactive").setUnit("TEU").setIsActive(false).build());
         UUID contractId = UUID.randomUUID();
         assertThatThrownBy(() -> volumeService.create(contractId, periodCode, "INACTIVE_SVC", new BigDecimal("5"), null))
-                .isInstanceOf(com.abclogistics.pas.operations.error.FailedPreconditionException.class)
+                .isInstanceOf(com.abclogistics.pas.common.error.FailedPreconditionException.class)
                 .hasMessageContaining("not active");
     }
 

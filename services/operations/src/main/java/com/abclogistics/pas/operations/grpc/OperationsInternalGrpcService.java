@@ -12,14 +12,15 @@ import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @GrpcService
 public class OperationsInternalGrpcService extends OperationsInternalGrpc.OperationsInternalImplBase {
+
+    private static final Pattern PERIOD_CODE_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
     private final OperationPeriodRepository periodRepo;
     private final VolumeRecordRepository volumeRepo;
@@ -41,11 +42,7 @@ public class OperationsInternalGrpcService extends OperationsInternalGrpc.Operat
                 return;
             }
             // P0-3: validate period_code format early → INVALID_ARGUMENT, not NOT_FOUND
-            try {
-                YearMonth.parse(periodCode);
-                // also ensure month 01-12 via regex already covered by YearMonth, but keep explicit
-                if (!periodCode.matches("^\\d{4}-(0[1-9]|1[0-2])$")) throw new DateTimeParseException("Invalid period_code", periodCode, 0);
-            } catch (DateTimeParseException e) {
+            if (!PERIOD_CODE_PATTERN.matcher(periodCode).matches()) {
                 responseObserver.onError(Status.INVALID_ARGUMENT.withDescription("Invalid period_code, expected YYYY-MM: " + periodCode).asRuntimeException());
                 return;
             }

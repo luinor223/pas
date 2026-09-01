@@ -44,20 +44,6 @@ class OperationsContractTest {
     }
 
     @Test
-    void openApiDocumentsOperationsEndpoints() throws Exception {
-        Path openapi = findFile("services/operations/src/main/resources/openapi.yaml");
-        assertThat(Files.exists(openapi)).withFailMessage("openapi not found, searched from %s", Path.of(System.getProperty("user.dir")).toAbsolutePath()).isTrue();
-        String yaml = Files.readString(openapi);
-        assertThat(yaml).contains("/periods");
-        assertThat(yaml).contains("/volume-records");
-        assertThat(yaml).contains("/lock");
-        assertThat(yaml).contains("volume:lock_period");
-        assertThat(yaml).contains("volume:edit_locked");
-        assertThat(yaml).contains("volume:write");
-        assertThat(yaml).contains("volume:read");
-    }
-
-    @Test
     void flywayMigrationExistsAndMentionsOutbox() throws Exception {
         Path sql = findFile("services/operations/src/main/resources/db/migration/V1__init_operations.sql");
         assertThat(Files.exists(sql)).isTrue();

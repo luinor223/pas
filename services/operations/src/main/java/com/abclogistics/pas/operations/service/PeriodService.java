@@ -22,17 +22,18 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @Service
 public class PeriodService {
 
     private static final Logger log = LoggerFactory.getLogger(PeriodService.class);
+    private static final Pattern PERIOD_CODE_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
     private final OperationPeriodRepository periodRepo;
     private final AuditRecorder audit;
@@ -103,24 +104,22 @@ public class PeriodService {
         // D9 informational direct publish — must happen after commit to avoid phantom event on rollback (P0-3)
         // Envelope per 00-registry.md:68: event_id, event_type, occurred_at, actor_id/name, document_type/id, payload
         final UUID periodId = period.getId();
-        final String periodCodeCopy = period.getPeriodCode();
-        final Instant lockedAtCopy = period.getLockedAt();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    doPublishPeriodLocked(periodId, periodCodeCopy, actorId, actorName, lockedAtCopy);
+                    doPublishPeriodLocked(periodId, periodCode, actorId, actorName);
                 }
             });
         } else {
             // no transaction (e.g., test without TX) — publish immediately
-            doPublishPeriodLocked(periodId, periodCodeCopy, actorId, actorName, lockedAtCopy);
+            doPublishPeriodLocked(periodId, periodCode, actorId, actorName);
         }
 
         return toResponse(period);
     }
 
-    private void doPublishPeriodLocked(UUID periodId, String periodCode, UUID actorId, String actorName, Instant lockedAt) {
+    private void doPublishPeriodLocked(UUID periodId, String periodCode, UUID actorId, String actorName) {
         try {
             UUID eventId = UUID.randomUUID();
             Instant occurredAt = Instant.now();
@@ -152,9 +151,7 @@ public class PeriodService {
     }
 
     private void validatePeriodCode(String code) {
-        try {
-            YearMonth.parse(code);
-        } catch (DateTimeParseException e) {
+        if (code == null || !PERIOD_CODE_PATTERN.matcher(code).matches()) {
             throw new IllegalArgumentException("Invalid period_code, expected YYYY-MM: " + code);
         }
     }

@@ -4,13 +4,12 @@ import com.abclogistics.pas.contract.grpc.ContractInternalGrpc;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
-import com.abclogistics.pas.operations.error.FailedPreconditionException;
-import com.abclogistics.pas.operations.error.ServiceUnavailableException;
+import com.abclogistics.pas.common.error.ServiceUnavailableException;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -23,7 +22,6 @@ public class ContractGrpcClient {
     private final ManagedChannel channel;
     private final ContractInternalGrpc.ContractInternalBlockingStub stub;
 
-    @Autowired
     public ContractGrpcClient(
             @Value("${contract.grpc.host:localhost}") String host,
             @Value("${contract.grpc.port:50052}") int port) {
@@ -38,9 +36,6 @@ public class ContractGrpcClient {
     }
 
     public GetContractResponse getContract(UUID contractId) {
-        if (stub == null) {
-            throw new ServiceUnavailableException("Contract stub not initialized");
-        }
         GetContractRequest req = GetContractRequest.newBuilder().setId(contractId.toString()).build();
         try {
             // per-call deadline — not one-shot at construction (P0-2)

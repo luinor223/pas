@@ -1,5 +1,6 @@
 package com.abclogistics.pas.operations.domain;
 
+import com.abclogistics.pas.common.persistence.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -10,12 +11,11 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.UUID;
 
 @Entity
 @Table(name = "volume_record", schema = "operations")
-public class VolumeRecord {
+public class VolumeRecord extends BaseEntity {
 
     @Id
     @UuidGenerator
@@ -52,25 +52,13 @@ public class VolumeRecord {
     @Column(name = "note")
     private String note;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
-
-    @Column(name = "created_by")
-    private UUID createdBy;
-
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
-
-    @Column(name = "updated_by")
-    private UUID updatedBy;
-
     protected VolumeRecord() {}
 
     public static VolumeRecord create(OperationPeriod period, String recordNo,
-                                      UUID contractId, UUID customerId, String customerName,
-                                      String serviceCode, String serviceName, String unit,
-                                      BigDecimal quantity, String note,
-                                      UUID createdBy) {
+                                       UUID contractId, UUID customerId, String customerName,
+                                       String serviceCode, String serviceName, String unit,
+                                       BigDecimal quantity, String note,
+                                       UUID createdBy) {
         VolumeRecord v = new VolumeRecord();
         v.recordNo = recordNo;
         v.period = period;
@@ -82,18 +70,15 @@ public class VolumeRecord {
         v.unit = unit;
         v.quantity = quantity;
         v.note = note;
-        v.createdAt = Instant.now();
-        v.updatedAt = Instant.now();
-        v.createdBy = createdBy;
-        v.updatedBy = createdBy;
+        v.setCreatedBy(createdBy);
+        v.setUpdatedBy(createdBy);
         return v;
     }
 
     public void updateQuantity(BigDecimal newQuantity, String newNote, UUID updatedBy) {
         this.quantity = newQuantity;
         if (newNote != null) this.note = newNote;
-        this.updatedAt = Instant.now();
-        this.updatedBy = updatedBy;
+        setUpdatedBy(updatedBy);
     }
 
     // getters/setters
@@ -109,8 +94,4 @@ public class VolumeRecord {
     public String getUnit() { return unit; }
     public BigDecimal getQuantity() { return quantity; }
     public String getNote() { return note; }
-    public Instant getCreatedAt() { return createdAt; }
-    public UUID getCreatedBy() { return createdBy; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public UUID getUpdatedBy() { return updatedBy; }
 }
