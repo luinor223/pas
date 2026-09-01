@@ -29,6 +29,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.scheduler.ContractStatusScheduler;
 import org.springframework.dao.OptimisticLockingFailureException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.ContractService;
@@ -272,23 +273,25 @@ class SchedulerActivatesAndExpiresTest {
         assertThat(header(record, "event_type")).isEqualTo("document.expiring");
         assertThat(header(record, "document_type")).isEqualTo("CONTRACT");
         // the dedup key, in the header where every consumer already reads it (OutboxRelay does
-        // the same for outboxed events) — and identical to the envelope's, not a second id
-        assertThat(header(record, "event_id")).isEqualTo(eventIdOf(record));
+        // the same for outboxed events)
         assertThat(header(record, "event_id")).isEqualTo(expectedEventId(id, TODAY.plusDays(10)));
         assertThat(record.value())
                 .contains("\"days_left\":10")
                 .contains(TODAY.plusDays(10).toString())
                 .contains(contractNoOf(id));
-        // the §4 envelope in full: a scheduler has no actor, and omitting the two fields would
-        // make this the one event a consumer has to special-case
+        // the value is the §4 payload alone — the same shape OutboxRelay publishes, so a direct
+        // publish is not the one event a consumer has to parse differently. Everything the
+        // envelope used to carry inline is either in a header or not needed by the consumer.
         assertThat(record.value())
-                .contains("\"event_id\":")
-                .contains("\"event_type\":\"document.expiring\"")
-                .contains("\"occurred_at\":")
-                .contains("\"actor_id\":null")
-                .contains("\"actor_name\":\"system\"")
-                .contains("\"document_type\":\"CONTRACT\"")
-                .contains("\"document_id\":\"%s\"".formatted(id));
+                .doesNotContain("\"event_id\"")
+                .doesNotContain("\"event_type\"")
+                .doesNotContain("\"payload\"");
+        JsonNode value = objectMapper.readTree(record.value());
+        assertThat(value.size()).isEqualTo(4);
+        assertThat(value.has("document_no")).isTrue();
+        assertThat(value.has("expires_on")).isTrue();
+        assertThat(value.has("days_left")).isTrue();
+        assertThat(value.has("owner_user_id")).isTrue();
     }
 
     @Test
@@ -550,8 +553,9 @@ class SchedulerActivatesAndExpiresTest {
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
+    /** The header, not the value: that is where every consumer reads its dedup key (registry §4). */
     private String eventIdOf(ProducerRecord<String, String> record) {
-        return objectMapper.readTree(record.value()).get("event_id").asString();
+        return header(record, "event_id");
     }
 
     private UUID contract(LocalDate validFrom, LocalDate validTo, DocumentStatus status) {

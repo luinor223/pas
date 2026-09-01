@@ -146,21 +146,13 @@ public class ContractStatusScheduler {
 
         UUID eventId = eventId(warning);
 
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("event_id", eventId.toString());
-        envelope.put("event_type", DOCUMENT_EXPIRING);
-        envelope.put("occurred_at", java.time.Instant.now().toString());
-        // the §4 envelope is fixed and a scheduler has no actor, as AuditRecorder also stamps it
-        envelope.put("actor_id", null);
-        envelope.put("actor_name", "system");
-        envelope.put("document_type", DOCUMENT_TYPE);
-        envelope.put("document_id", warning.contractId().toString());
-        envelope.put("payload", payload);
-
+        // value is the bare payload, exactly as OutboxRelay#kafkaRecord publishes every outboxed
+        // event (registry §4): the envelope fields a consumer needs travel in headers, so a direct
+        // publish and a relayed one are the same shape on the wire and there is one parse path.
         // key set explicitly: a direct-publish event has no outbox row to take an aggregate_id
         // from, and a null key would round-robin these across partitions (registry §4)
         ProducerRecord<String, String> record = new ProducerRecord<>(EVENTS_TOPIC,
-                warning.contractId().toString(), objectMapper.writeValueAsString(envelope));
+                warning.contractId().toString(), objectMapper.writeValueAsString(payload));
         record.headers().add(header("event_type", DOCUMENT_EXPIRING));
         record.headers().add(header("document_type", DOCUMENT_TYPE));
         // where consumers read their dedup key, as OutboxRelay#kafkaRecord does for every event
