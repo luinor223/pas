@@ -1,5 +1,6 @@
 package com.abclogistics.pas.common.error;
 
+import com.abclogistics.pas.common.api.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

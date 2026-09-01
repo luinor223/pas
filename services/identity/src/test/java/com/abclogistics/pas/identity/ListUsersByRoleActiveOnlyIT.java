@@ -1,4 +1,5 @@
 package com.abclogistics.pas.identity;
+import com.abclogistics.pas.identity.support.Envelopes;
 
 import com.abclogistics.pas.identity.domain.AppUser;
 import com.abclogistics.pas.identity.dto.CreateUserRequest;
@@ -102,7 +103,7 @@ class ListUsersByRoleActiveOnlyIT {
         RestClient unauthed = RestClient.create("http://localhost:" + port);
         LoginResponse adminLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
         RestClient adminClient = authedClient(adminLogin);
 
@@ -112,10 +113,10 @@ class ListUsersByRoleActiveOnlyIT {
 
         UserResponse active = adminClient.post().uri("/users")
                 .body(new CreateUserRequest(activeUsername, activeUsername + "@test.local", "Password123!", "List Active", "SALES", List.of(roleCode)))
-                .retrieve().body(UserResponse.class);
+                .retrieve().body(Envelopes.USER).data();
         UserResponse disabled = adminClient.post().uri("/users")
                 .body(new CreateUserRequest(disabledUsername, disabledUsername + "@test.local", "Password123!", "List Disabled", "SALES", List.of(roleCode)))
-                .retrieve().body(UserResponse.class);
+                .retrieve().body(Envelopes.USER).data();
         assertThat(active).isNotNull();
         assertThat(disabled).isNotNull();
 
@@ -192,7 +193,7 @@ class ListUsersByRoleActiveOnlyIT {
         RestClient unauthed = RestClient.create("http://localhost:" + port);
         LoginResponse adminLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
         RestClient adminClient = authedClient(adminLogin);
 
@@ -213,7 +214,7 @@ class ListUsersByRoleActiveOnlyIT {
         // Create a user with LEGAL_REVIEWER and immediately disable
         UserResponse u = adminClient.post().uri("/users")
                 .body(new CreateUserRequest(tempUser, tempUser + "@test.local", "Password123!", "Only Disabled", "LEGAL", List.of(uniqueRole)))
-                .retrieve().body(UserResponse.class);
+                .retrieve().body(Envelopes.USER).data();
         assertThat(u).isNotNull();
         adminClient.post().uri("/users/" + u.id() + "/disable").retrieve().toBodilessEntity();
 

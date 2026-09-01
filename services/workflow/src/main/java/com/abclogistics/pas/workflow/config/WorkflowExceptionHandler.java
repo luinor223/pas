@@ -1,6 +1,6 @@
 package com.abclogistics.pas.workflow.config;
 
-import com.abclogistics.pas.common.error.ApiError;
+import com.abclogistics.pas.common.api.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;

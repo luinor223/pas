@@ -51,7 +51,10 @@ function refresh(): Promise<void> {
 }
 
 api.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    if (r.data && typeof r.data === "object" && "data" in r.data) r.data = r.data.data;
+    return r;
+  },
   async (error) => {
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
     const status = error.response?.status;

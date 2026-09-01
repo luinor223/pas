@@ -11,6 +11,7 @@ dependencies {
     api(libs.spring.boot.starter.security)
     api(libs.spring.boot.starter.json)
     api(libs.spring.kafka)
+    compileOnly(libs.springdoc.openapi)
 
     testImplementation(libs.spring.boot.starter.test)
     // Hibernate picks its JSON FormatMapper by classpath detection and looks for Jackson 2, not

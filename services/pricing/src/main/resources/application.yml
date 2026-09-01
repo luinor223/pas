@@ -78,3 +78,7 @@ management:
     web:
       exposure:
         include: health,info
+
+springdoc:
+  api-docs:
+    version: openapi_3_1
