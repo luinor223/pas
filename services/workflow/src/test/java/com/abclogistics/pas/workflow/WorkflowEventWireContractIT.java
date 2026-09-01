@@ -166,16 +166,23 @@ class WorkflowEventWireContractIT {
                 "NORMAL", requester, REQUESTER_NAME, UUID.randomUUID());
     }
 
+    /** Re-query after each approval: approving one step activates the next, so a snapshot is stale. */
     private void approveEveryStep(WorkflowInstance instance) {
-        for (WorkflowStepInstance step : steps.findByInstance_IdOrderByStepOrderAsc(instance.getId())) {
-            if ("ACTIVE".equals(step.getStatus())) {
-                instances.actOnStep(step.getId(), "APPROVE", "ok");
+        for (int guard = 0; guard < 10; guard++) {
+            var active = steps.findByInstance_IdOrderByStepOrderAsc(instance.getId()).stream()
+                    .filter(s -> "ACTIVE".equals(s.getStatus()))
+                    .findFirst();
+            if (active.isEmpty()) {
+                return;
             }
+            instances.actOnStep(active.get().getId(), "APPROVE", "ok");
         }
+        throw new AssertionError("chain did not terminate");
     }
 
+    /** pas.events only — audit.recorded rows share the outbox but are a different contract. */
     private List<OutboxEvent> published() {
-        return outbox.findAll();
+        return outbox.findAll().stream().filter(e -> "pas.events".equals(e.topic())).toList();
     }
 
     private JsonNode payloadOf(String eventType) {

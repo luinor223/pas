@@ -24,7 +24,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** The admin UC "Tra cứu audit log" (seq-02) against real SQL. */
+/** The admin UC "Tra cứu audit log" (seq-02) against real SQL. *
+ * <p><b>Not yet exercised:</b> needs Phase B's {@code V1__} migration — {@code audit_record}
+ * does not exist yet, so this class fails at context startup.
+ */
 @Tag("integration")
 @Testcontainers
 @SpringBootTest

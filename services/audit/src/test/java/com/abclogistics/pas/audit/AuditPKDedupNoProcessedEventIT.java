@@ -33,6 +33,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * second half is asserted too — a {@code processed_event} appearing here would mean someone
  * stopped trusting the PK and added a redundant round trip on the hottest write path in the
  * system.
+ *
+ * <p><b>Not yet exercised:</b> needs Phase B's {@code V1__} migration — {@code audit_record}
+ * does not exist yet, so this class fails at context startup.
  */
 @Tag("integration")
 @Testcontainers
