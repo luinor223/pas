@@ -61,8 +61,10 @@ class AuditEventListenerTest {
 
         ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
         verify(ingest).ingest(any(), value.capture());
+        // snake_case, the names registry §4 lists and every other event's payload uses
         assertThat(value.getValue())
-                .contains("\"sourceService\":\"contract-service\"")
+                .contains("\"source_service\":\"contract-service\"")
+                .doesNotContain("\"sourceService\"")
                 .doesNotContain("\"payload\"")
                 .doesNotContain("\"event_id\"");
     }

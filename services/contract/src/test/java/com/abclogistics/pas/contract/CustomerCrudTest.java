@@ -409,8 +409,8 @@ class CustomerCrudTest {
         String payload = newestAuditFor(id);
         // jsonb round-trips with its own spacing, so match the field, not the formatting
         assertThat(payload).containsPattern(field("action", "SUSPEND"));
-        assertThat(payload).containsPattern(field("beforeStatus", "ACTIVE"));
-        assertThat(payload).containsPattern(field("afterStatus", "SUSPENDED"));
+        assertThat(payload).containsPattern(field("before_status", "ACTIVE"));
+        assertThat(payload).containsPattern(field("after_status", "SUSPENDED"));
         assertThat(payload).contains("unpaid invoices");
         // D15: the actor comes from the security context, not from the request body
         assertThat(payload).contains(SALES.userId().toString());
