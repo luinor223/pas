@@ -1,7 +1,5 @@
-# csrf@file: double-submit CSRF guard (local plugin). On unsafe methods, requires the
-# X-CSRF-Token header to match the pas_csrf cookie, but only when an auth cookie (pas_at/pas_rt)
-# is present, so login and header-auth (Bearer) callers pass untouched. Chained on the
-# authenticated routers alongside jwt-auth@file.
+# csrf@file: double-submit guard (local plugin). Requires X-CSRF-Token == pas_csrf on unsafe
+# cookie-authenticated requests; no-ops otherwise. Names must match identity AuthCookieWriter.
 http:
   middlewares:
     csrf:

@@ -10,9 +10,9 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
 
-/** Writes the session as cookies: pas_at (access JWT) and pas_rt (refresh, auth path only) are
- *  HttpOnly; pas_csrf is JS-readable so the SPA can echo it as the X-CSRF-Token header for the
- *  edge's double-submit check. SameSite=Lax; secure off for local http. */
+/** Session cookies: pas_at (access) and pas_rt (refresh, auth path) are HttpOnly; pas_csrf is
+ *  JS-readable for the SPA to echo as X-CSRF-Token (edge double-submit). SameSite=Lax.
+ *  Names must match the edge middleware (csrf.yml). */
 @Component
 public class AuthCookieWriter {
 

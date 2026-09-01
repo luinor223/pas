@@ -28,20 +28,18 @@ func CreateConfig() *Config {
 
 type csrf struct {
 	next            http.Handler
-	name            string
 	cookieName      string
 	headerName      string
 	authCookieNames []string
 }
 
 // New builds the middleware.
-func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+func New(_ context.Context, next http.Handler, config *Config, _ string) (http.Handler, error) {
 	if config.CookieName == "" || config.HeaderName == "" {
 		return nil, fmt.Errorf("csrf: cookieName and headerName are required")
 	}
 	return &csrf{
 		next:            next,
-		name:            name,
 		cookieName:      config.CookieName,
 		headerName:      config.HeaderName,
 		authCookieNames: config.AuthCookieNames,
@@ -49,15 +47,21 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 }
 
 func (c *csrf) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if isSafe(req.Method) || !c.cookieAuthenticated(req) {
+	if isSafe(req.Method) {
 		c.next.ServeHTTP(rw, req)
 		return
 	}
 
-	cookie, err := req.Cookie(c.cookieName)
+	cookies := cookieValues(req)
+	if !c.cookieAuthenticated(cookies) {
+		c.next.ServeHTTP(rw, req)
+		return
+	}
+
+	token := cookies[c.cookieName]
 	header := req.Header.Get(c.headerName)
-	if err != nil || cookie.Value == "" || header == "" ||
-		subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(header)) != 1 {
+	if token == "" || header == "" ||
+		subtle.ConstantTimeCompare([]byte(token), []byte(header)) != 1 {
 		http.Error(rw, "Missing or invalid CSRF token", http.StatusForbidden)
 		return
 	}
@@ -67,13 +71,23 @@ func (c *csrf) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 // cookieAuthenticated reports whether an ambient credential cookie rides the request; that is what
 // exposes it to CSRF. Header (Bearer) callers carry none and are left alone.
-func (c *csrf) cookieAuthenticated(req *http.Request) bool {
+func (c *csrf) cookieAuthenticated(cookies map[string]string) bool {
 	for _, name := range c.authCookieNames {
-		if ck, err := req.Cookie(name); err == nil && ck.Value != "" {
+		if cookies[name] != "" {
 			return true
 		}
 	}
 	return false
+}
+
+// cookieValues parses the request's Cookie header once into a name->value map.
+func cookieValues(req *http.Request) map[string]string {
+	list := req.Cookies()
+	values := make(map[string]string, len(list))
+	for _, ck := range list {
+		values[ck.Name] = ck.Value
+	}
+	return values
 }
 
 func isSafe(method string) bool {

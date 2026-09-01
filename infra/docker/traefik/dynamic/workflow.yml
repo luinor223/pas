@@ -3,7 +3,7 @@ http:
     workflow:
       rule: PathPrefix(`/api/v1/workflow-definitions`) || PathPrefix(`/api/v1/workflow-steps`) || PathPrefix(`/api/v1/inbox`)
       entryPoints: [web]
-      middlewares: [workflow-ratelimit, csrf@file, jwt-auth@file, api-v1-strip]
+      middlewares: [workflow-ratelimit, jwt-auth@file, api-v1-strip]
       service: workflow
     workflow-docs:
       rule: PathPrefix(`/docs/workflow`)
