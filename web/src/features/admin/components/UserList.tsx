@@ -9,7 +9,8 @@ import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Badge } from "@/shared/components/badge";
 import { StatusBadge } from "@/shared/components/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
+import { DataTable } from "@/shared/components/data-table";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { useForm } from "react-hook-form";
@@ -102,6 +103,55 @@ export function UserTable() {
   const editUser = users.find((u) => u.id === editRolesId);
   const [editCodes, setEditCodes] = useState<string[]>([]);
 
+  const columns = useMemo<ColumnDef<UserResponse>[]>(() => [
+    {
+      accessorKey: "fullName",
+      header: "USER",
+      cell: ({ row }) => {
+        const u = row.original;
+        const isSelf = u.id === currentUser?.id;
+        return (
+          <div>
+            <div className="font-medium">{u.fullName} {isSelf && <span className="text-xs text-muted-foreground">(you)</span>}</div>
+            <div className="text-xs text-muted-foreground">{u.username} · {u.email}</div>
+          </div>
+        );
+      },
+    },
+    { accessorKey: "department", header: "DEPARTMENT" },
+    {
+      id: "roles",
+      header: "ROLE",
+      enableSorting: false,
+      cell: ({ row }) => <div className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>)}</div>,
+    },
+    { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
+    {
+      accessorKey: "lastLoginAt",
+      header: "LAST LOGIN",
+      cell: ({ row }) => <span className="text-xs">{row.original.lastLoginAt ? new Date(row.original.lastLoginAt).toLocaleString() : "-"}</span>,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const u = row.original;
+        const isSelf = u.id === currentUser?.id;
+        return (
+          <div className="space-x-1">
+            <Button size="sm" variant="outline" onClick={() => { setEditRolesId(u.id); setEditCodes(u.roles); }}>Roles</Button>
+            {u.status === "ACTIVE" ? (
+              <Button size="sm" variant="destructive" onClick={() => setConfirmDisable(u)} title={isSelf ? "You are about to disable yourself" : undefined}>Disable</Button>
+            ) : (
+              <Button size="sm" onClick={() => toggleMut.mutate({ id: u.id, enable: true })}>Enable</Button>
+            )}
+          </div>
+        );
+      },
+    },
+  ], [currentUser?.id]);
+
   return (
     <div className="space-y-4">
       <Card>
@@ -133,48 +183,12 @@ export function UserTable() {
           ) : usersQ.isError ? (
             <div className="text-sm text-destructive">Failed to load users: {(usersQ.error as { message: string })?.message}</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>USER</TableHead>
-                  <TableHead>DEPARTMENT</TableHead>
-                  <TableHead>ROLE</TableHead>
-                  <TableHead>STATUS</TableHead>
-                  <TableHead>LAST LOGIN</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((u) => {
-                  const isSelf = u.id === currentUser?.id;
-                  return (
-                    <TableRow key={u.id} className={isSelf ? "bg-blue-50/50" : undefined}>
-                      <TableCell>
-                        <div className="font-medium">{u.fullName} {isSelf && <span className="text-xs text-muted-foreground">(you)</span>}</div>
-                        <div className="text-xs text-muted-foreground">{u.username} · {u.email}</div>
-                      </TableCell>
-                      <TableCell>{u.department}</TableCell>
-                      <TableCell><div className="flex flex-wrap gap-1">{u.roles.map((r) => <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>)}</div></TableCell>
-                      <TableCell>
-                        <StatusBadge status={u.status} />
-                      </TableCell>
-                      <TableCell className="text-xs">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "-"}</TableCell>
-                      <TableCell className="space-x-1">
-                        <Button size="sm" variant="outline" onClick={() => { setEditRolesId(u.id); setEditCodes(u.roles); }}>Roles</Button>
-                        {u.status === "ACTIVE" ? (
-                          <Button size="sm" variant="destructive" onClick={() => setConfirmDisable(u)} title={isSelf ? "You are about to disable yourself" : undefined}>
-                            Disable
-                          </Button>
-                        ) : (
-                          <Button size="sm" onClick={() => toggleMut.mutate({ id: u.id, enable: true })}>Enable</Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {filtered.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No users</TableCell></TableRow>}
-              </TableBody>
-            </Table>
+            <DataTable
+              columns={columns}
+              data={filtered}
+              emptyMessage="No users"
+              rowClassName={(u) => (u.id === currentUser?.id ? "bg-blue-50/50" : undefined)}
+            />
           )}
         </CardContent>
       </Card>

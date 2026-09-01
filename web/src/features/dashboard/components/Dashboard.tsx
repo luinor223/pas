@@ -1,6 +1,8 @@
 import { FileText, CheckSquare, ReceiptText, PenLine } from "lucide-react";
 import { StatCard } from "@/shared/components/stat-card";
 import { StatusBadge } from "@/shared/components/status-badge";
+import { DataTable } from "@/shared/components/data-table";
+import type { ColumnDef } from "@tanstack/react-table";
 
 // Sample data - the contract/approval services aren't wired yet; shape matches the API to come.
 const APPROVALS = [
@@ -9,6 +11,16 @@ const APPROVALS = [
   { id: "ADD-2026-0058", customer: "VN Logistics JSC", type: "Addendum", status: "SUBMITTED", age: "4h" },
   { id: "PRC-2026-0090", customer: "Hai Phong Depot", type: "Price List", status: "SUBMITTED", age: "6h" },
   { id: "PMT-2026-0328", customer: "Tan Cang Logistics", type: "Payment Statement", status: "SUBMITTED", age: "3d" },
+];
+
+type Approval = (typeof APPROVALS)[number];
+
+const approvalColumns: ColumnDef<Approval>[] = [
+  { accessorKey: "id", header: "Document ID", cell: ({ row }) => <a href="#" className="font-mono text-[13px] text-primary hover:underline">{row.original.id}</a> },
+  { accessorKey: "customer", header: "Customer" },
+  { accessorKey: "type", header: "Type", cell: ({ row }) => <span className="text-muted-foreground">{row.original.type}</span> },
+  { accessorKey: "status", header: "Status", enableSorting: false, cell: ({ row }) => <StatusBadge status={row.original.status} /> },
+  { accessorKey: "age", header: "Age", cell: ({ row }) => <span className="text-muted-foreground tnum">{row.original.age}</span> },
 ];
 
 const ACTIVITY = [
@@ -46,29 +58,8 @@ export function Dashboard() {
             <h2 className="text-[15px] font-semibold">Pending my approval</h2>
             <a href="#" className="text-sm font-medium text-primary hover:underline">View all</a>
           </div>
-          <div className="overflow-x-auto scroll-thin">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-y border-border bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <th className="px-5 py-2.5 text-left font-semibold">Document ID</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Customer</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Type</th>
-                  <th className="px-3 py-2.5 text-left font-semibold">Status</th>
-                  <th className="px-5 py-2.5 text-right font-semibold">Age</th>
-                </tr>
-              </thead>
-              <tbody>
-                {APPROVALS.map((r) => (
-                  <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                    <td className="px-5 py-3"><a href="#" className="font-mono text-[13px] text-primary hover:underline">{r.id}</a></td>
-                    <td className="px-3 py-3">{r.customer}</td>
-                    <td className="px-3 py-3 text-muted-foreground">{r.type}</td>
-                    <td className="px-3 py-3"><StatusBadge status={r.status} /></td>
-                    <td className="px-5 py-3 text-right text-muted-foreground tnum">{r.age}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="px-5 pb-5">
+            <DataTable columns={approvalColumns} data={APPROVALS} emptyMessage="Nothing pending" />
           </div>
         </section>
 
