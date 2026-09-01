@@ -1,6 +1,10 @@
 entryPoints:
   web:
     address: ":80"
+    http:
+      # csrf default covers every router; no-ops on safe or non-cookie requests.
+      middlewares:
+        - csrf@file
 
 providers:
   docker:
@@ -11,6 +15,9 @@ providers:
     watch: true
 
 experimental:
+  localPlugins:
+    csrf:
+      moduleName: github.com/abclogistics/csrf
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware

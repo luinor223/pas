@@ -1,0 +1,12 @@
+# csrf@file: double-submit guard (local plugin). Requires X-CSRF-Token == pas_csrf on unsafe
+# cookie-authenticated requests; no-ops otherwise. Names must match identity AuthCookieWriter.
+http:
+  middlewares:
+    csrf:
+      plugin:
+        csrf:
+          cookieName: pas_csrf
+          headerName: X-CSRF-Token
+          authCookieNames:
+            - pas_at
+            - pas_rt
