@@ -1,16 +1,21 @@
 package com.abclogistics.pas.identity.controller;
 
 import com.abclogistics.pas.common.error.UnauthorizedException;
+import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.identity.dto.LoginRequest;
 import com.abclogistics.pas.identity.dto.LoginResponse;
 import com.abclogistics.pas.identity.dto.RefreshRequest;
 import com.abclogistics.pas.identity.dto.TokenResponse;
+import com.abclogistics.pas.identity.dto.UserSummary;
 import com.abclogistics.pas.identity.security.AuthCookieWriter;
 import com.abclogistics.pas.identity.service.AuthService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,6 +39,16 @@ public class AuthController {
         LoginResponse result = authService.login(request);
         cookies.writeSession(response, result.accessToken(), result.refreshToken());
         return result;
+    }
+
+    // The caller's own profile, from the edge-validated principal. Any authenticated user.
+    @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    public UserSummary me() {
+        AuthenticatedUser user = SecurityUtils.currentUser()
+                .orElseThrow(() -> new UnauthorizedException("Not authenticated"));
+        return new UserSummary(user.userId(), user.username(), user.fullName(),
+                user.department(), user.roles());
     }
 
     // Refresh token comes from the pas_rt cookie; the body is a transitional fallback.

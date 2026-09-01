@@ -2,10 +2,10 @@ package com.abclogistics.pas.identity.service;
 
 import com.abclogistics.pas.common.error.UnauthorizedException;
 import com.abclogistics.pas.identity.domain.AppUser;
-import com.abclogistics.pas.identity.domain.Role;
 import com.abclogistics.pas.identity.dto.LoginRequest;
 import com.abclogistics.pas.identity.dto.LoginResponse;
 import com.abclogistics.pas.identity.dto.TokenResponse;
+import com.abclogistics.pas.identity.dto.UserSummary;
 import com.abclogistics.pas.identity.repository.AppUserRepository;
 import com.abclogistics.pas.identity.security.JwtIssuer;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 
 @Service
 public class AuthService {
@@ -44,19 +43,13 @@ public class AuthService {
 
         JwtIssuer.IssuedToken access = jwtIssuer.issue(user);
         RefreshTokenService.Issued refresh = refreshTokens.issueForLogin(user.getId());
-        List<String> roles = user.getRoles().stream().map(Role::getCode).toList();
 
         return new LoginResponse(
                 access.token(),
                 refresh.rawToken(),
                 BEARER,
                 access.expiresAt(),
-                new LoginResponse.UserSummary(
-                        user.getId(),
-                        user.getUsername(),
-                        user.getFullName(),
-                        user.getDepartment().getCode(),
-                        roles));
+                UserSummary.from(user));
     }
 
     /** Exchanges a valid refresh token for a fresh access token and a rotated refresh token. */

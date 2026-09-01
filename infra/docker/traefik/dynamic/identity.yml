@@ -1,5 +1,11 @@
 http:
   routers:
+    identity-me:
+      rule: Path(`/api/v1/auth/me`)
+      priority: 100
+      entryPoints: [web]
+      middlewares: [identity-ratelimit, jwt-auth@file, api-v1-strip]
+      service: identity
     identity-public:
       rule: PathPrefix(`/api/v1/auth`)
       entryPoints: [web]
