@@ -37,10 +37,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
-/** D6 against a real database, because the mocked half cannot see any of this. *
- * <p><b>Not yet exercised:</b> needs Phase B's {@code V1__} migration — {@code notification}
- * and {@code processed_event} do not exist yet, so this class fails at context startup.
- */
+/** D6 against a real database, because the mocked half cannot see any of this. */
 @Tag("integration")
 @Testcontainers
 @SpringBootTest

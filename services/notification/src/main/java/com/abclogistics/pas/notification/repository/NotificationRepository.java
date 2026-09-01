@@ -45,6 +45,18 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             """)
     int markAllReadFor(@Param("recipient") UUID recipient, @Param("readAt") Instant readAt);
 
+    /**
+     * One row, guarded the same way. Read-modify-write would let two concurrent requests both
+     * see {@code null} and the later commit overwrite the first moment it was read.
+     */
+    @Modifying
+    @Query("""
+            update Notification n set n.readAt = :readAt
+            where n.id = :id and n.recipientUserId = :recipient and n.readAt is null
+            """)
+    int markReadFor(@Param("id") UUID id, @Param("recipient") UUID recipient,
+                    @Param("readAt") Instant readAt);
+
     long countByRecipientUserIdAndReadAtIsNull(UUID recipientUserId);
 
     /** One row per category, for the Figma tab counters — one group-by, not a query per tab. */

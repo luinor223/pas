@@ -3,6 +3,7 @@ package com.abclogistics.pas.notification;
 import com.abclogistics.pas.common.outbox.EventRecords;
 import com.abclogistics.pas.notification.event.EventEnvelope;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -122,6 +123,19 @@ final class EventFixtures {
 
     static EventEnvelope envelope(ConsumerRecord<String, String> record) {
         return EventEnvelope.from(record, MAPPER);
+    }
+
+    /** The same record with one payload field replaced, or removed when {@code value} is null. */
+    static ConsumerRecord<String, String> withPayloadField(ConsumerRecord<String, String> record,
+                                                           String field, Object value) {
+        Map<String, Object> payload = new LinkedHashMap<>(
+                MAPPER.readValue(record.value(), new TypeReference<Map<String, Object>>() { }));
+        if (value == null) {
+            payload.remove(field);
+        } else {
+            payload.put(field, value);
+        }
+        return EventRecords.withValue(record, json(payload));
     }
 
     private static ConsumerRecord<String, String> outboxed(String eventType, String documentType,

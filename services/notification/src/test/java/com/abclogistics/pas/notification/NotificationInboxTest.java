@@ -24,6 +24,8 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -166,16 +168,17 @@ class NotificationInboxTest {
     }
 
     @Test
-    void markingReadTwiceKeepsTheFirstTimestamp() {
+    void markingReadIsAConditionalUpdateNotAReadModifyWrite() {
+        // guarded on read_at is null in SQL, so two concurrent calls cannot both win
         UUID me = UUID.randomUUID();
         Notification n = notificationFor(me);
         when(notifications.findById(n.getId())).thenReturn(Optional.of(n));
 
         service.markRead(n.getId(), me);
-        var firstReadAt = n.getReadAt();
         service.markRead(n.getId(), me);
 
-        assertThat(n.getReadAt()).isEqualTo(firstReadAt);
+        verify(notifications, times(2)).markReadFor(eq(n.getId()), eq(me), any());
+        verify(notifications, never()).save(any());
     }
 
     @Test

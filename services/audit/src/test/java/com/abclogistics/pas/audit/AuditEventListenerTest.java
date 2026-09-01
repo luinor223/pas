@@ -104,6 +104,19 @@ class AuditEventListenerTest {
     }
 
     @Test
+    void aMissingDocumentTypeHeaderIsMalformedToo() {
+        // §4 makes all three mandatory; validating two of them is not the contract
+        ConsumerRecord<String, String> headerless = EventRecords.withoutHeader(
+                AuditEventFixtures.recorded(
+                        AuditEventFixtures.fieldEdit(UUID.randomUUID(), "HD-2026-0001", Instant.now())),
+                EventHeaders.DOCUMENT_TYPE);
+
+        assertThatThrownBy(() -> listener.onAuditRecorded(headerless))
+                .isInstanceOf(MalformedEventException.class);
+        verify(ingest, never()).ingest(any(), anyString());
+    }
+
+    @Test
     void aGenuineAuditRecordedEventIsIngested() {
         listener.onAuditRecorded(AuditEventFixtures.recorded(
                 AuditEventFixtures.fieldEdit(UUID.randomUUID(), "HD-2026-0001", Instant.now())));

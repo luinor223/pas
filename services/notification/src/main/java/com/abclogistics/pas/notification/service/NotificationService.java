@@ -97,15 +97,14 @@ public class NotificationService {
         return counts;
     }
 
-    /** Idempotent: re-marking keeps the original {@code read_at}. */
+    /** Idempotent: the conditional update means re-marking keeps the original {@code read_at}. */
     @Transactional
     public void markRead(UUID id, UUID recipient) {
-        Notification notification = notifications.findById(id)
+        notifications.findById(id)
                 .filter(n -> n.getRecipientUserId().equals(recipient))
                 // 404 rather than 403: the caller must not learn that the id exists
                 .orElseThrow(() -> new NotFoundException("Notification not found: " + id));
-        notification.markRead();
-        notifications.save(notification);
+        notifications.markReadFor(id, recipient, Instant.now());
     }
 
     @Transactional

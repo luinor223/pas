@@ -73,12 +73,6 @@ public class Notification extends BaseEntity {
         return n;
     }
 
-    public void markRead() {
-        if (readAt == null) {
-            readAt = Instant.now();
-        }
-    }
-
     public UUID getId() { return id; }
     public UUID getRecipientUserId() { return recipientUserId; }
     public NotificationCategory getCategory() { return category; }

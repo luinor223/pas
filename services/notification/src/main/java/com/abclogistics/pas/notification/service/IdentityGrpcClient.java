@@ -5,6 +5,7 @@ import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;
 import com.abclogistics.pas.identity.grpc.UserRef;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,7 @@ public class IdentityGrpcClient {
                 .toList();
     }
 
+    @PreDestroy
     public void shutdown() {
         if (channel != null) {
             channel.shutdown();

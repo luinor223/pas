@@ -28,6 +28,8 @@ public class AuditEventListener {
             autoStartup = "${audit.kafka.listener-enabled:true}")
     public void onAuditRecorded(ConsumerRecord<String, String> record) {
         String eventType = EventHeaders.required(record, EventHeaders.EVENT_TYPE);
+        // all three headers are mandatory in §4, so a record missing one is malformed here too
+        EventHeaders.required(record, EventHeaders.DOCUMENT_TYPE);
         if (!EVENT_TYPE.equals(eventType)) {
             // not skipped, like the notification listener does for another service's event
             throw new MalformedEventException(

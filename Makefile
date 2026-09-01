@@ -30,7 +30,7 @@ help: ## Show this help
 	@echo "  build                                           Build image (uses cache)"
 	@echo "  rebuild                                         Force rebuild --no-cache"
 	@echo "  ps                                              Show containers"
-	@echo "  logs / logs-identity / logs-workflow / logs-contract  Tail logs"
+	@echo "  logs / logs-identity / logs-workflow / logs-contract / logs-notification / logs-audit  Tail logs"
 	@echo "  down                                            Stop stack, keep volumes/cache"
 	@echo "  down-v / clean / nuke                           Stop stack + WIPE volumes (DB reset)"
 	@echo "  test / test-unit                                Run unit tests (excludes integration)"
@@ -64,7 +64,7 @@ keys-check: ## Fail if private key missing (used by up)
 # ---------------------------------------------------------------------------
 # docker compose
 # ---------------------------------------------------------------------------
-.PHONY: up build rebuild ps logs logs-identity logs-workflow logs-contract down down-v clean nuke
+.PHONY: up build rebuild ps logs logs-identity logs-workflow logs-contract logs-notification logs-audit down down-v clean nuke
 
 up: keys-check ## Build (if needed) and start stack detached (docker compose up --build -d)
 	$(COMPOSE) up --build -d
@@ -90,6 +90,12 @@ logs-workflow: ## Tail workflow-service logs
 
 logs-contract: ## Tail contract-service logs
 	$(COMPOSE) logs -f contract-service
+
+logs-notification: ## Tail notification-service logs
+	$(COMPOSE) logs -f notification-service
+
+logs-audit: ## Tail audit-service logs
+	$(COMPOSE) logs -f audit-service
 
 down: ## Stop and remove containers/network (KEEP pgdata volume & image cache)
 	$(COMPOSE) down
