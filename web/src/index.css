@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* PAS design system - data-dense logistics dashboard.
+   Navy sidebar, blue primary, orange brand accent, Fira Sans / Fira Code. */
+@theme {
+  /* neutrals (slate-biased, chosen not defaulted) */
+  --color-background: #f4f5f8;
+  --color-foreground: #1f2733;
+  --color-card: #ffffff;
+  --color-card-foreground: #1f2733;
+  --color-muted: #eef1f5;
+  --color-muted-foreground: #6b7280;
+  --color-border: #e5e7eb;
+  --color-input: #d6dbe4;
+  --color-ring: #1d4ed8;
+
+  /* brand */
+  --color-primary: #1d4ed8;          /* primary blue - buttons, links */
+  --color-primary-foreground: #ffffff;
+  --color-navy: #1e3a8a;             /* sidebar / brand panel */
+  --color-navy-foreground: #eaf0ff;
+  --color-accent: #ea8a1e;           /* orange brand mark */
+  --color-accent-foreground: #ffffff;
+  --color-destructive: #dc2626;
+
+  /* status ink + wash (badges, bars) */
+  --color-st-draft: #475569;         --color-st-draft-bg: #e2e8f0;
+  --color-st-review: #b45309;        --color-st-review-bg: #fef3c7;
+  --color-st-approved: #047857;      --color-st-approved-bg: #d1fae5;
+  --color-st-effective: #1d4ed8;     --color-st-effective-bg: #dbeafe;
+  --color-st-rejected: #b91c1c;      --color-st-rejected-bg: #fee2e2;
+  --color-st-signing: #7c3aed;       --color-st-signing-bg: #ede9fe;
+  --color-st-expired: #64748b;       --color-st-expired-bg: #f1f5f9;
+
+  /* semantic deltas */
+  --color-positive: #059669;
+
+  --font-sans: "Fira Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Fira Code", ui-monospace, "SFMono-Regular", monospace;
+
+  --radius: 0.5rem;
+}
+
+:root { --radius: 0.5rem; }
+
+* { border-color: var(--color-border); }
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* tabular figures wherever data lines up */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* thin scrollbars inside scroll regions */
+.scroll-thin { scrollbar-width: thin; scrollbar-color: #cbd2dc transparent; }
+.scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: #cbd2dc; border-radius: 8px; }
