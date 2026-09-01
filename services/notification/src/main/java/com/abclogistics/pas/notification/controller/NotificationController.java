@@ -1,6 +1,7 @@
 package com.abclogistics.pas.notification.controller;
 
 import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.notification.domain.NotificationCategory;
 import com.abclogistics.pas.notification.dto.InboxResponse;
 import com.abclogistics.pas.notification.service.NotificationService;
 import org.springframework.data.domain.Pageable;
@@ -34,8 +35,9 @@ public class NotificationController {
     @GetMapping
     @PreAuthorize("hasAuthority('notification:read')")
     public InboxResponse list(@RequestParam(defaultValue = "false") boolean unread,
+                              @RequestParam(required = false) NotificationCategory category,
                               Pageable pageable) {
-        return notifications.inbox(SecurityUtils.currentUserId(), unread, pageable);
+        return notifications.inbox(SecurityUtils.currentUserId(), unread, category, pageable);
     }
 
     @PatchMapping("/{id}/read")

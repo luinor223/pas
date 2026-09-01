@@ -68,8 +68,8 @@ components:
         entityId: { type: string, format: uuid }
         entityNo: { type: string, nullable: true }
         action: { type: string }
-        actorId: { type: string, format: uuid, nullable: true, description: null for system/scheduler actions }
-        actorName: { type: string, description: write-time snapshot, "system" when unattributed }
+        actorId: { type: string, format: uuid, nullable: true, description: "null for system/scheduler actions" }
+        actorName: { type: string, description: "write-time snapshot; 'system' when unattributed" }
         actorDepartment: { type: string, nullable: true }
         beforeStatus: { type: string, nullable: true }
         afterStatus: { type: string, nullable: true }

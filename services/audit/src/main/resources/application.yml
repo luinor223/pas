@@ -53,6 +53,9 @@ outbox:
 
 audit:
   kafka:
+    # an IT that drives the listener directly turns the container off, so it does not also
+    # race a real poll against a broker that is not there
+    listener-enabled: true
     dlt-suffix: ".DLT"
     retry-attempts: 3
     retry-backoff: PT2S

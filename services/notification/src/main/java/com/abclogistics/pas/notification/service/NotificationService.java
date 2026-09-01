@@ -1,5 +1,6 @@
 package com.abclogistics.pas.notification.service;
 
+import com.abclogistics.pas.notification.domain.NotificationCategory;
 import com.abclogistics.pas.notification.dto.InboxResponse;
 import com.abclogistics.pas.notification.event.EventEnvelope;
 import com.abclogistics.pas.notification.repository.NotificationRepository;
@@ -38,8 +39,15 @@ public class NotificationService {
         throw new UnsupportedOperationException("Phase B: fan an event out to its recipients");
     }
 
+    /**
+     * The bell list and its badge in one call. {@code unreadCount} is deliberately <b>not</b>
+     * filtered by {@code unreadOnly} or {@code category}: the Figma header renders the badge beside
+     * whichever tab is open, and a badge describing only the open tab would drop to zero the moment
+     * the user opened Approvals with an unread e-signature waiting.
+     */
     @Transactional(readOnly = true)
-    public InboxResponse inbox(UUID recipient, boolean unreadOnly, Pageable pageable) {
+    public InboxResponse inbox(UUID recipient, boolean unreadOnly, NotificationCategory category,
+                               Pageable pageable) {
         throw new UnsupportedOperationException("Phase B: read the inbox");
     }
 

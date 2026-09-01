@@ -18,9 +18,19 @@ paths:
       summary: The caller's inbox, newest first
       description: >
         Returns the page plus `unreadCount`, so the Figma bell badge and the list come from one
-        call. `unread=true` filters to `read_at IS NULL`; the count is unfiltered either way.
+        call. `unread` and `category` are the tab axes (§8: All / Unread / Approvals / E-signature
+        / Expiring) and combine — "unread approvals" is reachable. `unreadCount` is unfiltered by
+        both, because the badge sits beside the tabs and must not describe only the open one.
+        Per-tab counters are deliberately absent: §8 gives the bell one badge and four tabs, not a
+        count per tab, and serving four extra aggregates on every poll of the hottest read in the
+        system to render numbers no screen shows would be pure cost. If a tab badge is wanted
+        later it is a category count on this same response, not a new endpoint.
       parameters:
         - { name: unread, in: query, schema: { type: boolean, default: false } }
+        - name: category
+          in: query
+          description: omit for the All tab
+          schema: { type: string, enum: [APPROVAL, ESIGN, EXPIRY, SYSTEM] }
         - { name: page, in: query, schema: { type: integer, default: 0 } }
         - { name: size, in: query, schema: { type: integer, default: 20 } }
       responses:
@@ -68,7 +78,7 @@ components:
         unreadCount:
           type: integer
           format: int64
-          description: unfiltered, so the badge is correct while the list is filtered
+          description: unfiltered by unread/category, so the badge stays correct while the list is filtered
     NotificationResponse:
       type: object
       properties:

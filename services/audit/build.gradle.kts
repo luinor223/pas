@@ -30,6 +30,9 @@ dependencies {
     implementation(libs.spring.boot.kafka)
 
     testImplementation(libs.spring.boot.starter.test)
+    // records shaped by the real OutboxRelay, so this consumer's spec cannot drift from what
+    // the seven producers actually publish
+    testImplementation(testFixtures(project(":libs:common")))
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.generic)

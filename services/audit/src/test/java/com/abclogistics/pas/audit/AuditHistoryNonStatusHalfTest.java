@@ -24,10 +24,16 @@ import static org.mockito.Mockito.when;
  * seq-02(d) and D15/D17. A document's History tab reads <b>two</b> sources with different
  * consistency: the owning service's local {@code status_history} (synchronous) and this service's
  * {@code ListRecords} (eventual). They are not substitutes, and this half must never be the one a
- * business rule reads — so the per-entity query returns the non-status half and never claims to
- * be a status timeline.
+ * business rule reads.
+ *
+ * <p>This class covers <b>only the audit half</b>, which is all audit-service can see — it has no
+ * access to another service's {@code status_history} table, so the two sources cannot be compared
+ * from here. It was called {@code AuditHistoryTwoSourcesTest}, which promised a comparison it
+ * never made. The composition itself belongs to the owning service (a contract-side test that the
+ * tab renders both) or to session 9's end-to-end pass; until one of those exists, the second
+ * source is untested and that is a known gap, not a covered case.
  */
-class AuditHistoryTwoSourcesTest {
+class AuditHistoryNonStatusHalfTest {
 
     private AuditRecordRepository records;
     private AuditQueryService service;
