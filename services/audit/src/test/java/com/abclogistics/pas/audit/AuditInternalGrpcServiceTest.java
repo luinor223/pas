@@ -40,7 +40,7 @@ class AuditInternalGrpcServiceTest {
     @BeforeEach
     void setUp() {
         audit = mock(AuditQueryService.class);
-        service = new AuditInternalGrpcService(audit);
+        service = new AuditInternalGrpcService(audit, new tools.jackson.databind.ObjectMapper());
         observer = new CapturingObserver();
         when(audit.forEntity(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
     }

@@ -14,6 +14,7 @@ import java.util.UUID;
 public class ProcessedEvent {
 
     @Id
+    @Column(name = "event_id", nullable = false, updatable = false)
     private UUID id;
 
     @Column(name = "processed_at", nullable = false)

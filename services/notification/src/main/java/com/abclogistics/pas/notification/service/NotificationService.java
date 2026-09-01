@@ -1,14 +1,23 @@
 package com.abclogistics.pas.notification.service;
 
+import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.notification.domain.Notification;
 import com.abclogistics.pas.notification.domain.NotificationCategory;
+import com.abclogistics.pas.notification.domain.ProcessedEvent;
+import com.abclogistics.pas.notification.dto.NotificationResponse;
 import com.abclogistics.pas.notification.dto.InboxResponse;
 import com.abclogistics.pas.notification.event.EventEnvelope;
 import com.abclogistics.pas.notification.repository.NotificationRepository;
 import com.abclogistics.pas.notification.repository.ProcessedEventRepository;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** The fan-out sink and the inbox read model (4.9). */
@@ -35,7 +44,21 @@ public class NotificationService {
      */
     @Transactional
     public int fanOut(EventEnvelope event) {
-        throw new UnsupportedOperationException("Phase B: fan an event out to its recipients");
+        if (processed.existsById(event.eventId())) {
+            return 0;
+        }
+        NotificationCategory category = NotificationCategories.of(event.eventType());
+        List<UUID> targets = recipients.recipientsOf(event);
+        for (UUID recipient : targets) {
+            notifications.save(Notification.of(recipient, category, event.eventId(),
+                    event.eventType(), event.documentType(), event.documentId(),
+                    documentNo(event),
+                    NotificationText.title(event.eventType(), event.payload()),
+                    NotificationText.body(event.eventType(), event.payload())));
+        }
+        // marked even when nobody was resolved, or the event is redelivered for ever
+        processed.save(ProcessedEvent.of(event.eventId()));
+        return targets.size();
     }
 
     /**
@@ -46,17 +69,47 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public InboxResponse inbox(UUID recipient, boolean unreadOnly, NotificationCategory category,
                                Pageable pageable) {
-        throw new UnsupportedOperationException("Phase B: read the inbox");
+        Page<Notification> page = notifications.inboxOf(recipient, unreadOnly, category, pageable);
+        return new InboxResponse(page.map(NotificationResponse::of).getContent(),
+                page.getTotalElements(),
+                notifications.countByRecipientUserIdAndReadAtIsNull(recipient),
+                counts(recipient));
+    }
+
+    private static String documentNo(EventEnvelope event) {
+        Object value = event.payload().get("document_no");
+        return value == null ? null : value.toString();
+    }
+
+    /** Every tab reports a number, including the ones the group-by returns no row for. */
+    private Map<String, Long> counts(UUID recipient) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (NotificationCategory c : NotificationCategory.values()) {
+            counts.put(c.name(), 0L);
+        }
+        long all = 0;
+        for (var row : notifications.countByCategoryFor(recipient)) {
+            counts.put(row.getCategory().name(), row.getTotal());
+            all += row.getTotal();
+        }
+        counts.put("all", all);
+        counts.put("unread", notifications.countByRecipientUserIdAndReadAtIsNull(recipient));
+        return counts;
     }
 
     /** Idempotent: re-marking keeps the original {@code read_at}. */
     @Transactional
     public void markRead(UUID id, UUID recipient) {
-        throw new UnsupportedOperationException("Phase B: mark one notification read");
+        Notification notification = notifications.findById(id)
+                .filter(n -> n.getRecipientUserId().equals(recipient))
+                // 404 rather than 403: the caller must not learn that the id exists
+                .orElseThrow(() -> new NotFoundException("Notification not found: " + id));
+        notification.markRead();
+        notifications.save(notification);
     }
 
     @Transactional
     public long markAllRead(UUID recipient) {
-        throw new UnsupportedOperationException("Phase B: bulk mark read");
+        return notifications.markAllReadFor(recipient, Instant.now());
     }
 }

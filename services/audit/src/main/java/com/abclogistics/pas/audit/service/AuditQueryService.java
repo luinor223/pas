@@ -23,7 +23,7 @@ public class AuditQueryService {
     /** Per-entity, gRPC-facing — an owning service's History tab. */
     @Transactional(readOnly = true)
     public Page<AuditRecord> forEntity(String entityType, UUID entityId, Pageable pageable) {
-        throw new UnsupportedOperationException("Phase B: per-entity history");
+        return records.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(entityType, entityId, pageable);
     }
 
     /** Cross-entity admin search, `audit:view_all`. */
@@ -31,6 +31,7 @@ public class AuditQueryService {
     public Page<AuditRecord> search(String entityType, String entityNo, UUID actorId,
                                     String sourceService, String action,
                                     Instant from, Instant to, Pageable pageable) {
-        throw new UnsupportedOperationException("Phase B: cross-entity search");
+        return records.search(entityType, entityNo, actorId, sourceService, action,
+                from, to, pageable);
     }
 }

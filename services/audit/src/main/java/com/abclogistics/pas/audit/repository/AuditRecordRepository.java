@@ -52,16 +52,24 @@ public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
     Page<AuditRecord> findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
             String entityType, UUID entityId, Pageable pageable);
 
-    /** The admin cross-entity search. Every filter is optional and ANDed. */
+    /**
+     * The admin cross-entity search. Every filter is optional and ANDed.
+     *
+     * <p>The shape is dictated by Postgres, which cannot type a bare {@code :p is null} and fails
+     * the whole statement at bind time. Non-null columns use {@code col = coalesce(:p, col)}, which
+     * takes its type from the column. The two <em>nullable</em> columns cannot: {@code NULL = NULL}
+     * is false, so coalesce there would silently drop every system action the moment no actor
+     * filter was given — they keep the explicit null check, with a cast where the type needs one.
+     */
     @Query("""
             select r from AuditRecord r
-            where (:entityType is null or r.entityType = :entityType)
-              and (:entityNo   is null or r.entityNo   = :entityNo)
-              and (:actorId    is null or r.actorId    = :actorId)
-              and (:sourceService is null or r.sourceService = :sourceService)
-              and (:action     is null or r.action     = :action)
-              and (:from       is null or r.occurredAt >= :from)
-              and (:to         is null or r.occurredAt <= :to)
+            where r.entityType    = coalesce(:entityType, r.entityType)
+              and r.sourceService = coalesce(:sourceService, r.sourceService)
+              and r.action        = coalesce(:action, r.action)
+              and r.occurredAt   >= coalesce(:from, r.occurredAt)
+              and r.occurredAt   <= coalesce(:to, r.occurredAt)
+              and (r.entityNo = :entityNo or :entityNo is null)
+              and (r.actorId  = :actorId  or cast(:actorId as java.util.UUID) is null)
             order by r.occurredAt desc
             """)
     Page<AuditRecord> search(@Param("entityType") String entityType,
