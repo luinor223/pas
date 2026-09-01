@@ -210,6 +210,44 @@ services:
       - "traefik.http.routers.contract.entrypoints=web"
       - "traefik.http.routers.contract.middlewares=contract-ratelimit,jwt-auth@file,api-v1-strip"
 
+  pricing-service:
+    build:
+      context: .
+      dockerfile: services/pricing/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_pricing
+      DB_USER: pricing
+      DB_PASSWORD: pricing
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WORKFLOW_GRPC_HOST: workflow-service
+      WORKFLOW_GRPC_PORT: 50056
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      workflow-service:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.pricing.loadbalancer.server.port=8003"
+      - "traefik.http.middlewares.pricing-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.pricing-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.pricing-docs-strip.stripprefix.prefixes=/docs/pricing"
+      - "traefik.http.routers.pricing.rule=PathPrefix(`/api/v1/service-items`) || PathPrefix(`/api/v1/price-lists`)"
+      - "traefik.http.routers.pricing.entrypoints=web"
+      - "traefik.http.routers.pricing.middlewares=pricing-ratelimit,jwt-auth@file,api-v1-strip"
+      - "traefik.http.routers.pricing-docs.rule=PathPrefix(`/docs/pricing`)"
+      - "traefik.http.routers.pricing-docs.entrypoints=web"
+      - "traefik.http.routers.pricing-docs.service=pricing"
+      - "traefik.http.routers.pricing-docs.middlewares=pricing-docs-strip"
+
   web:
     build:
       context: ./web
