@@ -1,4 +1,5 @@
 package com.abclogistics.pas.identity;
+import com.abclogistics.pas.identity.support.Envelopes;
 
 import com.abclogistics.pas.identity.dto.CreateUserRequest;
 import com.abclogistics.pas.identity.dto.LoginRequest;
@@ -121,7 +122,7 @@ class PermissionCachePropagationIT {
         RestClient unauthed = RestClient.create("http://localhost:" + port);
         LoginResponse adminLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
         RestClient adminClient = authedClient(adminLogin);
 
@@ -157,7 +158,7 @@ class PermissionCachePropagationIT {
         RestClient unauthed = RestClient.create("http://localhost:" + port);
         LoginResponse adminLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
         RestClient adminClient = authedClient(adminLogin);
 
@@ -165,13 +166,13 @@ class PermissionCachePropagationIT {
         String username = "perm-propagate-" + System.nanoTime();
         UserResponse sales = adminClient.post().uri("/users")
                 .body(new CreateUserRequest(username, username + "@test.local", "Password123!", "Perm Test", "SALES", List.of("SALES_OFFICER")))
-                .retrieve().body(UserResponse.class);
+                .retrieve().body(Envelopes.USER).data();
         assertThat(sales).isNotNull();
 
         // Login as that sales user to get their id/roles (but we will inject headers manually)
         LoginResponse salesLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest(username, "Password123!"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(salesLogin).isNotNull();
 
         RestClient salesClient = RestClient.builder().baseUrl("http://localhost:" + port)

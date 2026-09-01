@@ -1,4 +1,4 @@
-package com.abclogistics.pas.common.error;
+package com.abclogistics.pas.common.api;
 
 import java.time.Instant;
 import java.util.List;

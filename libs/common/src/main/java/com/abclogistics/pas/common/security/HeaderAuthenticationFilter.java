@@ -1,6 +1,6 @@
 package com.abclogistics.pas.common.security;
 
-import com.abclogistics.pas.common.error.ApiError;
+import com.abclogistics.pas.common.api.ApiError;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;

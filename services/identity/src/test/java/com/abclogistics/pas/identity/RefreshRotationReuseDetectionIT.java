@@ -1,4 +1,5 @@
 package com.abclogistics.pas.identity;
+import com.abclogistics.pas.identity.support.Envelopes;
 
 import com.abclogistics.pas.identity.dto.CreateUserRequest;
 import com.abclogistics.pas.identity.dto.LoginRequest;
@@ -99,14 +100,14 @@ class RefreshRotationReuseDetectionIT {
     void rotationIssuesNewPairAndOldIsRevoked() {
         LoginResponse login = client().post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(login).isNotNull();
         assertThat(login.refreshToken()).isNotBlank();
         assertThat(login.accessToken()).isNotBlank();
 
         TokenResponse refreshed = client().post().uri("/auth/refresh")
                 .body(new RefreshRequest(login.refreshToken()))
-                .retrieve().body(TokenResponse.class);
+                .retrieve().body(Envelopes.TOKEN).data();
 
         assertThat(refreshed).isNotNull();
         assertThat(refreshed.accessToken()).isNotBlank();
@@ -119,12 +120,12 @@ class RefreshRotationReuseDetectionIT {
     void reuseOfRevokedTokenRevokesFamily() {
         LoginResponse login = client().post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(login).isNotNull();
 
         TokenResponse firstRotate = client().post().uri("/auth/refresh")
                 .body(new RefreshRequest(login.refreshToken()))
-                .retrieve().body(TokenResponse.class);
+                .retrieve().body(Envelopes.TOKEN).data();
         assertThat(firstRotate).isNotNull();
         String rotatedRefresh = firstRotate.refreshToken();
 
@@ -152,7 +153,7 @@ class RefreshRotationReuseDetectionIT {
         // login as admin to create a new user
         LoginResponse adminLogin = client().post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
 
         RestClient adminClient = authedClient(adminLogin);
@@ -160,13 +161,13 @@ class RefreshRotationReuseDetectionIT {
         String newUsername = "refresh-disable-" + System.nanoTime();
         UserResponse created = adminClient.post().uri("/users")
                 .body(new CreateUserRequest(newUsername, newUsername + "@test.local", "Password123!", "Refresh Disable", "IT", List.of("SALES_OFFICER")))
-                .retrieve().body(UserResponse.class);
+                .retrieve().body(Envelopes.USER).data();
         assertThat(created).isNotNull();
 
         // login as new user
         LoginResponse userLogin = client().post().uri("/auth/login")
                 .body(new LoginRequest(newUsername, "Password123!"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(userLogin).isNotNull();
         String userRefresh = userLogin.refreshToken();
 
@@ -199,12 +200,12 @@ class RefreshRotationReuseDetectionIT {
     void logoutRevokesFamily() {
         LoginResponse login = client().post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(login).isNotNull();
 
         TokenResponse rotated = client().post().uri("/auth/refresh")
                 .body(new RefreshRequest(login.refreshToken()))
-                .retrieve().body(TokenResponse.class);
+                .retrieve().body(Envelopes.TOKEN).data();
         assertThat(rotated).isNotNull();
         String latestRefresh = rotated.refreshToken();
 
