@@ -18,6 +18,8 @@ export default defineConfig({
       "/api": { target: "http://localhost:18080", changeOrigin: true },
       "/docs": { target: "http://localhost:18080", changeOrigin: true },
     },
+    watch: process.env.CHOKIDAR_USEPOLLING === "true" ? { usePolling: true, interval: 300 } : undefined,
+    hmr: process.env.VITE_HMR_CLIENT_PORT ? { clientPort: Number(process.env.VITE_HMR_CLIENT_PORT) } : undefined,
   },
   preview: {
     port: 3000,

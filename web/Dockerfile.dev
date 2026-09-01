@@ -1,0 +1,9 @@
+# web/Dockerfile.dev — Vite dev server with HMR. Compose is dev-only; the prod build (Dockerfile,
+# nginx static) ships to k8s. Source is bind-mounted by docker-compose.yml; deps live in the image.
+FROM oven/bun:1.4.0-slim
+WORKDIR /app
+COPY package.json bun.lock bunfig.toml ./
+RUN bun install --frozen-lockfile
+COPY . .
+EXPOSE 80
+CMD ["bun", "run", "dev", "--host", "--port", "80"]
