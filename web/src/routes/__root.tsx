@@ -21,8 +21,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function Root() {
   const { data: user } = useCurrentUser();
-  const isLoginPage = typeof window !== "undefined" && window.location.pathname === "/login";
-  if (isLoginPage || !user) return <Outlet />;
+  if (!user) return <Outlet />;
   return (
     <AppShell>
       <Outlet />

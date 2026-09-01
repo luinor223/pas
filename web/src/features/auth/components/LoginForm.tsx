@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/shared/components/Logo";
 import { currentUserQuery } from "../hooks/useCurrentUser";
 import { authApi } from "../services/authApi";
+import { getApiErrorMessage } from "@/shared/api/errors";
 
 const schema = z.object({
   username: z.string().min(1, "Required"),
@@ -30,7 +31,7 @@ export function LoginForm() {
       queryClient.setQueryData(currentUserQuery.queryKey, d.user);
       navigate({ to: "/" });
     } catch (e: unknown) {
-      setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Sign in failed. Check your credentials.");
+      setErr(getApiErrorMessage(e, "Sign in failed. Check your credentials."));
     }
   }
 

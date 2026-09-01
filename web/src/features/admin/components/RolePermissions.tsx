@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApi } from "../services/adminApi";
+import { rolesQuery } from "../hooks/adminQueries";
 import { useState } from "react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
+import { getApiErrorMessage } from "@/shared/api/errors";
 
 const ALL_PERMS = [
   "customer:read","customer:write","contract:read","contract:write","contract:cancel_active",
@@ -15,7 +17,7 @@ const ALL_PERMS = [
 
 export function RolePermissionEditor() {
   const qc = useQueryClient();
-  const rolesQ = useQuery({ queryKey: ["roles"], queryFn: () => adminApi.listRoles() });
+  const rolesQ = useQuery(rolesQuery);
   const [selected, setSelected] = useState<string | null>(null);
   const [codes, setCodes] = useState<string[]>([]);
 
@@ -63,10 +65,10 @@ export function RolePermissionEditor() {
               </div>
               <div className="flex gap-2">
                 <Button onClick={() => mut.mutate()} disabled={mut.isPending}>{mut.isPending ? "Saving..." : "Save permissions"}</Button>
-                <Button variant="outline" onClick={() => selRole && setCodes(selRole.permissions)}>Reset</Button>
+                <Button variant="outline" onClick={() => setCodes(selRole.permissions)}>Reset</Button>
               </div>
               {mut.isSuccess && <div className="text-sm text-green-600">Saved. Permission cache revokes within 1h or next admin edit (M1).</div>}
-              {mut.isError && <div className="text-sm text-destructive">{(mut.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Save failed"}</div>}
+              {mut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(mut.error, "Save failed")}</div>}
               <div className="text-xs text-muted-foreground">PUT /roles/{"{code}"}/permissions - locks role FOR UPDATE (db-identity). No roles in bundle for volume:edit_locked / statement:cancel_approved by design.</div>
               <div className="flex flex-wrap gap-1 pt-2">{codes.map((c) => <Badge key={c} variant="secondary">{c}</Badge>)}</div>
             </div>

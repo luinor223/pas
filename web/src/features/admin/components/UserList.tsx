@@ -1,12 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { CreateUserRequest, UserResponse } from "../types/adminTypes";
 import { adminApi } from "../services/adminApi";
-import { useState, useMemo, useEffect } from "react";
+import { usersQuery, rolesQuery } from "../hooks/adminQueries";
+import { useState, useMemo } from "react";
 import { Button } from "@/shared/components/button";
 import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Badge } from "@/shared/components/badge";
+import { StatusBadge } from "@/shared/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
@@ -14,6 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { getApiErrorMessage } from "@/shared/api/errors";
 import { useNavigate } from "@tanstack/react-router";
 
 const createSchema = z.object({
@@ -41,8 +44,8 @@ export function UserTable() {
   const [editRolesId, setEditRolesId] = useState<string | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<UserResponse | null>(null);
 
-  const usersQ = useQuery({ queryKey: ["users"], queryFn: () => adminApi.listUsers() });
-  const rolesQ = useQuery({ queryKey: ["roles"], queryFn: () => adminApi.listRoles() });
+  const usersQ = useQuery(usersQuery);
+  const rolesQ = useQuery(rolesQuery);
 
   const users = usersQ.data ?? [];
   const roles = rolesQ.data ?? [];
@@ -98,9 +101,6 @@ export function UserTable() {
 
   const editUser = users.find((u) => u.id === editRolesId);
   const [editCodes, setEditCodes] = useState<string[]>([]);
-  useEffect(() => {
-    if (editUser) setEditCodes(editUser.roles);
-  }, [editUser?.id]);
 
   return (
     <div className="space-y-4">
@@ -156,11 +156,11 @@ export function UserTable() {
                       <TableCell>{u.department}</TableCell>
                       <TableCell><div className="flex flex-wrap gap-1">{u.roles.map((r) => <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>)}</div></TableCell>
                       <TableCell>
-                        {u.status === "ACTIVE" ? <Badge variant="success">ACTIVE</Badge> : <Badge variant="secondary" className="bg-gray-200 text-gray-700">DISABLED</Badge>}
+                        <StatusBadge status={u.status} />
                       </TableCell>
                       <TableCell className="text-xs">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "-"}</TableCell>
                       <TableCell className="space-x-1">
-                        <Button size="sm" variant="outline" onClick={() => setEditRolesId(u.id)}>Roles</Button>
+                        <Button size="sm" variant="outline" onClick={() => { setEditRolesId(u.id); setEditCodes(u.roles); }}>Roles</Button>
                         {u.status === "ACTIVE" ? (
                           <Button size="sm" variant="destructive" onClick={() => setConfirmDisable(u)} title={isSelf ? "You are about to disable yourself" : undefined}>
                             Disable
@@ -183,7 +183,7 @@ export function UserTable() {
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Create user</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit((d) => createMut.mutate({ username: d.username, email: d.email, password: d.password, fullName: d.fullName, departmentCode: d.departmentCode, roleCodes: d.roleCodes }))} className="space-y-3">
+          <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
             <div><Label>Username</Label><Input {...register("username")} />{errors.username && <p className="text-xs text-destructive">{errors.username.message}</p>}</div>
             <div><Label>Email</Label><Input {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
             <div><Label>Password (min 8)</Label><Input type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
@@ -209,7 +209,7 @@ export function UserTable() {
               </div>
               {errors.roleCodes && <p className="text-xs text-destructive">{errors.roleCodes.message}</p>}
             </div>
-            {createMut.isError && <div className="text-sm text-destructive">{(createMut.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Create failed"}</div>}
+            {createMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(createMut.error, "Create failed")}</div>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => { setOpenCreate(false); reset(); }}>Cancel</Button>
               <Button type="submit" disabled={createMut.isPending}>{createMut.isPending ? "Creating..." : "Create"}</Button>
@@ -235,7 +235,7 @@ export function UserTable() {
               ))}
             </div>
             {editCodes.length === 0 && <p className="text-xs text-destructive">Select at least one role</p>}
-            {setRolesMut.isError && <div className="text-sm text-destructive">{(setRolesMut.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Save failed"}</div>}
+            {setRolesMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(setRolesMut.error, "Save failed")}</div>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditRolesId(null)}>Cancel</Button>

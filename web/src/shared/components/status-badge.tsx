@@ -19,6 +19,7 @@ const MAP: Record<string, Tone> = {
   EXPIRED: { label: "Expired", cls: "text-st-expired bg-st-expired-bg" },
   SUPERSEDED: { label: "Superseded", cls: "text-st-expired bg-st-expired-bg" },
   SUSPENDED: { label: "Suspended", cls: "text-st-review bg-st-review-bg" },
+  DISABLED: { label: "Disabled", cls: "text-st-expired bg-st-expired-bg" },
 };
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
