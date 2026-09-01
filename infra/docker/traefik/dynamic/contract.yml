@@ -14,7 +14,7 @@ http:
         PathPrefix(`/api/v1/customers`) || PathPrefix(`/api/v1/contracts`)
         || PathPrefix(`/api/v1/addenda`) || PathPrefix(`/api/v1/attachments`)
       entryPoints: [web]
-      middlewares: [contract-ratelimit, jwt-auth@file, api-v1-strip]
+      middlewares: [contract-ratelimit, csrf@file, jwt-auth@file, api-v1-strip]
       service: contract
 
   middlewares:
