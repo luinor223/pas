@@ -3,8 +3,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/shared/components/Logo";
-import { useAuthStore } from "../store/authStore";
+import { currentUserQuery } from "../hooks/useCurrentUser";
 import { authApi } from "../services/authApi";
 
 const schema = z.object({
@@ -15,7 +16,7 @@ type Form = z.infer<typeof schema>;
 
 export function LoginForm() {
   const navigate = useNavigate();
-  const setAuth = useAuthStore((s) => s.setAuth);
+  const queryClient = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
   const { register, handleSubmit, formState: { isSubmitting, errors } } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -26,7 +27,7 @@ export function LoginForm() {
     setErr(null);
     try {
       const d = await authApi.login(data);
-      setAuth({ accessToken: d.accessToken, refreshToken: d.refreshToken, expiresAt: d.expiresAt, user: d.user });
+      queryClient.setQueryData(currentUserQuery.queryKey, d.user);
       navigate({ to: "/" });
     } catch (e: unknown) {
       setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Sign in failed. Check your credentials.");

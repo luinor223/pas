@@ -1,4 +1,4 @@
-import { useAuthStore } from "@/features/auth/store/authStore";
+import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 
 // Code checks permissions, never roles (00-registry.md:265)
 // For identity section, we derive permissions from roles via a static map for UI gating only.
@@ -71,7 +71,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 export function usePermissions(): string[] {
-  const user = useAuthStore((s) => s.user);
+  const user = useCurrentUser().data;
   if (!user) return [];
   const perms = new Set<string>();
   for (const role of user.roles) {

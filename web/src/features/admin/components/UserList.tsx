@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ca
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useAuthStore } from "@/features/auth/store/authStore";
+import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { useNavigate } from "@tanstack/react-router";
 
 const createSchema = z.object({
@@ -31,7 +31,7 @@ const DEPARTMENTS = ["SALES", "LEGAL", "ACCOUNTING", "OPERATIONS", "BOARD", "IT"
 
 export function UserTable() {
   const qc = useQueryClient();
-  const currentUser = useAuthStore((s) => s.user);
+  const currentUser = useCurrentUser().data;
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("All");
@@ -76,7 +76,7 @@ export function UserTable() {
       setConfirmDisable(null);
       // self-disable: access token still valid for 15m, but UI must force re-login
       if (!vars.enable && vars.id === currentUser?.id) {
-        useAuthStore.getState().clear();
+        qc.clear();
         navigate({ to: "/login" });
       }
     },

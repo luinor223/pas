@@ -3,10 +3,11 @@ import {
   LayoutDashboard, Building2, FileText, FilePlus2, Tags, BarChart3, ReceiptText,
   CheckSquare, PenLine, Bell, ScrollText, Settings, LogOut, Search, Plus, ChevronRight,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/shared/components/Logo";
-import { useAuthStore } from "@/features/auth/store/authStore";
+import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { usePermissions } from "@/features/auth/hooks/usePermissions";
-import { api } from "@/shared/api/client";
+import { authApi } from "@/features/auth/services/authApi";
 
 type Item = { to: string; label: string; icon: React.ReactNode; permission?: string };
 type Group = { heading: string; items: Item[] };
@@ -39,8 +40,8 @@ const CRUMB: Record<string, { group: string; label: string }> = Object.fromEntri
 );
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((s) => s.user);
-  const clear = useAuthStore((s) => s.clear);
+  const { data: user } = useCurrentUser();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const perms = usePermissions();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -49,9 +50,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const initials = (user?.fullName ?? "?").split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
 
   async function onLogout() {
-    const rt = useAuthStore.getState().refreshToken;
-    try { if (rt) await api.post("/auth/logout", { refreshToken: rt }); } catch { /* ignore */ }
-    clear();
+    try { await authApi.logout(); } catch { /* ignore */ }
+    queryClient.clear();
     navigate({ to: "/login" });
   }
 

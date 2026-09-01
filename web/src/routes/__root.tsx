@@ -1,29 +1,28 @@
-import { createRootRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createRootRouteWithContext, Outlet, redirect } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/app/AppShell";
-import { useAuthStore } from "@/features/auth/store/authStore";
+import { currentUserQuery, useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 
-export const Route = createRootRoute({
-  beforeLoad: ({ location }) => {
-    const { isAuthenticated } = useAuthStore.getState();
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  beforeLoad: async ({ location, context }) => {
     const isLogin = location.pathname === "/login";
-    if (!isAuthenticated && !isLogin) {
-      throw redirect({ to: "/login" });
+    let authed = false;
+    try {
+      await context.queryClient.ensureQueryData(currentUserQuery);
+      authed = true;
+    } catch {
+      authed = false;
     }
-    if (isAuthenticated && isLogin) {
-      throw redirect({ to: "/" });
-    }
+    if (!authed && !isLogin) throw redirect({ to: "/login" });
+    if (authed && isLogin) throw redirect({ to: "/" });
   },
   component: Root,
 });
 
 function Root() {
-  const isAuth = useAuthStore((s) => s.isAuthenticated);
-  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
-  const isLoginPage = pathname === "/login";
-  // TanStack will handle redirect via beforeLoad; but for shell rendering:
-  if (!isAuth && isLoginPage) return <Outlet />;
-  if (!isAuth) return <Outlet />;
-  if (isLoginPage) return <Outlet />;
+  const { data: user } = useCurrentUser();
+  const isLoginPage = typeof window !== "undefined" && window.location.pathname === "/login";
+  if (isLoginPage || !user) return <Outlet />;
   return (
     <AppShell>
       <Outlet />
