@@ -47,13 +47,14 @@ public class EffectivePriceService {
             if (!match.isEmpty()) {
                 PriceListVersion v = match.get(0);   // latest valid_from whose range holds date
                 PriceList list = lists.findById(v.getPriceListId()).orElseThrow();
-                return Optional.of(new ResolvedPriceList(list.getPriceListNo(), v.getVersionNo(),
+                return Optional.of(new ResolvedPriceList(v.getId(), list.getPriceListNo(), v.getVersionNo(),
                         v.getValidFrom(), v.getValidTo(), lines.viewsByVersion(v.getId())));
             }
         }
         return Optional.empty();
     }
 
-    public record ResolvedPriceList(String priceListNo, int versionNo, LocalDate validFrom, LocalDate validTo,
+    public record ResolvedPriceList(UUID versionId, String priceListNo, int versionNo,
+                                    LocalDate validFrom, LocalDate validTo,
                                     List<PriceLineView> lines) {}
 }

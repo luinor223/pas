@@ -72,6 +72,7 @@ public class PricingInternalGrpcService extends PricingInternalGrpc.PricingInter
         GetEffectivePriceListResponse.Builder b = GetEffectivePriceListResponse.newBuilder()
                 .setPriceListNo(r.priceListNo())
                 .setVersionNo(r.versionNo())
+                .setVersionId(r.versionId().toString())
                 .setValidFrom(r.validFrom().toString())
                 .setValidTo(r.validTo().toString());
         for (PriceLineView line : r.lines()) {

@@ -5,9 +5,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.UUID;
 
 @Repository
-public interface StatementLineVolumeRepository extends JpaRepository<StatementLineVolume, Long> {
+public interface StatementLineVolumeRepository extends JpaRepository<StatementLineVolume, UUID> {
 
-    List<StatementLineVolume> findByLineId(Long lineId);
+    List<StatementLineVolume> findByLineId(UUID lineId);
 }

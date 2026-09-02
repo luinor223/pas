@@ -2,6 +2,7 @@ package com.abclogistics.pas.billing.domain;
 
 import com.abclogistics.pas.common.persistence.BaseEntity;
 import jakarta.persistence.*;
+import org.hibernate.annotations.UuidGenerator;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -10,8 +11,8 @@ import java.util.UUID;
 public class StatusHistory extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @UuidGenerator
+    private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "statement_id", nullable = false,
@@ -49,7 +50,7 @@ public class StatusHistory extends BaseEntity {
         U, S, W, E
     }
 
-    public Long getId() { return id; }
+    public UUID getId() { return id; }
     public PaymentStatement getStatement() { return statement; }
     public void setStatement(PaymentStatement statement) { this.statement = statement; }
     public String getFromStatus() { return fromStatus; }

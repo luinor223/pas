@@ -70,7 +70,7 @@ public class WorkflowEventListener {
             throw new MalformedEventException("workflow.completed missing document_id or outcome");
         }
 
-        Optional<PaymentStatement> opt = statementRepo.findById(Long.parseLong(documentId));
+        Optional<PaymentStatement> opt = statementRepo.findById(UUID.fromString(documentId));
         if (opt.isEmpty()) {
             log.warn("workflow.completed for unknown statement {}", documentId);
             ack.acknowledge();

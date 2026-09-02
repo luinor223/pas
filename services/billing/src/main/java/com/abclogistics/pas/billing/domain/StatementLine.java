@@ -2,17 +2,19 @@ package com.abclogistics.pas.billing.domain;
 
 import com.abclogistics.pas.common.persistence.BaseEntity;
 import jakarta.persistence.*;
+import org.hibernate.annotations.UuidGenerator;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "statement_line", schema = "billing")
 public class StatementLine extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @UuidGenerator
+    private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "statement_id", nullable = false,
@@ -56,7 +58,7 @@ public class StatementLine extends BaseEntity {
         CALCULATED, MANUAL
     }
 
-    public Long getId() { return id; }
+    public UUID getId() { return id; }
     public PaymentStatement getStatement() { return statement; }
     public void setStatement(PaymentStatement statement) { this.statement = statement; }
     public int getLineNo() { return lineNo; }
