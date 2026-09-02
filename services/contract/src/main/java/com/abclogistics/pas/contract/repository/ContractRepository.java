@@ -29,10 +29,10 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                    or lower(c.contractNo) like :q
                    or lower(c.description) like :q
                    or lower(c.customer.name) like :q)
-              and (:validFromFrom is null or c.validFrom >= :validFromFrom)
-              and (:validFromTo is null or c.validFrom <= :validFromTo)
-              and (:validToFrom is null or c.validTo >= :validToFrom)
-              and (:validToTo is null or c.validTo <= :validToTo)
+              and (:#{#validFromFrom == null} = true or c.validFrom >= :validFromFrom)
+              and (:#{#validFromTo == null} = true or c.validFrom <= :validFromTo)
+              and (:#{#validToFrom == null} = true or c.validTo >= :validToFrom)
+              and (:#{#validToTo == null} = true or c.validTo <= :validToTo)
             """)
     Page<Contract> search(@Param("customerId") UUID customerId,
                           @Param("status") DocumentStatus status,

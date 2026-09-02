@@ -29,8 +29,8 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
                    or lower(a.addendumNo) like :q
                    or lower(a.description) like :q
                    or lower(a.contract.contractNo) like :q)
-              and (:effectiveFromFrom is null or a.effectiveFrom >= :effectiveFromFrom)
-              and (:effectiveFromTo is null or a.effectiveFrom <= :effectiveFromTo)
+              and (:#{#effectiveFromFrom == null} = true or a.effectiveFrom >= :effectiveFromFrom)
+              and (:#{#effectiveFromTo == null} = true or a.effectiveFrom <= :effectiveFromTo)
             """)
     Page<Addendum> search(@Param("contractId") UUID contractId,
                           @Param("status") DocumentStatus status,
