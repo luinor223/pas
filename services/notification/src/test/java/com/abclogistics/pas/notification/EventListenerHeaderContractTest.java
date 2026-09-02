@@ -179,6 +179,37 @@ class EventListenerHeaderContractTest {
         assertThat(envelope.payload()).containsEntry("recipient_role", "ACCOUNTANT");
     }
 
+    @Test
+    void aDocumentEventKeyedOnSomethingThatIsNotAUuidIsMalformed() {
+        // it used to be read as "no document": the notification stored a null document_id, could
+        // not link back, and marked the event processed so the corrected replay was suppressed
+        ConsumerRecord<String, String> misKeyed = EventRecords.withKey(
+                EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())),
+                "wrong-key");
+
+        assertThatThrownBy(() -> listener.onEvent(misKeyed))
+                .isInstanceOf(MalformedEventException.class);
+        verify(notifications, never()).fanOut(any());
+    }
+
+    @Test
+    void aDocumentEventWithNoKeyAtAllIsMalformed() {
+        ConsumerRecord<String, String> unkeyed = EventRecords.withKey(
+                EventFixtures.stepAssigned(UUID.randomUUID(), List.of(UUID.randomUUID())), null);
+
+        assertThatThrownBy(() -> listener.onEvent(unkeyed))
+                .isInstanceOf(MalformedEventException.class);
+        verify(notifications, never()).fanOut(any());
+    }
+
+    @Test
+    void onlyThePeriodLockIsAllowedANonUuidKey() {
+        // the exemption is per event type, not "any key that fails to parse"
+        listener.onEvent(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"));
+
+        verify(notifications).fanOut(any());
+    }
+
     private EventEnvelope captured() {
         ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(notifications).fanOut(captor.capture());

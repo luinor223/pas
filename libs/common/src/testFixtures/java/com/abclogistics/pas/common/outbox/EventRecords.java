@@ -81,6 +81,17 @@ public final class EventRecords {
         return stripped;
     }
 
+    /** A record re-keyed, for the half of the key contract a producer can get wrong. */
+    public static ConsumerRecord<String, String> withKey(ConsumerRecord<String, String> record,
+                                                         String key) {
+        ConsumerRecord<String, String> rekeyed = new ConsumerRecord<>(
+                record.topic(), record.partition(), record.offset(), key, record.value());
+        for (Header h : record.headers()) {
+            rekeyed.headers().add(h);
+        }
+        return rekeyed;
+    }
+
     public static ConsumerRecord<String, String> withValue(ConsumerRecord<String, String> record,
                                                            String value) {
         ConsumerRecord<String, String> replaced = new ConsumerRecord<>(

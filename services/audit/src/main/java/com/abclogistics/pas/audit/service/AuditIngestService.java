@@ -8,11 +8,17 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** The `pas.audit` sink. */
 @Service
 public class AuditIngestService {
+
+    /** Mirrors the source_service CHECK in V1__init_audit.sql (registry §4). */
+    private static final Set<String> SOURCE_SERVICES = Set.of(
+            "identity-service", "contract-service", "pricing-service", "operations-service",
+            "billing-service", "workflow-service", "esign-service");
 
     private final AuditRecordRepository records;
     private final ObjectMapper objectMapper;
@@ -42,12 +48,21 @@ public class AuditIngestService {
             throw new MalformedEventException("not an AuditPayload: " + e.getMessage());
         }
         // Required by the audit schema and search API.
-        if (payload == null || payload.entityType() == null || payload.entityId() == null
-                || payload.action() == null || payload.sourceService() == null
-                || payload.occurredAt() == null) {
+        if (payload == null || payload.entityId() == null || payload.occurredAt() == null
+                || isBlank(payload.entityType()) || isBlank(payload.action())
+                || isBlank(payload.sourceService())) {
             throw new MalformedEventException("AuditPayload is missing a required field");
         }
+        // A producer defect, so it must dead-letter rather than retry into the CHECK constraint.
+        if (!SOURCE_SERVICES.contains(payload.sourceService())) {
+            throw new MalformedEventException(
+                    "not a known source_service: " + payload.sourceService());
+        }
         return payload;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private String writeChanges(Map<String, Object> changes) {
