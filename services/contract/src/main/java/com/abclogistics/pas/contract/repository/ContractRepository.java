@@ -5,6 +5,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +19,7 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
     Optional<Contract> findByContractNo(String contractNo);
 
+    @EntityGraph(attributePaths = {"customer"})
     @Query("""
             select c from Contract c
             where (:customerId is null or c.customer.id = :customerId)

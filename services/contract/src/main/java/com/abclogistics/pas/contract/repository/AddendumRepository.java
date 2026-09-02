@@ -4,6 +4,7 @@ import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +18,7 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
 
     Optional<Addendum> findByAddendumNo(String addendumNo);
 
+    @EntityGraph(attributePaths = {"contract", "services"})
     @Query("""
             select a from Addendum a
             where (:contractId is null or a.contract.id = :contractId)
