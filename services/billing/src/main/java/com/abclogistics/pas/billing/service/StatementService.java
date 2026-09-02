@@ -224,18 +224,36 @@ public class StatementService {
         if (statement.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalStateException("total_amount must be >= 0 (PAY-04)");
         }
+        if (statement.getLines().isEmpty()) {
+            throw new IllegalStateException("Statement must have at least 1 line (PAY-04)");
+        }
+
+        // ValidateStartable pre-check (registry §5, seq-06 m27)
+        workflowClient.validateStartable("PAYMENT_STATEMENT");
 
         statement.setStatus(PaymentStatement.StatementStatus.SUBMITTED);
         statementRepo.save(statement);
 
+        // Status history (D17)
+        StatusHistory history = new StatusHistory();
+        history.setStatement(statement);
+        history.setFromStatus(PaymentStatement.StatementStatus.RECONCILED.name());
+        history.setToStatus(PaymentStatement.StatementStatus.SUBMITTED.name());
+        history.setTriggerKind(StatusHistory.TriggerKind.U);
+        history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
+        history.setOccurredAt(Instant.now());
+        statement.getStatusHistory().add(history);
+
         // Submit wiring: write workflow.start_requested to outbox (D4)
+        UUID idempotencyKey = UUID.randomUUID();
         OutboxEvent event = OutboxEvent.event(
             "workflow.start_requested",
             "PAYMENT_STATEMENT",
-            UUID.randomUUID(),
+            statement.getId(),
             String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
                 + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"customer_name\":\"%s\"}",
-                UUID.randomUUID(), statement.getId(), statement.getStatementNo(),
+                idempotencyKey, statement.getId(), statement.getStatementNo(),
                 statement.getCustomerName())
         );
         outboxRepo.save(event);
@@ -252,37 +270,38 @@ public class StatementService {
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         PaymentStatement.StatementStatus status = PaymentStatement.StatementStatus.valueOf(newStatus);
 
-        // Handle REJECTED/REVISION → DRAFT (revise)
-        if ((status == PaymentStatement.StatementStatus.REJECTED
-                || status == PaymentStatement.StatementStatus.REVISION)
-            && oldStatus == PaymentStatement.StatementStatus.SUBMITTED) {
-            statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
-        } else if (status == PaymentStatement.StatementStatus.APPROVED
-            && oldStatus == PaymentStatement.StatementStatus.SUBMITTED) {
-            statement.setStatus(PaymentStatement.StatementStatus.APPROVED);
-        } else if (status == PaymentStatement.StatementStatus.SIGNING
-            && oldStatus == PaymentStatement.StatementStatus.APPROVED) {
-            statement.setStatus(PaymentStatement.StatementStatus.SIGNING);
-        } else if (status == PaymentStatement.StatementStatus.SIGNED
-            && oldStatus == PaymentStatement.StatementStatus.SIGNING) {
-            statement.setStatus(PaymentStatement.StatementStatus.SIGNED);
-        } else if (status == PaymentStatement.StatementStatus.ISSUED
-            && oldStatus == PaymentStatement.StatementStatus.SIGNED) {
-            statement.setStatus(PaymentStatement.StatementStatus.ISSUED);
-            statement.setIssuedAt(Instant.now());
-            // Compute due_date from payment_term
-            statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
-        } else if (status == PaymentStatement.StatementStatus.CANCELLED
-            && (oldStatus == PaymentStatement.StatementStatus.APPROVED
-                || oldStatus == PaymentStatement.StatementStatus.SIGNED)) {
-            statement.setStatus(PaymentStatement.StatementStatus.CANCELLED);
-        } else {
+        // Validate allowed transitions per registry §9
+        boolean valid = switch (status) {
+            case DRAFT -> oldStatus == PaymentStatement.StatementStatus.CALCULATED  // D14f controlled edit
+                || oldStatus == PaymentStatement.StatementStatus.REJECTED            // user revise
+                || oldStatus == PaymentStatement.StatementStatus.REVISION;           // user revise
+            case RECONCILED -> oldStatus == PaymentStatement.StatementStatus.CALCULATED;
+            case SUBMITTED -> oldStatus == PaymentStatement.StatementStatus.RECONCILED;
+            case APPROVED -> oldStatus == PaymentStatement.StatementStatus.SUBMITTED;
+            case SIGNING -> oldStatus == PaymentStatement.StatementStatus.APPROVED;
+            case SIGNED -> oldStatus == PaymentStatement.StatementStatus.SIGNING;
+            case ISSUED -> oldStatus == PaymentStatement.StatementStatus.SIGNED;
+            case CANCELLED -> oldStatus == PaymentStatement.StatementStatus.APPROVED
+                || oldStatus == PaymentStatement.StatementStatus.SIGNED;
+            case REJECTED, REVISION -> oldStatus == PaymentStatement.StatementStatus.SUBMITTED;
+            default -> false;
+        };
+
+        if (!valid) {
             throw new IllegalStateException("Invalid transition: " + oldStatus + " → " + status);
+        }
+
+        statement.setStatus(status);
+
+        // Compute due_date on ISSUED
+        if (status == PaymentStatement.StatementStatus.ISSUED) {
+            statement.setIssuedAt(Instant.now());
+            statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
         }
 
         statementRepo.save(statement);
 
-        // Status history
+        // Status history (D17)
         StatusHistory history = new StatusHistory();
         history.setStatement(statement);
         history.setFromStatus(oldStatus.name());
@@ -293,6 +312,7 @@ public class StatementService {
                 ? StatusHistory.TriggerKind.E : StatusHistory.TriggerKind.U);
         history.setTriggerRef(triggerRef);
         history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
         history.setOccurredAt(Instant.now());
         statement.getStatusHistory().add(history);
 

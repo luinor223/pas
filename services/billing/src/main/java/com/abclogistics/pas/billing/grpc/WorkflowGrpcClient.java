@@ -55,6 +55,23 @@ public class WorkflowGrpcClient {
                 .build());
     }
 
+    public void validateStartable(String documentType) {
+        log.debug("Calling WorkflowInternal.ValidateStartable(docType={})", documentType);
+        stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+            .validateStartable(ValidateStartableRequest.newBuilder()
+                .setDocumentType(documentType)
+                .build());
+    }
+
+    public GetInstanceByDocumentResponse getInstanceByDocument(String documentType, String documentId) {
+        log.debug("Calling WorkflowInternal.GetInstanceByDocument(docType={}, docId={})", documentType, documentId);
+        return stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+            .getInstanceByDocument(GetInstanceByDocumentRequest.newBuilder()
+                .setDocumentType(documentType)
+                .setDocumentId(documentId)
+                .build());
+    }
+
     @PreDestroy
     void shutdown() {
         if (channel != null) channel.shutdown();
