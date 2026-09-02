@@ -61,7 +61,7 @@ public class RefreshTokenService {
             return Outcome.rejected();
         }
 
-        AppUser user = users.findWithGraphById(current.getUserId())
+        AppUser user = users.findById(current.getUserId())
                 .filter(AppUser::isActive)
                 .orElse(null);
         if (user == null) {

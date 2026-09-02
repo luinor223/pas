@@ -1,8 +1,19 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import { usePermissions } from "@/features/auth/hooks/usePermissions";
+import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { Forbidden } from "@/shared/components/Forbidden";
 
 export const Route = createFileRoute("/admin")({ component: AdminLayout });
 
 function AdminLayout() {
+  const { isLoading } = useCurrentUser();
+  const perms = usePermissions();
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground p-4">Loading...</div>;
+  }
+  if (!perms.includes("user:manage")) {
+    return <Forbidden message="Administration requires user:manage permission." />;
+  }
   return (
     <div className="space-y-4">
       <div>

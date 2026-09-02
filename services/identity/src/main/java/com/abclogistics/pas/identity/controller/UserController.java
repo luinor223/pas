@@ -1,6 +1,7 @@
 package com.abclogistics.pas.identity.controller;
 
 import com.abclogistics.pas.identity.dto.CreateUserRequest;
+import com.abclogistics.pas.identity.dto.UpdateUserRequest;
 import com.abclogistics.pas.identity.dto.UpdateUserRolesRequest;
 import com.abclogistics.pas.identity.dto.UserResponse;
 import com.abclogistics.pas.identity.service.UserService;
@@ -59,5 +60,10 @@ public class UserController {
     @PostMapping("/{id}/disable")
     public UserResponse disable(@PathVariable UUID id) {
         return userService.setEnabled(id, false);
+    }
+
+    @PutMapping("/{id}")
+    public UserResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateUserRequest request) {
+        return userService.update(id, request);
     }
 }

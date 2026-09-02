@@ -9,6 +9,7 @@ export type UserSummary = {
   fullName: string;
   department: string;
   roles: string[];
+  permissions: string[];
 };
 
 export type LoginResponse = {

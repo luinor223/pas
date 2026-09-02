@@ -44,12 +44,14 @@ public class AuthService {
         JwtIssuer.IssuedToken access = jwtIssuer.issue(user);
         RefreshTokenService.Issued refresh = refreshTokens.issueForLogin(user.getId());
 
+        java.util.List<String> perms = PermissionResolver.fromUser(user);
+
         return new LoginResponse(
                 access.token(),
                 refresh.rawToken(),
                 BEARER,
                 access.expiresAt(),
-                UserSummary.from(user));
+                UserSummary.from(user, perms));
     }
 
     /** Exchanges a valid refresh token for a fresh access token and a rotated refresh token. */
