@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { CreateUserRequest, UserResponse } from "../types/adminTypes";
+import type { CreateUserRequest, UpdateUserRequest, UserResponse } from "../types/adminTypes";
 import { adminApi } from "../services/adminApi";
-import { usersQuery, rolesQuery } from "../hooks/adminQueries";
-import { useState, useMemo } from "react";
+import { usersQuery, rolesQuery, departmentsQuery } from "../hooks/adminQueries";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/shared/components/button";
 import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
@@ -29,9 +29,14 @@ const createSchema = z.object({
   roleCodes: z.array(z.string()).min(1, "Select at least one role"),
 });
 
-type FormCreate = z.infer<typeof createSchema>;
+const editSchema = z.object({
+  fullName: z.string().min(1, "Required"),
+  email: z.string().email(),
+  departmentCode: z.string().min(1, "Required"),
+});
 
-const DEPARTMENTS = ["SALES", "LEGAL", "ACCOUNTING", "OPERATIONS", "BOARD", "IT"];
+type FormCreate = z.infer<typeof createSchema>;
+type FormEdit = z.infer<typeof editSchema>;
 
 export function UserTable() {
   const qc = useQueryClient();
@@ -43,13 +48,16 @@ export function UserTable() {
   const [status, setStatus] = useState("All");
   const [openCreate, setOpenCreate] = useState(false);
   const [editRolesId, setEditRolesId] = useState<string | null>(null);
+  const [editUserId, setEditUserId] = useState<string | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<UserResponse | null>(null);
 
   const usersQ = useQuery(usersQuery);
   const rolesQ = useQuery(rolesQuery);
+  const deptsQ = useQuery(departmentsQuery);
 
   const users = usersQ.data ?? [];
   const roles = rolesQ.data ?? [];
+  const departments = deptsQ.data ?? [];
 
   const filtered = useMemo(() => {
     return users.filter((u) => {
@@ -78,7 +86,6 @@ export function UserTable() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["users"] });
       setConfirmDisable(null);
-      // self-disable: access token still valid for 15m, but UI must force re-login
       if (!vars.enable && vars.id === currentUser?.id) {
         qc.clear();
         navigate({ to: "/login" });
@@ -94,14 +101,46 @@ export function UserTable() {
     },
   });
 
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateUserRequest }) => adminApi.updateUser(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users"] });
+      setEditUserId(null);
+    },
+  });
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormCreate>({
     resolver: zodResolver(createSchema),
-    defaultValues: { username: "", email: "", password: "", fullName: "", departmentCode: "SALES", roleCodes: ["SALES_OFFICER"] },
+    defaultValues: { username: "", email: "", password: "", fullName: "", departmentCode: "", roleCodes: [] },
   });
   const watchedRoles = watch("roleCodes");
 
   const editUser = users.find((u) => u.id === editRolesId);
+  const profileUser = users.find((u) => u.id === editUserId);
   const [editCodes, setEditCodes] = useState<string[]>([]);
+
+  const { register: regEdit, handleSubmit: submitEdit, reset: resetEdit, formState: { errors: editErrors } } = useForm<FormEdit>({
+    resolver: zodResolver(editSchema),
+    defaultValues: { fullName: "", email: "", departmentCode: "" },
+  });
+
+  // Default department/role after real data loads (no hardcode).
+  useEffect(() => {
+    if (departments.length > 0 && !watch("departmentCode")) {
+      setValue("departmentCode", departments[0].code);
+    }
+  }, [departments, watch, setValue]);
+  useEffect(() => {
+    if (roles.length > 0 && watch("roleCodes").length === 0) {
+      setValue("roleCodes", [roles[0].code], { shouldValidate: false });
+    }
+  }, [roles, watch, setValue]);
+
+  useEffect(() => {
+    if (profileUser) {
+      resetEdit({ fullName: profileUser.fullName, email: profileUser.email, departmentCode: profileUser.department });
+    }
+  }, [profileUser, resetEdit]);
 
   const columns = useMemo<ColumnDef<UserResponse>[]>(() => [
     {
@@ -140,6 +179,7 @@ export function UserTable() {
         const isSelf = u.id === currentUser?.id;
         return (
           <div className="space-x-1">
+            <Button size="sm" variant="outline" onClick={() => setEditUserId(u.id)}>Edit</Button>
             <Button size="sm" variant="outline" onClick={() => { setEditRolesId(u.id); setEditCodes(u.roles); }}>Roles</Button>
             {u.status === "ACTIVE" ? (
               <Button size="sm" variant="destructive" onClick={() => setConfirmDisable(u)} title={isSelf ? "You are about to disable yourself" : undefined}>Disable</Button>
@@ -160,12 +200,11 @@ export function UserTable() {
           <Button onClick={() => setOpenCreate(true)}>+ New User</Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* single row filters - wraps on mobile but not full-line per filter */}
           <div className="flex flex-col lg:flex-row gap-2">
             <Input placeholder="Search users..." value={q} onChange={(e) => setQ(e.target.value)} className="lg:max-w-sm flex-1" />
             <Select className="w-full lg:w-[170px]" value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="All">Department: All</option>
-              {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+              {deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{d.code}</option>)}
             </Select>
             <Select className="w-full lg:w-[190px]" value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="All">Role: All</option>
@@ -190,10 +229,11 @@ export function UserTable() {
               rowClassName={(u) => (u.id === currentUser?.id ? "bg-blue-50/50" : undefined)}
             />
           )}
+          {deptsQ.isError && <div className="text-xs text-destructive">Failed to load departments: {getApiErrorMessage(deptsQ.error, "")}</div>}
         </CardContent>
       </Card>
 
-      {/* Create dialog - checkbox roles */}
+      {/* Create dialog */}
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Create user</DialogTitle></DialogHeader>
@@ -202,7 +242,7 @@ export function UserTable() {
             <div><Label>Email</Label><Input {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
             <div><Label>Password (min 8)</Label><Input type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
             <div><Label>Full name</Label><Input {...register("fullName")} />{errors.fullName && <p className="text-xs text-destructive">{errors.fullName.message}</p>}</div>
-            <div><Label>Department</Label><Select {...register("departmentCode")}>{DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}</Select></div>
+            <div><Label>Department</Label><Select {...register("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</Select></div>
             <div>
               <Label>Roles</Label>
               <div className="grid grid-cols-2 gap-2 border rounded p-3 max-h-48 overflow-auto">
@@ -232,7 +272,24 @@ export function UserTable() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit roles dialog - checkboxes */}
+      {/* Edit profile dialog */}
+      <Dialog open={!!editUserId} onOpenChange={(o) => !o && setEditUserId(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit user - {profileUser?.username}</DialogTitle></DialogHeader>
+          <form onSubmit={submitEdit((d) => editUserId && updateMut.mutate({ id: editUserId, data: d }))} className="space-y-3">
+            <div><Label>Full name</Label><Input {...regEdit("fullName")} />{editErrors.fullName && <p className="text-xs text-destructive">{editErrors.fullName.message}</p>}</div>
+            <div><Label>Email</Label><Input {...regEdit("email")} />{editErrors.email && <p className="text-xs text-destructive">{editErrors.email.message}</p>}</div>
+            <div><Label>Department</Label><Select {...regEdit("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</Select></div>
+            {updateMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(updateMut.error, "Update failed")}</div>}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditUserId(null)}>Cancel</Button>
+              <Button type="submit" disabled={updateMut.isPending}>{updateMut.isPending ? "Saving..." : "Save"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit roles dialog */}
       <Dialog open={!!editRolesId} onOpenChange={(o) => !o && setEditRolesId(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit roles - {editUser?.username}</DialogTitle></DialogHeader>

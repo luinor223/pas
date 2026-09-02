@@ -1,23 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApi } from "../services/adminApi";
-import { rolesQuery } from "../hooks/adminQueries";
+import { rolesQuery, permissionsQuery } from "../hooks/adminQueries";
 import { useState } from "react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
 import { getApiErrorMessage } from "@/shared/api/errors";
 
-const ALL_PERMS = [
-  "customer:read","customer:write","contract:read","contract:write","contract:cancel_active",
-  "addendum:read","addendum:write","pricelist:read","pricelist:write",
-  "volume:read","volume:write","volume:lock_period","volume:edit_locked",
-  "statement:read","statement:write","statement:cancel_approved","approval:act",
-  "esign:send","esign:cancel","user:manage","workflow:configure","doctype:configure","audit:view_all",
-];
 
 export function RolePermissionEditor() {
   const qc = useQueryClient();
   const rolesQ = useQuery(rolesQuery);
+  const permsQ = useQuery(permissionsQuery);
+  const allPerms = permsQ.data?.map((p) => p.code) ?? [];
   const [selected, setSelected] = useState<string | null>(null);
   const [codes, setCodes] = useState<string[]>([]);
 
@@ -55,14 +50,16 @@ export function RolePermissionEditor() {
         <CardContent>
           {!selRole ? <div className="text-sm text-muted-foreground">Select a role left.</div> : (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {ALL_PERMS.map((p) => (
-                  <label key={p} className="flex items-center gap-2 border rounded px-2 py-1 text-sm cursor-pointer">
-                    <input type="checkbox" checked={codes.includes(p)} onChange={() => toggle(p)} />
-                    {p}
-                  </label>
-                ))}
-              </div>
+              {permsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading permissions...</div> : (
+                <div className="flex flex-wrap gap-2">
+                  {allPerms.map((p) => (
+                    <label key={p} className="flex items-center gap-2 border rounded px-2 py-1 text-sm cursor-pointer">
+                      <input type="checkbox" checked={codes.includes(p)} onChange={() => toggle(p)} />
+                      {p}
+                    </label>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button onClick={() => mut.mutate()} disabled={mut.isPending}>{mut.isPending ? "Saving..." : "Save permissions"}</Button>
                 <Button variant="outline" onClick={() => setCodes(selRole.permissions)}>Reset</Button>

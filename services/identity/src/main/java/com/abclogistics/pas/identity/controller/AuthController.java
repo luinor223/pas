@@ -10,6 +10,7 @@ import com.abclogistics.pas.identity.dto.TokenResponse;
 import com.abclogistics.pas.identity.dto.UserSummary;
 import com.abclogistics.pas.identity.security.AuthCookieWriter;
 import com.abclogistics.pas.identity.service.AuthService;
+import com.abclogistics.pas.identity.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -27,10 +28,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final UserService userService;
     private final AuthCookieWriter cookies;
 
-    public AuthController(AuthService authService, AuthCookieWriter cookies) {
+    public AuthController(AuthService authService, UserService userService, AuthCookieWriter cookies) {
         this.authService = authService;
+        this.userService = userService;
         this.cookies = cookies;
     }
 
@@ -47,8 +50,9 @@ public class AuthController {
     public UserSummary me() {
         AuthenticatedUser user = SecurityUtils.currentUser()
                 .orElseThrow(() -> new UnauthorizedException("Not authenticated"));
+        java.util.List<String> perms = userService.permissionsForUser(user.userId());
         return new UserSummary(user.userId(), user.username(), user.fullName(),
-                user.department(), user.roles());
+                user.department(), user.roles(), perms);
     }
 
     // Refresh token comes from the pas_rt cookie; the body is a transitional fallback.

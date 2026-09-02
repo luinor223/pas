@@ -118,7 +118,7 @@ services:
       - "traefik.http.routers.identity-public.entrypoints=web"
       - "traefik.http.routers.identity-public.middlewares=identity-ratelimit,api-v1-strip"
       # protected — edge validates the RS256 JWT, then injects identity headers
-      - "traefik.http.routers.identity.rule=PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`)"
+      - "traefik.http.routers.identity.rule=PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`) || PathPrefix(`/api/v1/departments`) || PathPrefix(`/api/v1/permissions`)"
       - "traefik.http.routers.identity.entrypoints=web"
       - "traefik.http.routers.identity.middlewares=identity-ratelimit,jwt-auth@file,api-v1-strip"
       # docs - public
