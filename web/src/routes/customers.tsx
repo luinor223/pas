@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Placeholder } from "@/shared/components/Placeholder";
+import { CustomerList } from "@/features/contract/components/CustomerList";
 
 export const Route = createFileRoute("/customers")({
-  component: () => <Placeholder title="Customers" note="The customer directory, detail view and contacts." />,
+  component: CustomerList,
 });
