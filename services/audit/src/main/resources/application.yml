@@ -23,6 +23,11 @@ spring:
     schemas: audit
 
   data:
+    web:
+      pageable:
+        # same ceiling AuditInternal.ListRecords enforces, so REST cannot read the table in one call
+        default-page-size: 20
+        max-page-size: 200
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
@@ -57,8 +62,10 @@ audit:
     # race a real poll against a broker that is not there
     listener-enabled: true
     dlt-suffix: ".DLT"
-    retry-attempts: 3
+    # ~4 minutes of retry before the DLT, so a database or identity restart is not an audit gap
+    retry-attempts: 8
     retry-backoff: PT2S
+    max-retry-backoff: PT60S
 
 management:
   endpoints:

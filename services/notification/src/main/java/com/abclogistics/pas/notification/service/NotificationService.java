@@ -70,10 +70,9 @@ public class NotificationService {
     public InboxResponse inbox(UUID recipient, boolean unreadOnly, NotificationCategory category,
                                Pageable pageable) {
         Page<Notification> page = notifications.inboxOf(recipient, unreadOnly, category, pageable);
+        Map<String, Long> counts = counts(recipient);
         return new InboxResponse(page.map(NotificationResponse::of).getContent(),
-                page.getTotalElements(),
-                notifications.countByRecipientUserIdAndReadAtIsNull(recipient),
-                counts(recipient));
+                page.getTotalElements(), counts.get("unread"), counts);
     }
 
     private static String documentNo(EventEnvelope event) {

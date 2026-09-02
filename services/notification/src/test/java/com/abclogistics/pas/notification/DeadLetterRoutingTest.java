@@ -46,8 +46,11 @@ class DeadLetterRoutingTest {
         kafka = mock(KafkaTemplate.class);
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
-        config = new KafkaConsumerConfig(3, Duration.ofSeconds(2), ".DLT");
-        handler = config.errorHandler(kafka);
+        config = new KafkaConsumerConfig(8, Duration.ofSeconds(2), Duration.ofSeconds(60), ".DLT");
+        // the real budget is minutes long and the handler sleeps it, so the routing tests drive a
+        // handler with the same policy and a negligible backoff
+        handler = new KafkaConsumerConfig(2, Duration.ofMillis(1), Duration.ofMillis(1), ".DLT")
+                .errorHandler(kafka);
         consumer = mock(Consumer.class);
         container = mock(MessageListenerContainer.class);
     }
@@ -78,7 +81,6 @@ class DeadLetterRoutingTest {
 
         assertThat(handle(stillDown, record)).isFalse();
         assertThat(handle(stillDown, record)).isFalse();
-        assertThat(handle(stillDown, record)).isFalse();
         assertThat(handle(stillDown, record)).isTrue();
 
         verify(kafka).send(any(ProducerRecord.class));
@@ -86,9 +88,11 @@ class DeadLetterRoutingTest {
 
     @Test
     void theConfiguredBackoffIsWhatTheHandlerWaits() {
-        // pinned because it is the difference between "briefly delayed" and "partition stalled
-        assertThat(config.backOff().getMaxAttempts()).isEqualTo(3);
-        assertThat(config.backOff().getInterval()).isEqualTo(Duration.ofSeconds(2).toMillis());
+        // pinned because it is the difference between "outlasts a database restart" and "an
+        // audit gap": doubling from 2s, capped at 60s, 8 retries is roughly four minutes
+        assertThat(config.backOff().getMaxAttempts()).isEqualTo(8);
+        assertThat(config.backOff().getInitialInterval()).isEqualTo(Duration.ofSeconds(2).toMillis());
+        assertThat(config.backOff().getMaxInterval()).isEqualTo(Duration.ofSeconds(60).toMillis());
     }
 
     @Test

@@ -177,12 +177,13 @@ public class AddendumService {
         transitions.transition(addendum, DocumentStatus.SUBMITTED, TriggerKind.U, null,
                 "Submitted for approval");
 
-        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
+        // submit is an authenticated endpoint, and the instance records who asked for it
+        AuthenticatedUser actor = SecurityUtils.currentUser().orElseThrow(
+                () -> new IllegalStateException("submit requires an authenticated user"));
         WorkflowStartRequested payload = new WorkflowStartRequested(
                 UUID.randomUUID(), DOCUMENT_TYPE, addendum.getId(), addendum.getAddendumNo(),
                 addendum.getContract().getCustomer().getName(), "NORMAL",
-                actor == null ? null : actor.userId(),
-                actor == null ? "system" : actor.fullName());
+                actor.userId(), actor.fullName());
         outbox.save(OutboxEvent.event(WorkflowStartRequested.EVENT_TYPE,
                 EntityType.ADDENDUM.name(), addendum.getId(),
                 objectMapper.writeValueAsString(payload)));

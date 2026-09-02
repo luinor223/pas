@@ -41,7 +41,7 @@ class AuditDeadLetterRoutingTest {
         kafka = mock(KafkaTemplate.class);
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
-        config = new KafkaConsumerConfig(3, Duration.ofSeconds(2), ".DLT");
+        config = new KafkaConsumerConfig(8, Duration.ofSeconds(2), Duration.ofSeconds(60), ".DLT");
         handler = config.errorHandler(kafka);
     }
 
@@ -66,8 +66,9 @@ class AuditDeadLetterRoutingTest {
 
     @Test
     void theConfiguredPolicyIsThisServicesOwn() {
-        assertThat(config.backOff().getMaxAttempts()).isEqualTo(3);
-        assertThat(config.backOff().getInterval()).isEqualTo(Duration.ofSeconds(2).toMillis());
+        assertThat(config.backOff().getMaxAttempts()).isEqualTo(8);
+        assertThat(config.backOff().getInitialInterval()).isEqualTo(Duration.ofSeconds(2).toMillis());
+        assertThat(config.backOff().getMaxInterval()).isEqualTo(Duration.ofSeconds(60).toMillis());
     }
 
     private boolean handle(Exception failure) {

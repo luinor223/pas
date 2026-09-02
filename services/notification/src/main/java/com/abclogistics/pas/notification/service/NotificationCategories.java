@@ -1,5 +1,6 @@
 package com.abclogistics.pas.notification.service;
 
+import com.abclogistics.pas.common.events.MalformedEventException;
 import com.abclogistics.pas.notification.domain.NotificationCategory;
 
 import java.util.Map;
@@ -31,13 +32,14 @@ public final class NotificationCategories {
     }
 
     /**
-     * @throws IllegalArgumentException for an event type this service does not consume. A
-     * silent {@code SYSTEM} default would hide a new producer event from whoever added it.
+     * @throws MalformedEventException for an event type this service does not consume — no
+     * redelivery makes it categorizable, so it belongs on the DLT. A silent {@code SYSTEM}
+     * default would hide a new producer event from whoever added it.
      */
     public static NotificationCategory of(String eventType) {
         NotificationCategory category = BY_EVENT_TYPE.get(eventType);
         if (category == null) {
-            throw new IllegalArgumentException("not a consumed event type: " + eventType);
+            throw new MalformedEventException("not a consumed event type: " + eventType);
         }
         return category;
     }

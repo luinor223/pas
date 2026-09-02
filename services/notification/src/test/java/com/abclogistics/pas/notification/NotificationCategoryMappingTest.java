@@ -1,5 +1,6 @@
 package com.abclogistics.pas.notification;
 
+import com.abclogistics.pas.common.events.MalformedEventException;
 import com.abclogistics.pas.notification.domain.NotificationCategory;
 import com.abclogistics.pas.notification.service.NotificationCategories;
 import org.junit.jupiter.api.Test;
@@ -38,14 +39,14 @@ class NotificationCategoryMappingTest {
         // registry §4 listed notification against it, but its payload carries no assignee_ids
         assertThat(NotificationCategories.handles("workflow.instance_started")).isFalse();
         assertThatThrownBy(() -> NotificationCategories.of("workflow.instance_started"))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(MalformedEventException.class);
     }
 
     @Test
     void anUnknownEventTypeIsRejectedRatherThanFiledAsSystem() {
         // a silent SYSTEM default would hide a new producer event from whoever added it
         assertThatThrownBy(() -> NotificationCategories.of("billing.something_new"))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(MalformedEventException.class);
     }
 
     @Test
@@ -53,7 +54,7 @@ class NotificationCategoryMappingTest {
         // it has its own topic and a single consumer (registry §4) — audit-service, not this one
         assertThat(NotificationCategories.handles("audit.recorded")).isFalse();
         assertThatThrownBy(() -> NotificationCategories.of("audit.recorded"))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(MalformedEventException.class);
     }
 
     @ParameterizedTest

@@ -38,7 +38,7 @@ public class RecipientResolver {
             case "document.expiring" -> id(event, "owner_user_id");
             // the only event addressed by role rather than by id (registry §4)
             case "operations.period_locked" -> byRole(event);
-            default -> throw new IllegalArgumentException(
+            default -> throw new MalformedEventException(
                     "no recipient rule for event type: " + event.eventType());
         };
     }

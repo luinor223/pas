@@ -10,7 +10,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.util.backoff.FixedBackOff;
+import org.springframework.util.backoff.ExponentialBackOff;
 
 import java.time.Duration;
 
@@ -20,13 +20,16 @@ public class KafkaConsumerConfig {
 
     private final int retryAttempts;
     private final Duration retryBackoff;
+    private final Duration maxRetryBackoff;
     private final String dltSuffix;
 
     public KafkaConsumerConfig(@Value("${audit.kafka.retry-attempts}") int retryAttempts,
                                @Value("${audit.kafka.retry-backoff}") Duration retryBackoff,
+                               @Value("${audit.kafka.max-retry-backoff}") Duration maxRetryBackoff,
                                @Value("${audit.kafka.dlt-suffix}") String dltSuffix) {
         this.retryAttempts = retryAttempts;
         this.retryBackoff = retryBackoff;
+        this.maxRetryBackoff = maxRetryBackoff;
         this.dltSuffix = dltSuffix;
     }
 
@@ -42,14 +45,15 @@ public class KafkaConsumerConfig {
 
     @Bean
     public DefaultErrorHandler errorHandler(KafkaTemplate<String, String> kafkaTemplate) {
-        return ConsumerErrorHandling.errorHandler(kafkaTemplate, dltSuffix, retryAttempts, retryBackoff);
+        return ConsumerErrorHandling.errorHandler(kafkaTemplate, dltSuffix, retryAttempts, retryBackoff,
+                maxRetryBackoff);
     }
 
     public TopicPartition dlt(ConsumerRecord<?, ?> record) {
         return ConsumerErrorHandling.dlt(record, dltSuffix);
     }
 
-    public FixedBackOff backOff() {
-        return ConsumerErrorHandling.backOff(retryAttempts, retryBackoff);
+    public ExponentialBackOff backOff() {
+        return ConsumerErrorHandling.backOff(retryAttempts, retryBackoff, maxRetryBackoff);
     }
 }

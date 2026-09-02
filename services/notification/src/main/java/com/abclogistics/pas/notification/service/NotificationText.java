@@ -1,5 +1,7 @@
 package com.abclogistics.pas.notification.service;
 
+import com.abclogistics.pas.common.events.MalformedEventException;
+
 import java.util.Map;
 
 /**
@@ -19,7 +21,7 @@ final class NotificationText {
             case "esign.session_completed" -> esignTitle(text(payload, "result"));
             case "document.expiring" -> "Hồ sơ sắp hết hạn";
             case "operations.period_locked" -> "Kỳ số liệu đã khoá";
-            default -> throw new IllegalArgumentException("no title for event type: " + eventType);
+            default -> throw new MalformedEventException("no title for event type: " + eventType);
         };
     }
 
@@ -41,7 +43,7 @@ final class NotificationText {
                     .formatted(documentNo, text(payload, "expires_on"), text(payload, "days_left"));
             case "operations.period_locked" -> "Kỳ %s đã được %s khoá."
                     .formatted(text(payload, "period_code"), text(payload, "locked_by_name"));
-            default -> throw new IllegalArgumentException("no body for event type: " + eventType);
+            default -> throw new MalformedEventException("no body for event type: " + eventType);
         };
     }
 
