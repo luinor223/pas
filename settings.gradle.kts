@@ -8,6 +8,7 @@ include("services:workflow")
 include("services:operations")
 include("services:contract")
 include("services:pricing")
+include("services:billing")
 
 // services:identity -> identity-service, libs:common -> common
 rootProject.children.forEach { group ->
