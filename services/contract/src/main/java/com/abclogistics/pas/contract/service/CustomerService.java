@@ -8,6 +8,7 @@ import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.CustomerContactRepository;
 import com.abclogistics.pas.contract.repository.CustomerRepository;
@@ -19,9 +20,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Optional;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Customer master data (4.1). No approval workflow, so nothing here writes status_history. */
 @Service
@@ -49,6 +52,16 @@ public class CustomerService {
                 RequestValues.parseOptional("status", status,
                         CustomerStatus::valueOf, CustomerStatus.values()),
                 pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
+        Page<Customer> page = search(query, status, pageable);
+        List<UUID> ids = page.getContent().stream().map(Customer::getId).toList();
+        Map<UUID, CustomerContact> primaries = ids.isEmpty() ? Map.of()
+                : contacts.findByCustomerIdInAndPrimaryTrue(ids).stream()
+                        .collect(Collectors.toMap(c -> c.getCustomer().getId(), Function.identity()));
+        return page.map(c -> CustomerResponse.ofList(c, primaries.get(c.getId())));
     }
 
     @Transactional(readOnly = true)

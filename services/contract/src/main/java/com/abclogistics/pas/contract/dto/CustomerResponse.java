@@ -19,16 +19,34 @@ public record CustomerResponse(
         String segment,
         String status,
         List<CustomerContactResponse> contacts,
+        CustomerContactResponse primaryContact,
         Instant createdAt,
         String createdByName,
         Instant updatedAt
 ) {
     public static CustomerResponse of(Customer c, List<CustomerContact> contacts) {
+        List<CustomerContactResponse> mapped = contacts.stream().map(CustomerContactResponse::of).toList();
+        CustomerContactResponse primary = contacts.stream()
+                .filter(CustomerContact::isPrimary)
+                .findFirst()
+                .map(CustomerContactResponse::of)
+                .orElse(null);
         return new CustomerResponse(
                 c.getId(), c.getCode(), c.getName(), c.getShortName(), c.getTaxCode(),
                 c.getAddress(), c.getRepresentativeName(), c.getRepresentativePosition(),
                 c.getSegment(), c.getStatus().name(),
-                contacts.stream().map(CustomerContactResponse::of).toList(),
+                mapped,
+                primary,
+                c.getCreatedAt(), c.getCreatedByName(), c.getUpdatedAt());
+    }
+
+    public static CustomerResponse ofList(Customer c, CustomerContact primary) {
+        return new CustomerResponse(
+                c.getId(), c.getCode(), c.getName(), c.getShortName(), c.getTaxCode(),
+                c.getAddress(), c.getRepresentativeName(), c.getRepresentativePosition(),
+                c.getSegment(), c.getStatus().name(),
+                List.of(),
+                primary == null ? null : CustomerContactResponse.of(primary),
                 c.getCreatedAt(), c.getCreatedByName(), c.getUpdatedAt());
     }
 }

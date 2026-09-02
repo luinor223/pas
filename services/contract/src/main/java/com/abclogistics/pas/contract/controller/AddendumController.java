@@ -6,8 +6,10 @@ import com.abclogistics.pas.contract.dto.AddendumResponse;
 import com.abclogistics.pas.contract.dto.CancelRequest;
 import com.abclogistics.pas.contract.dto.CancelResponse;
 import com.abclogistics.pas.contract.dto.ProgressResponse;
+import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.AddendumService;
+import com.abclogistics.pas.contract.service.PageableGuard;
 import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -42,8 +45,14 @@ public class AddendumController {
     @PreAuthorize("hasAuthority('addendum:read')")
     public Page<AddendumResponse> list(@RequestParam(required = false) UUID contractId,
                                        @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String changeType,
+                                       @RequestParam(required = false) String q,
+                                       @RequestParam(required = false) String effectiveFromFrom,
+                                       @RequestParam(required = false) String effectiveFromTo,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        return addenda.search(contractId, status, pageable).map(AddendumResponse::of);
+        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.ADDENDUM_SORTS, PageableGuard.MAX_SIZE);
+        return addenda.search(contractId, status, changeType, q, effectiveFromFrom, effectiveFromTo, safe)
+                .map(AddendumResponse::of);
     }
 
     @GetMapping("/{id}")
@@ -92,5 +101,11 @@ public class AddendumController {
     @PreAuthorize("hasAuthority('addendum:read')")
     public ProgressResponse progress(@PathVariable UUID id) {
         return ProgressResponse.of(addenda.progress(id));
+    }
+
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAuthority('addendum:read')")
+    public List<StatusHistoryResponse> history(@PathVariable UUID id) {
+        return addenda.history(id).stream().map(StatusHistoryResponse::of).toList();
     }
 }

@@ -13,6 +13,7 @@ import com.abclogistics.pas.contract.domain.ChangeType;
 import com.abclogistics.pas.contract.domain.Contract;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
+import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.domain.TriggerKind;
 import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
@@ -77,11 +78,22 @@ public class AddendumService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Addendum> search(UUID contractId, String status, Pageable pageable) {
+    public Page<Addendum> search(UUID contractId, String status, String changeType, String q,
+                                 String effectiveFromFrom, String effectiveFromTo, Pageable pageable) {
         return addenda.search(contractId,
                 RequestValues.parseOptional("status", status,
                         DocumentStatus::valueOf, DocumentStatus.values()),
+                RequestValues.parseOptional("changeType", changeType,
+                        ChangeType::valueOf, ChangeType.values()),
+                RequestValues.likePattern(q),
+                RequestValues.parseOptionalDate("effectiveFromFrom", effectiveFromFrom),
+                RequestValues.parseOptionalDate("effectiveFromTo", effectiveFromTo),
                 pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Addendum> search(UUID contractId, String status, Pageable pageable) {
+        return search(contractId, status, null, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -222,6 +234,12 @@ public class AddendumService {
                         addendum.getStatus(), addendum.getStatus().name(), null)
                 : new ContractService.ApprovalProgress(
                         addendum.getStatus(), instance.getStatus(), instance);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StatusHistory> history(UUID id) {
+        get(id);
+        return transitions.history(EntityType.ADDENDUM, id);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

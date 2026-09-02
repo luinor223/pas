@@ -29,11 +29,19 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                    or lower(c.contractNo) like :q
                    or lower(c.description) like :q
                    or lower(c.customer.name) like :q)
+              and (:validFromFrom is null or c.validFrom >= :validFromFrom)
+              and (:validFromTo is null or c.validFrom <= :validFromTo)
+              and (:validToFrom is null or c.validTo >= :validToFrom)
+              and (:validToTo is null or c.validTo <= :validToTo)
             """)
     Page<Contract> search(@Param("customerId") UUID customerId,
                           @Param("status") DocumentStatus status,
                           @Param("serviceGroup") ServiceGroup serviceGroup,
                           @Param("q") String q,
+                          @Param("validFromFrom") LocalDate validFromFrom,
+                          @Param("validFromTo") LocalDate validFromTo,
+                          @Param("validToFrom") LocalDate validToFrom,
+                          @Param("validToTo") LocalDate validToTo,
                           Pageable pageable);
 
     /**

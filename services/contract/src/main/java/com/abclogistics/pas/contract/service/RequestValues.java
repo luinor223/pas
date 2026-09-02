@@ -2,6 +2,8 @@ package com.abclogistics.pas.contract.service;
 
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.function.Function;
@@ -41,5 +43,17 @@ final class RequestValues {
     static String likePattern(String q) {
         String term = blankToNull(q);
         return term == null ? null : "%" + term.trim().toLowerCase(Locale.ROOT) + "%";
+    }
+
+    static LocalDate parseOptionalDate(String field, String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (DateTimeParseException e) {
+            throw new UnprocessableEntityException("%s must be ISO date YYYY-MM-DD (got \"%s\")".formatted(field, raw));
+        }
     }
 }

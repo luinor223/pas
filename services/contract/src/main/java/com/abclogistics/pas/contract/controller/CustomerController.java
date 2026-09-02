@@ -6,6 +6,7 @@ import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.dto.SuspendRequest;
 import com.abclogistics.pas.contract.service.CustomerService;
+import com.abclogistics.pas.contract.service.PageableGuard;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -40,8 +41,8 @@ public class CustomerController {
     public Page<CustomerResponse> list(@RequestParam(required = false) String q,
                                        @RequestParam(required = false) String status,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        return customers.search(q, status, pageable)
-                .map(c -> CustomerResponse.of(c, List.of()));
+        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CUSTOMER_SORTS, PageableGuard.MAX_SIZE);
+        return customers.searchResponses(q, status, safe);
     }
 
     @GetMapping("/{id}")
