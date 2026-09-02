@@ -127,7 +127,7 @@ class SubmitCommitThenDispatchPendingTest {
 
     /**
      * The workflow service is a separate process (D16). Mocked so these tests pin THIS service's
-     * ordering guarantees; the wire contract is covered by ContractContractTest against the proto.
+     * ordering guarantees.
      */
     @MockitoBean WorkflowGrpcClient workflow;
 

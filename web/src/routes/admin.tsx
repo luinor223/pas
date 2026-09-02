@@ -1,0 +1,21 @@
+import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+
+export const Route = createFileRoute("/admin")({ component: AdminLayout });
+
+function AdminLayout() {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold">Administration</h1>
+        <p className="text-sm text-muted-foreground">Users, roles and permissions. Workflows and document types are stubs for future services.</p>
+      </div>
+      <div className="flex gap-2 border-b pb-2">
+        <Link to="/admin/users" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Users</Link>
+        <Link to="/admin/roles" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Roles & Permissions</Link>
+        <Link to="/admin/workflows" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Workflows</Link>
+        <Link to="/admin/document-types" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Document Types</Link>
+      </div>
+      <Outlet />
+    </div>
+  );
+}

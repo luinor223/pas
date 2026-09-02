@@ -1,0 +1,27 @@
+http:
+  routers:
+    pricing:
+      rule: PathPrefix(`/api/v1/service-items`) || PathPrefix(`/api/v1/price-lists`)
+      entryPoints: [web]
+      middlewares: [pricing-ratelimit, jwt-auth@file, api-v1-strip]
+      service: pricing
+    pricing-docs:
+      rule: PathPrefix(`/docs/pricing`)
+      entryPoints: [web]
+      middlewares: [pricing-docs-strip]
+      service: pricing
+
+  middlewares:
+    pricing-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+    pricing-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/pricing]
+
+  services:
+    pricing:
+      loadBalancer:
+        servers:
+          - url: http://pricing-service:8003

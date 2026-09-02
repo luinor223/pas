@@ -247,7 +247,7 @@ class CustomerCrudTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Wire Co\",\"contacts\":[]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.contacts").isEmpty());
+                .andExpect(jsonPath("$.data.contacts").isEmpty());
 
         assertThat(namesOf(id)).isEmpty();
     }

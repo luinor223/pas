@@ -52,6 +52,11 @@ jwt:
   # RS256 private key (PKCS#8 PEM). identity signs; the edge validates with the public key.
   private-key-path: ${JWT_PRIVATE_KEY_PATH:../../infra/keys/jwt-private.pem}
 
+auth:
+  cookie:
+    # true in prod (https); false for local http so the cookie is still sent.
+    secure: ${AUTH_COOKIE_SECURE:false}
+
 redis:
   perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
@@ -68,3 +73,7 @@ management:
     web:
       exposure:
         include: health,info
+
+springdoc:
+  api-docs:
+    version: openapi_3_1

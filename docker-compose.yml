@@ -7,6 +7,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./infra/docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./infra/docker/traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./infra/docker/traefik/plugins-local:/plugins-local:ro
     ports:
       - "18080:80"
       - "18090:8080"
@@ -17,6 +18,8 @@ services:
       POSTGRES_DB: pas
       POSTGRES_USER: pas
       POSTGRES_PASSWORD: pas
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d
@@ -28,6 +31,8 @@ services:
 
   redis:
     image: redis:7
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -40,17 +45,17 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     ports:
-      - "19092:9092"
+      - "19092:9094"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 5s
@@ -161,6 +166,45 @@ services:
       - "traefik.http.routers.workflow-docs.service=workflow"
       - "traefik.http.routers.workflow-docs.middlewares=workflow-docs-strip"
 
+  operations-service:
+    build:
+      context: .
+      dockerfile: services/operations/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_operations
+      DB_USER: operations
+      DB_PASSWORD: operations
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CONTRACT_GRPC_HOST: contract-service
+      CONTRACT_GRPC_PORT: 50052
+      PRICING_GRPC_HOST: pricing-service
+      PRICING_GRPC_PORT: 50053
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8004/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.operations.loadbalancer.server.port=8004"
+      - "traefik.http.middlewares.operations-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.operations-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.operations.rule=PathPrefix(`/api/v1/periods`) || PathPrefix(`/api/v1/volume-records`)"
+      - "traefik.http.routers.operations.entrypoints=web"
+      - "traefik.http.routers.operations.middlewares=operations-ratelimit,jwt-auth@file,api-v1-strip"
+
   contract-service:
     build:
       context: .
@@ -218,6 +262,19 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       IDENTITY_GRPC_HOST: identity-service
       IDENTITY_GRPC_PORT: 50051
+  pricing-service:
+    build:
+      context: .
+      dockerfile: services/pricing/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_pricing
+      DB_USER: pricing
+      DB_PASSWORD: pricing
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WORKFLOW_GRPC_HOST: workflow-service
+      WORKFLOW_GRPC_PORT: 50056
     depends_on:
       postgres:
         condition: service_healthy
@@ -280,6 +337,40 @@ services:
       - "traefik.http.routers.audit-docs.entrypoints=web"
       - "traefik.http.routers.audit-docs.service=audit"
       - "traefik.http.routers.audit-docs.middlewares=audit-docs-strip"
+      workflow-service:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.pricing.loadbalancer.server.port=8003"
+      - "traefik.http.middlewares.pricing-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.pricing-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.pricing-docs-strip.stripprefix.prefixes=/docs/pricing"
+      - "traefik.http.routers.pricing.rule=PathPrefix(`/api/v1/service-items`) || PathPrefix(`/api/v1/price-lists`)"
+      - "traefik.http.routers.pricing.entrypoints=web"
+      - "traefik.http.routers.pricing.middlewares=pricing-ratelimit,jwt-auth@file,api-v1-strip"
+      - "traefik.http.routers.pricing-docs.rule=PathPrefix(`/docs/pricing`)"
+      - "traefik.http.routers.pricing-docs.entrypoints=web"
+      - "traefik.http.routers.pricing-docs.service=pricing"
+      - "traefik.http.routers.pricing-docs.middlewares=pricing-docs-strip"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    depends_on:
+      - traefik
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_HMR_CLIENT_PORT: "18080"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.web.loadbalancer.server.port=80"
+      # SPA — lowest priority (len `/` =1) so /api and /docs win
+      - "traefik.http.routers.web.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.web.entrypoints=web"
 
 volumes:
   pgdata:

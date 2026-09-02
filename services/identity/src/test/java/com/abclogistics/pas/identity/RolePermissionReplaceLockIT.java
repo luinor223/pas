@@ -1,4 +1,5 @@
 package com.abclogistics.pas.identity;
+import com.abclogistics.pas.identity.support.Envelopes;
 
 import com.abclogistics.pas.identity.dto.LoginRequest;
 import com.abclogistics.pas.identity.dto.LoginResponse;
@@ -105,7 +106,7 @@ class RolePermissionReplaceLockIT {
         RestClient unauthed = RestClient.create("http://localhost:" + port);
         LoginResponse adminLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
 
         String targetRole = "SALES_OFFICER";
@@ -117,7 +118,7 @@ class RolePermissionReplaceLockIT {
                 .uri("/roles/" + targetRole)
                 .header("X-User-Id", adminLogin.user().id().toString())
                 .header("X-Roles", String.join(",", adminLogin.user().roles()))
-                .retrieve().body(RoleResponse.class);
+                .retrieve().body(Envelopes.ROLE).data();
         assertThat(before).isNotNull();
 
         ExecutorService exec = Executors.newFixedThreadPool(2);
@@ -151,7 +152,7 @@ class RolePermissionReplaceLockIT {
                 .uri("/roles/" + targetRole)
                 .header("X-User-Id", adminLogin.user().id().toString())
                 .header("X-Roles", String.join(",", adminLogin.user().roles()))
-                .retrieve().body(RoleResponse.class);
+                .retrieve().body(Envelopes.ROLE).data();
         assertThat(after).isNotNull();
         Set<String> finalPerms = Set.copyOf(after.permissions());
         Set<String> aSet = Set.copyOf(setA);
@@ -173,7 +174,7 @@ class RolePermissionReplaceLockIT {
         RestClient unauthed = RestClient.create("http://localhost:" + port);
         LoginResponse adminLogin = unauthed.post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
-                .retrieve().body(LoginResponse.class);
+                .retrieve().body(Envelopes.LOGIN).data();
         assertThat(adminLogin).isNotNull();
 
         RestClient adminClient = authedClient(adminLogin.user().id().toString(), adminLogin.user().roles());
@@ -182,14 +183,14 @@ class RolePermissionReplaceLockIT {
         List<String> first = List.of("customer:read");
         RoleResponse afterFirst = adminClient.put().uri("/roles/LEGAL_REVIEWER/permissions")
                 .body(java.util.Map.of("permissionCodes", first))
-                .retrieve().body(RoleResponse.class);
+                .retrieve().body(Envelopes.ROLE).data();
         assertThat(afterFirst.permissions()).containsExactlyInAnyOrderElementsOf(first);
 
         // second replace with different set should be total, not union
         List<String> second = List.of("contract:read", "approval:act");
         RoleResponse afterSecond = adminClient.put().uri("/roles/LEGAL_REVIEWER/permissions")
                 .body(java.util.Map.of("permissionCodes", second))
-                .retrieve().body(RoleResponse.class);
+                .retrieve().body(Envelopes.ROLE).data();
         assertThat(afterSecond.permissions()).containsExactlyInAnyOrderElementsOf(second);
         assertThat(afterSecond.permissions()).doesNotContain("customer:read");
     }

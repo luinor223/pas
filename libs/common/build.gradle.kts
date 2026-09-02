@@ -14,6 +14,7 @@ dependencies {
     api(libs.spring.boot.starter.security)
     api(libs.spring.boot.starter.json)
     api(libs.spring.kafka)
+    compileOnly(libs.springdoc.openapi)
 
     testFixturesApi(libs.spring.kafka)
 

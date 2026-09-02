@@ -1,0 +1,10 @@
+displayName: CSRF Double Submit
+type: middleware
+import: github.com/abclogistics/csrf
+summary: Double-submit CSRF guard for cookie-authenticated requests.
+testData:
+  cookieName: pas_csrf
+  headerName: X-CSRF-Token
+  authCookieNames:
+    - pas_at
+    - pas_rt

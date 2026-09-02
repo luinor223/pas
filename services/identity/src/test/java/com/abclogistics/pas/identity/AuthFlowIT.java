@@ -1,4 +1,5 @@
 package com.abclogistics.pas.identity;
+import com.abclogistics.pas.identity.support.Envelopes;
 
 import com.abclogistics.pas.identity.dto.LoginRequest;
 import com.abclogistics.pas.identity.dto.LoginResponse;
@@ -79,7 +80,7 @@ class AuthFlowIT {
         LoginResponse login = client().post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
                 .retrieve()
-                .body(LoginResponse.class);
+                .body(Envelopes.LOGIN).data();
 
         assertThat(login).isNotNull();
         assertThat(login.accessToken()).isNotBlank();
@@ -91,7 +92,7 @@ class AuthFlowIT {
                 .header("X-User-Id", login.user().id().toString())
                 .header("X-Roles", String.join(",", login.user().roles()))
                 .retrieve()
-                .body(UserResponse[].class);
+                .body(Envelopes.USER_ARRAY).data();
 
         assertThat(users).isNotNull();
         assertThat(users).anyMatch(u -> u.username().equals("admin"));
@@ -102,7 +103,7 @@ class AuthFlowIT {
         LoginResponse login = client().post().uri("/auth/login")
                 .body(new LoginRequest("admin", "admin12345"))
                 .retrieve()
-                .body(LoginResponse.class);
+                .body(Envelopes.LOGIN).data();
 
         assertThat(login).isNotNull();
         assertThat(login.refreshToken()).isNotBlank();
@@ -110,7 +111,7 @@ class AuthFlowIT {
         TokenResponse refreshed = client().post().uri("/auth/refresh")
                 .body(new RefreshRequest(login.refreshToken()))
                 .retrieve()
-                .body(TokenResponse.class);
+                .body(Envelopes.TOKEN).data();
 
         assertThat(refreshed).isNotNull();
         assertThat(refreshed.accessToken()).isNotBlank();
