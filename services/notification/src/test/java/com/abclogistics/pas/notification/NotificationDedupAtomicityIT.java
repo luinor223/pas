@@ -1,11 +1,13 @@
 package com.abclogistics.pas.notification;
 
+import com.abclogistics.pas.common.events.MalformedEventException;
 import com.abclogistics.pas.notification.domain.NotificationCategory;
 import com.abclogistics.pas.notification.event.EventEnvelope;
 import com.abclogistics.pas.notification.repository.NotificationRepository;
 import com.abclogistics.pas.notification.repository.ProcessedEventRepository;
 import com.abclogistics.pas.notification.service.IdentityGrpcClient;
 import com.abclogistics.pas.notification.service.NotificationService;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -152,6 +154,27 @@ class NotificationDedupAtomicityIT {
 
         assertThat(service.fanOut(event)).isEqualTo(2);
         assertThat(notifications.findByEventId(event.eventId())).hasSize(2);
+    }
+
+    @Test
+    void aClaimedEventWhoseTextCannotBeRenderedIsRolledBackAndReplayable() {
+        // the claim now goes in *before* the render, so only the rollback keeps the producer's
+        // own correction alive — this is the path the mocked tests cannot see
+        ConsumerRecord<String, String> good = EventFixtures.stepAssigned(
+                UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID()));
+        EventEnvelope broken = EventFixtures.envelope(
+                EventFixtures.withPayloadField(good, "step_name", null));
+
+        assertThatThrownBy(() -> service.fanOut(broken))
+                .isInstanceOf(MalformedEventException.class);
+        assertThat(processed.existsById(broken.eventId())).isFalse();
+
+        EventEnvelope corrected = EventFixtures.envelope(good);
+        assertThat(corrected.eventId()).isEqualTo(broken.eventId());
+
+        assertThat(service.fanOut(corrected)).isEqualTo(2);
+        assertThat(notifications.findByEventId(corrected.eventId())).hasSize(2);
+        assertThat(processed.existsById(corrected.eventId())).isTrue();
     }
 
     /** The spy passes every other row through, so the first recipient is really inserted. */

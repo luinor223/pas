@@ -9,8 +9,10 @@ import com.abclogistics.pas.notification.service.RecipientResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -74,6 +76,15 @@ class ProcessedEventDedupTest {
         assertThat(first.eventId()).isNotEqualTo(second.eventId());
         assertThat(service.fanOut(first)).isEqualTo(1);
         assertThat(service.fanOut(second)).isEqualTo(1);
+    }
+
+    @Test
+    void theRepositoryOffersNoWayToWriteExceptTheClaim() {
+        // the invariant is structural, not a convention: JpaRepository would hand every caller
+        // save() and deleteAll() beside claim(), and a marker deleted by hand replays the inbox
+        assertThat(Stream.of(ProcessedEventRepository.class.getMethods()).map(Method::getName))
+                .as("processed_event is written only by claim()")
+                .containsExactlyInAnyOrder("claim", "existsById");
     }
 
     @Test
