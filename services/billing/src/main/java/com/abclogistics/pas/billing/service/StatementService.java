@@ -91,13 +91,13 @@ public class StatementService {
         // PAY-01: assert period within [valid_from, valid_to]
         LocalDate periodStart = LocalDate.parse(periodCode + "-01"); // first day of month
         LocalDate periodEnd = periodStart.plusMonths(1).minusDays(1); // last day of month
-        if (contract.hasValidFrom() && !contract.getValidFrom().isEmpty()) {
+        if (contract.getValidFrom() != null && !contract.getValidFrom().isEmpty()) {
             LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
             if (periodEnd.isBefore(validFrom)) {
                 throw new IllegalStateException("Period ends before contract valid_from (PAY-01)");
             }
         }
-        if (contract.hasValidTo() && !contract.getValidTo().isEmpty()) {
+        if (contract.getValidTo() != null && !contract.getValidTo().isEmpty()) {
             LocalDate validTo = LocalDate.parse(contract.getValidTo());
             if (periodStart.isAfter(validTo)) {
                 throw new IllegalStateException("Period starts after contract valid_to (PAY-01)");
@@ -304,7 +304,7 @@ public class StatementService {
         OutboxEvent event = OutboxEvent.event(
             "workflow.start_requested",
             "PAYMENT_STATEMENT",
-            statement.getId(),
+            toUuid(statement.getId()),
             String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
                 + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"customer_name\":\"%s\"}",
                 idempotencyKey, statement.getId(), statement.getStatementNo(),
@@ -377,7 +377,7 @@ public class StatementService {
             OutboxEvent esignEvent = OutboxEvent.event(
                 "esign.session_requested",
                 "PAYMENT_STATEMENT",
-                statement.getId(),
+                toUuid(statement.getId()),
                 String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
                     + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\"}",
                     esignKey, statement.getId(), statement.getStatementNo(),
@@ -404,6 +404,171 @@ public class StatementService {
         return toResponse(statement);
     }
 
+    @Transactional
+    public StatementResponse editLine(String statementNo, EditLineRequest req) {
+        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
+            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+
+        PaymentStatement.StatementStatus status = statement.getStatus();
+        if (status != PaymentStatement.StatementStatus.DRAFT
+            && status != PaymentStatement.StatementStatus.CALCULATED) {
+            throw new IllegalStateException("Only DRAFT or CALCULATED statements can be edited");
+        }
+
+        // Find the line
+        Optional<StatementLine> lineOpt = statement.getLines().stream()
+            .filter(l -> l.getLineNo() == req.lineNo())
+            .findFirst();
+        if (lineOpt.isEmpty()) {
+            throw new IllegalArgumentException("Line not found: " + req.lineNo());
+        }
+
+        StatementLine line = lineOpt.get();
+        if (req.unitPrice() != null) line.setUnitPrice(req.unitPrice());
+        if (req.quantity() != null) line.setQuantity(req.quantity());
+        line.setSource(StatementLine.LineSource.MANUAL);
+        if (req.note() != null) line.setNote(req.note());
+
+        // Recalculate amount
+        line.setAmount(line.getUnitPrice().multiply(line.getQuantity())
+            .setScale(2, RoundingMode.HALF_UP));
+        lineRepo.save(line);
+
+        // If CALCULATED, flip back to DRAFT (D14f)
+        if (status == PaymentStatement.StatementStatus.CALCULATED) {
+            PaymentStatement.StatementStatus oldStatus = statement.getStatus();
+            statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
+
+            StatusHistory history = new StatusHistory();
+            history.setStatement(statement);
+            history.setFromStatus(oldStatus.name());
+            history.setToStatus(PaymentStatement.StatementStatus.DRAFT.name());
+            history.setTriggerKind(StatusHistory.TriggerKind.U);
+            history.setActorId(SecurityUtils.currentUserId());
+            history.setActorName(SecurityUtils.currentUserName());
+            history.setOccurredAt(Instant.now());
+            statement.getStatusHistory().add(history);
+        }
+
+        statementRepo.save(statement);
+        auditOutbox(statement, "statement.line_edited");
+        return toResponse(statement);
+    }
+
+    @Transactional
+    public StatementResponse createAdjustment(String statementNo, AdjustmentRequest req) {
+        PaymentStatement original = statementRepo.findByStatementNo(statementNo)
+            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+
+        if (original.getStatus() != PaymentStatement.StatementStatus.ISSUED) {
+            throw new IllegalStateException("Only ISSUED statements can have adjustments");
+        }
+
+        // Create adjustment statement (PAY-05)
+        PaymentStatement adjustment = new PaymentStatement();
+        adjustment.setStatementNo(generateStatementNo());
+        adjustment.setContractId(original.getContractId());
+        adjustment.setContractNo(original.getContractNo());
+        adjustment.setCustomerId(original.getCustomerId());
+        adjustment.setCustomerName(original.getCustomerName());
+        adjustment.setPeriodCode(original.getPeriodCode());
+        adjustment.setPeriodStart(original.getPeriodStart());
+        adjustment.setPeriodEnd(original.getPeriodEnd());
+        adjustment.setPriceListVersionId(original.getPriceListVersionId());
+        adjustment.setPriceListNo(original.getPriceListNo());
+        adjustment.setPriceListVersionNo(original.getPriceListVersionNo());
+        adjustment.setPaymentTerm(original.getPaymentTerm());
+        adjustment.setVatRate(original.getVatRate());
+        adjustment.setCurrency(original.getCurrency());
+        adjustment.setAdjustsStatementId(original.getId());
+        adjustment.setStatus(PaymentStatement.StatementStatus.DRAFT);
+        statementRepo.save(adjustment);
+
+        // Create lines from request
+        BigDecimal subtotal = BigDecimal.ZERO;
+        int lineNo = 1;
+        for (AdjustmentRequest.AdjustmentLineInput input : req.lines()) {
+            StatementLine line = new StatementLine();
+            line.setStatement(adjustment);
+            line.setLineNo(lineNo++);
+            line.setServiceCode(input.serviceCode());
+            line.setServiceName(input.serviceName());
+            line.setUnit(input.unit());
+            line.setUnitPrice(input.unitPrice());
+            line.setQuantity(input.quantity());
+            line.setAmount(input.unitPrice().multiply(input.quantity())
+                .setScale(2, RoundingMode.HALF_UP));
+            line.setSource(StatementLine.LineSource.MANUAL);
+            line.setNote(input.note());
+            lineRepo.save(line);
+            subtotal = subtotal.add(line.getAmount());
+        }
+
+        BigDecimal taxAmount = subtotal.multiply(adjustment.getVatRate())
+            .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        adjustment.setSubtotal(subtotal);
+        adjustment.setTaxAmount(taxAmount);
+        adjustment.setTotalAmount(subtotal.add(taxAmount));
+        statementRepo.save(adjustment);
+
+        // Status history for the adjustment
+        StatusHistory history = new StatusHistory();
+        history.setStatement(adjustment);
+        history.setFromStatus(null);
+        history.setToStatus(PaymentStatement.StatementStatus.DRAFT.name());
+        history.setTriggerKind(StatusHistory.TriggerKind.U);
+        history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
+        history.setOccurredAt(Instant.now());
+        adjustment.getStatusHistory().add(history);
+
+        auditOutbox(adjustment, "statement.adjustment_created");
+        return toResponse(adjustment);
+    }
+
+    @Transactional
+    public StatementResponse cancelStatement(String statementNo, String reason) {
+        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
+            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+
+        PaymentStatement.StatementStatus oldStatus = statement.getStatus();
+        if (oldStatus != PaymentStatement.StatementStatus.APPROVED
+            && oldStatus != PaymentStatement.StatementStatus.SIGNED) {
+            throw new IllegalStateException("Only APPROVED or SIGNED statements can be cancelled");
+        }
+
+        // PAY-05: statement:cancel_approved permission check
+        if (!SecurityUtils.hasPermission("statement:cancel_approved")) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                "Requires statement:cancel_approved permission");
+        }
+
+        statement.setStatus(PaymentStatement.StatementStatus.CANCELLED);
+        statementRepo.save(statement);
+
+        // Status history (D17)
+        StatusHistory history = new StatusHistory();
+        history.setStatement(statement);
+        history.setFromStatus(oldStatus.name());
+        history.setToStatus(PaymentStatement.StatementStatus.CANCELLED.name());
+        history.setTriggerKind(StatusHistory.TriggerKind.U);
+        history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
+        history.setNote(reason);
+        history.setOccurredAt(Instant.now());
+        statement.getStatusHistory().add(history);
+
+        auditOutbox(statement, "statement.cancelled");
+        return toResponse(statement);
+    }
+
+    @Transactional(readOnly = true)
+    public Object getWorkflowProgress(String statementNo) {
+        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
+            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+        return workflowClient.getInstanceByDocument("PAYMENT_STATEMENT", statement.getId().toString());
+    }
+
     private LocalDate computeDueDate(String paymentTerm, LocalDate baseDate) {
         if (paymentTerm == null || paymentTerm.isBlank()) return baseDate.plusDays(30);
         String upper = paymentTerm.toUpperCase(Locale.ROOT);
@@ -415,7 +580,8 @@ public class StatementService {
 
     private String generateStatementNo() {
         long seq = statementRepo.count() + 1;
-        return "PMT-" + String.format("%04d", seq);
+        int year = java.time.Year.now().getValue();
+        return String.format("PMT-%d-%04d", year, seq);
     }
 
     private void auditOutbox(PaymentStatement statement, String action) {
@@ -432,8 +598,13 @@ public class StatementService {
             actorName != null ? actorName : "",
             statement.getStatus(),
             Instant.now());
-        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", statement.getId(), payload);
+        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", toUuid(statement.getId()), payload);
         outboxRepo.save(event);
+    }
+
+    /** Convert Long id to deterministic UUID for outbox aggregateId. */
+    private static UUID toUuid(Long id) {
+        return new UUID(0L, id);
     }
 
     private StatementResponse toResponse(PaymentStatement ps) {

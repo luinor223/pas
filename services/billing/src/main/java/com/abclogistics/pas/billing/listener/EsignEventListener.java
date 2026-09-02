@@ -66,7 +66,7 @@ public class EsignEventListener {
             throw new MalformedEventException("esign.session_completed missing document_id or result");
         }
 
-        Optional<PaymentStatement> opt = statementRepo.findById(UUID.fromString(documentId));
+        Optional<PaymentStatement> opt = statementRepo.findById(Long.parseLong(documentId));
         if (opt.isEmpty()) {
             log.warn("esign.session_completed for unknown statement {}", documentId);
             ack.acknowledge();

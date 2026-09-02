@@ -3,8 +3,11 @@ package com.abclogistics.pas.billing.controller;
 import com.abclogistics.pas.billing.dto.*;
 import com.abclogistics.pas.billing.service.StatementService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -60,8 +63,38 @@ public class StatementController {
         return statementService.updateStatus(statementNo, status, triggerRef);
     }
 
-    @GetMapping("/payment-statements/internal/{id}/signing-payload")
-    public StatementResponse getSigningPayload(@PathVariable String id) {
-        return statementService.getSigningPayload(id);
+    @PatchMapping("/payment-statements/{statementNo}/lines")
+    @PreAuthorize("hasAuthority('statement:write')")
+    public StatementResponse editLine(
+        @PathVariable String statementNo,
+        @RequestBody EditLineRequest request
+    ) {
+        return statementService.editLine(statementNo, request);
+    }
+
+    @PostMapping("/payment-statements/{statementNo}/adjustments")
+    @PreAuthorize("hasAuthority('statement:write')")
+    @ResponseStatus(HttpStatus.CREATED)
+    public StatementResponse createAdjustment(
+        @PathVariable String statementNo,
+        @RequestBody AdjustmentRequest request
+    ) {
+        return statementService.createAdjustment(statementNo, request);
+    }
+
+    @PostMapping("/payment-statements/{statementNo}/cancel")
+    @PreAuthorize("hasAuthority('statement:cancel_approved')")
+    public StatementResponse cancelStatement(
+        @PathVariable String statementNo,
+        @RequestBody(required = false) Map<String, String> body
+    ) {
+        String reason = body != null ? body.getOrDefault("reason", "") : "";
+        return statementService.cancelStatement(statementNo, reason);
+    }
+
+    @GetMapping("/payment-statements/{statementNo}/workflow-progress")
+    @PreAuthorize("hasAuthority('statement:read')")
+    public Object getWorkflowProgress(@PathVariable String statementNo) {
+        return statementService.getWorkflowProgress(statementNo);
     }
 }
