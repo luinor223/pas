@@ -1,5 +1,6 @@
 package com.abclogistics.pas.operations.dto;
 
+import com.abclogistics.pas.operations.domain.PeriodCode;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -10,7 +11,7 @@ import java.util.UUID;
 
 public record CreateVolumeRequest(
         @NotNull UUID contractId,
-        @NotBlank @Pattern(regexp = "^\\d{4}-(0[1-9]|1[0-2])$", message = "period_code must be YYYY-MM")
+        @NotBlank @Pattern(regexp = PeriodCode.REGEX, message = PeriodCode.MESSAGE)
         String periodCode,
         @NotBlank String serviceCode,
         @NotNull @DecimalMin(value = "0.0", message = "quantity must be >= 0")

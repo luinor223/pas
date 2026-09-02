@@ -1,7 +1,5 @@
 package com.abclogistics.pas.operations;
 
-import com.abclogistics.pas.operations.grpc.ContractGrpcClient;
-import com.abclogistics.pas.operations.grpc.PricingGrpcClient;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -19,13 +17,13 @@ public class TestGrpcConfig {
 
     @Bean
     @Primary
-    public ContractGrpcClient contractGrpcClient() {
+    public StubContractGrpcClient stubContractGrpcClient() {
         return new StubContractGrpcClient();
     }
 
     @Bean
     @Primary
-    public PricingGrpcClient pricingGrpcClient() {
+    public StubPricingGrpcClient stubPricingGrpcClient() {
         return new StubPricingGrpcClient();
     }
 

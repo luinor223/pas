@@ -1,20 +1,18 @@
 package com.abclogistics.pas.operations;
 
-import com.abclogistics.pas.operations.grpc.PricingGrpcClient;
+import com.abclogistics.pas.operations.grpc.PricingClient;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
 import com.abclogistics.pas.common.error.NotFoundException;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class StubPricingGrpcClient extends PricingGrpcClient {
+public class StubPricingGrpcClient implements PricingClient {
 
     private final Map<String, GetServiceItemResponse> items = new ConcurrentHashMap<>();
     private boolean failNotFound = false;
 
     public StubPricingGrpcClient() {
-        super();
-        // default: known service codes
         register("CONT_LIFT", "Container lift on/off", "TEU", true);
         register("STORAGE", "Storage beyond free time", "day", true);
         register("LASHING", "Lashing & securing", "TEU", true);

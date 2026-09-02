@@ -1,5 +1,6 @@
 package com.abclogistics.pas.operations.controller;
 
+import com.abclogistics.pas.operations.domain.PeriodCode;
 import com.abclogistics.pas.operations.dto.CreatePeriodRequest;
 import com.abclogistics.pas.operations.dto.PeriodResponse;
 import com.abclogistics.pas.operations.service.PeriodService;
@@ -44,13 +45,13 @@ public class PeriodController {
 
     @GetMapping("/{periodCode}")
     @PreAuthorize("hasAuthority('volume:read')")
-    public PeriodResponse get(@Pattern(regexp = "^\\d{4}-(0[1-9]|1[0-2])$", message = "period_code must be YYYY-MM") @PathVariable String periodCode) {
+    public PeriodResponse get(@Pattern(regexp = PeriodCode.REGEX, message = PeriodCode.MESSAGE) @PathVariable String periodCode) {
         return periodService.get(periodCode);
     }
 
     @PostMapping("/{periodCode}/lock")
     @PreAuthorize("hasAuthority('volume:lock_period')")
-    public PeriodResponse lock(@Pattern(regexp = "^\\d{4}-(0[1-9]|1[0-2])$", message = "period_code must be YYYY-MM") @PathVariable String periodCode) {
+    public PeriodResponse lock(@Pattern(regexp = PeriodCode.REGEX, message = PeriodCode.MESSAGE) @PathVariable String periodCode) {
         return periodService.lock(periodCode);
     }
 }

@@ -1,6 +1,7 @@
 package com.abclogistics.pas.operations.grpc;
 
 import com.abclogistics.pas.operations.domain.OperationPeriod;
+import com.abclogistics.pas.operations.domain.PeriodCode;
 import com.abclogistics.pas.operations.domain.VolumeRecord;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
 import com.abclogistics.pas.operations.repository.VolumeRecordRepository;
@@ -15,12 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 @GrpcService
 public class OperationsInternalGrpcService extends OperationsInternalGrpc.OperationsInternalImplBase {
-
-    private static final Pattern PERIOD_CODE_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
     private final OperationPeriodRepository periodRepo;
     private final VolumeRecordRepository volumeRepo;
@@ -42,7 +40,7 @@ public class OperationsInternalGrpcService extends OperationsInternalGrpc.Operat
                 return;
             }
             // P0-3: validate period_code format early → INVALID_ARGUMENT, not NOT_FOUND
-            if (!PERIOD_CODE_PATTERN.matcher(periodCode).matches()) {
+            if (!PeriodCode.isValid(periodCode)) {
                 responseObserver.onError(Status.INVALID_ARGUMENT.withDescription("Invalid period_code, expected YYYY-MM: " + periodCode).asRuntimeException());
                 return;
             }

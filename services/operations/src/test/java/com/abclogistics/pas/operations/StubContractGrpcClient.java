@@ -1,23 +1,18 @@
 package com.abclogistics.pas.operations;
 
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
-import com.abclogistics.pas.operations.grpc.ContractGrpcClient;
+import com.abclogistics.pas.operations.grpc.ContractClient;
 
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Test double for ContractGrpcClient — returns stubbed GetContract responses.
- */
-public class StubContractGrpcClient extends ContractGrpcClient {
+public class StubContractGrpcClient implements ContractClient {
 
     private final Map<UUID, GetContractResponse> contracts = new ConcurrentHashMap<>();
     private GetContractResponse defaultResponse;
 
     public StubContractGrpcClient() {
-        super();
-        // default contract: active, valid dates
         defaultResponse = GetContractResponse.newBuilder()
                 .setId(UUID.randomUUID().toString())
                 .setContractNo("CTR-2026-0001")

@@ -6,10 +6,11 @@ import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import com.abclogistics.pas.operations.domain.OperationPeriod;
+import com.abclogistics.pas.operations.domain.PeriodCode;
 import com.abclogistics.pas.operations.domain.VolumeRecord;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
-import com.abclogistics.pas.operations.grpc.ContractGrpcClient;
-import com.abclogistics.pas.operations.grpc.PricingGrpcClient;
+import com.abclogistics.pas.operations.grpc.ContractClient;
+import com.abclogistics.pas.operations.grpc.PricingClient;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
 import com.abclogistics.pas.operations.repository.VolumeRecordRepository;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
@@ -27,25 +28,23 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 @Service
 public class VolumeService {
 
     private static final Logger log = LoggerFactory.getLogger(VolumeService.class);
-    private static final Pattern PERIOD_CODE_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
     private final OperationPeriodRepository periodRepo;
     private final VolumeRecordRepository volumeRepo;
-    private final ContractGrpcClient contractClient;
-    private final PricingGrpcClient pricingClient;
+    private final ContractClient contractClient;
+    private final PricingClient pricingClient;
     private final AuditRecorder audit;
     private final PlatformTransactionManager txManager;
 
     public VolumeService(OperationPeriodRepository periodRepo,
                          VolumeRecordRepository volumeRepo,
-                         ContractGrpcClient contractClient,
-                         PricingGrpcClient pricingClient,
+                         ContractClient contractClient,
+                         PricingClient pricingClient,
                          AuditRecorder audit,
                          PlatformTransactionManager txManager) {
         this.periodRepo = periodRepo;
@@ -192,7 +191,7 @@ public class VolumeService {
     }
 
     private void validatePeriodCode(String code) {
-        if (code == null || !PERIOD_CODE_PATTERN.matcher(code).matches()) {
+        if (!PeriodCode.isValid(code)) {
             throw new IllegalArgumentException("Invalid period_code, expected YYYY-MM: " + code);
         }
     }

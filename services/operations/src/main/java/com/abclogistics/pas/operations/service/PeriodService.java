@@ -5,6 +5,7 @@ import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.operations.domain.OperationPeriod;
+import com.abclogistics.pas.operations.domain.PeriodCode;
 import com.abclogistics.pas.operations.dto.PeriodResponse;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -27,13 +28,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 @Service
 public class PeriodService {
 
     private static final Logger log = LoggerFactory.getLogger(PeriodService.class);
-    private static final Pattern PERIOD_CODE_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
     private final OperationPeriodRepository periodRepo;
     private final AuditRecorder audit;
@@ -151,7 +150,7 @@ public class PeriodService {
     }
 
     private void validatePeriodCode(String code) {
-        if (code == null || !PERIOD_CODE_PATTERN.matcher(code).matches()) {
+        if (!PeriodCode.isValid(code)) {
             throw new IllegalArgumentException("Invalid period_code, expected YYYY-MM: " + code);
         }
     }
