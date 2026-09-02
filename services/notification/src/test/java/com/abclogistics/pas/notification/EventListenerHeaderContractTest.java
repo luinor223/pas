@@ -210,6 +210,27 @@ class EventListenerHeaderContractTest {
         verify(notifications).fanOut(any());
     }
 
+    @Test
+    void aPeriodLockKeyedOnAnotherPeriodIsMalformed() {
+        // the key is the partition: a key that disagrees with the payload splits one period
+        // across partitions and stores a notification about a period nobody locked
+        ConsumerRecord<String, String> misKeyed = EventRecords.withKey(
+                EventFixtures.periodLocked("2026-08", "ACCOUNTANT"), "2026-07");
+
+        assertThatThrownBy(() -> listener.onEvent(misKeyed))
+                .isInstanceOf(MalformedEventException.class);
+        verify(notifications, never()).fanOut(any());
+    }
+
+    @Test
+    void aPeriodLockWithNoKeyIsMalformed() {
+        ConsumerRecord<String, String> unkeyed = EventRecords.withKey(
+                EventFixtures.periodLocked("2026-08", "ACCOUNTANT"), null);
+
+        assertThatThrownBy(() -> listener.onEvent(unkeyed))
+                .isInstanceOf(MalformedEventException.class);
+    }
+
     private EventEnvelope captured() {
         ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(notifications).fanOut(captor.capture());

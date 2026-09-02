@@ -23,16 +23,19 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
@@ -63,8 +66,8 @@ class NotificationDedupAtomicityIT {
     }
 
     @Autowired NotificationService service;
-    @Autowired NotificationRepository notifications;
-    @MockitoSpyBean ProcessedEventRepository processed;
+    @MockitoSpyBean NotificationRepository notifications;
+    @Autowired ProcessedEventRepository processed;
     @MockitoBean IdentityGrpcClient identity;
 
     @Test
@@ -81,44 +84,46 @@ class NotificationDedupAtomicityIT {
 
     @Test
     void twoConsumersProcessingTheSameRecordAtOnceWriteOneSetBetweenThem() throws Exception {
-        // check-then-act: both see existsById == false, and only the PK stops the second commit
+        // the claim is the serialization point: the loser blocks on the primary key, then sees
+        // zero rows inserted and writes nothing. Check-then-act let both pass the read.
         EventEnvelope event = EventFixtures.envelope(EventFixtures.stepAssigned(
                 UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID())));
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch startTogether = new CountDownLatch(1);
+        List<Future<Integer>> outcomes = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
-            pool.submit(() -> {
+            outcomes.add(pool.submit(() -> {
                 startTogether.await();
-                try {
-                    service.fanOut(event);
-                } catch (RuntimeException loser) {
-                    // either outcome is correct: throw on the PK, or claim and write nothing
-                }
-                return null;
-            });
+                return service.fanOut(event);
+            }));
         }
         startTogether.countDown();
         pool.shutdown();
         assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
 
-        // the business outcome, whichever way the loser reported it
+        // exactly one winner, and neither had to fail to get there
+        assertThat(List.of(outcomes.get(0).get(), outcomes.get(1).get()))
+                .containsExactlyInAnyOrder(2, 0);
         assertThat(notifications.findByEventId(event.eventId())).hasSize(2);
         assertThat(processed.existsById(event.eventId())).isTrue();
     }
 
     @Test
     void aFailureAfterSomeRowsAreWrittenRollsThemBack() {
-        // the failure must land *after* the inserts, or this passes without @Transactional
-        EventEnvelope event = EventFixtures.envelope(EventFixtures.stepAssigned(
-                UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID())));
-        doThrow(new CannotAcquireLockException("processed_event write failed"))
-                .when(processed).save(any());
+        // the failure must land *after* the first insert, or this passes without @Transactional
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        EventEnvelope event = EventFixtures.envelope(
+                EventFixtures.stepAssigned(UUID.randomUUID(), List.of(first, second)));
+        failOnTheRowFor(second);
 
         assertThatThrownBy(() -> service.fanOut(event))
                 .isInstanceOf(CannotAcquireLockException.class);
 
+        reset(notifications);
         assertThat(notifications.findByEventId(event.eventId())).isEmpty();
+        // the claim is rolled back with them, so the redelivery is not mistaken for a duplicate
         assertThat(processed.existsById(event.eventId())).isFalse();
     }
 
@@ -136,16 +141,23 @@ class NotificationDedupAtomicityIT {
 
     @Test
     void theRedeliveryAfterARollbackWritesExactlyOneCompleteSet() {
-        EventEnvelope event = EventFixtures.envelope(EventFixtures.stepAssigned(
-                UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID())));
-        doThrow(new CannotAcquireLockException("processed_event write failed"))
-                .when(processed).save(any());
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        EventEnvelope event = EventFixtures.envelope(
+                EventFixtures.stepAssigned(UUID.randomUUID(), List.of(first, second)));
+        failOnTheRowFor(second);
         assertThatThrownBy(() -> service.fanOut(event)).isInstanceOf(CannotAcquireLockException.class);
 
-        reset(processed);
+        reset(notifications);
 
         assertThat(service.fanOut(event)).isEqualTo(2);
         assertThat(notifications.findByEventId(event.eventId())).hasSize(2);
+    }
+
+    /** The spy passes every other row through, so the first recipient is really inserted. */
+    private void failOnTheRowFor(UUID recipient) {
+        doThrow(new CannotAcquireLockException("recipient row failed")).when(notifications)
+                .save(argThat(n -> n != null && recipient.equals(n.getRecipientUserId())));
     }
 
     @Test

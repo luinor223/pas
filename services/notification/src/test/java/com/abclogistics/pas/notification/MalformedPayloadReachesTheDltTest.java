@@ -39,6 +39,7 @@ class MalformedPayloadReachesTheDltTest {
         processed = mock(ProcessedEventRepository.class);
         identity = mock(IdentityGrpcClient.class);
         service = new NotificationService(notifications, processed, new RecipientResolver(identity));
+        when(processed.claim(any())).thenReturn(1);
     }
 
     @Test
@@ -125,7 +126,18 @@ class MalformedPayloadReachesTheDltTest {
         // the counterexample: not every missing field is a defect
         assertThat(fanOut(without(EventFixtures.stepActioned(
                 UUID.randomUUID(), UUID.randomUUID(), "APPROVE"), "comment"))).isOne();
-        verify(processed).save(any());
+        verify(processed).claim(any());
+    }
+
+    @Test
+    void anEventThatAddressesNobodyIsStillValidated() {
+        // the bypass: rendering happened inside the recipient loop, so an event with no
+        // recipients was never rendered — and a broken payload was claimed as processed
+        ConsumerRecord<String, String> nobody = EventFixtures.withPayloadField(
+                without(assigned(), "step_name"), "assignee_ids", List.of());
+
+        assertThatThrownBy(() -> fanOut(nobody)).isInstanceOf(MalformedEventException.class);
+        nothingWasWritten();
     }
 
     @Test
@@ -136,8 +148,9 @@ class MalformedPayloadReachesTheDltTest {
         assertThatThrownBy(() -> fanOut(without(good, "step_name")))
                 .isInstanceOf(MalformedEventException.class);
 
+        // the failed attempt wrote nothing, so this is the replay's own row
         assertThat(fanOut(good)).isOne();
-        verify(processed).save(any());
+        verify(notifications).save(any());
     }
 
     private static ConsumerRecord<String, String> assigned() {
@@ -149,9 +162,9 @@ class MalformedPayloadReachesTheDltTest {
         return EventFixtures.withPayloadField(record, field, null);
     }
 
+    /** A malformed event must not leave a half-written inbox behind; the claim rolls back with it. */
     private void nothingWasWritten() {
         verify(notifications, never()).save(any());
-        verify(processed, never()).save(any());
     }
 
     private int fanOut(ConsumerRecord<String, String> record) {

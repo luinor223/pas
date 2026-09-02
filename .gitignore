@@ -61,3 +61,6 @@ infra/keys/*.pem
 infra/docker/traefik/dynamic/jwt.yml
 !infra/keys/.gitkeep
 !infra/docker/traefik/dynamic/.gitkeep
+
+# ===== Local dev inspection ports (see docker-compose.override.yml) =====
+docker-compose.override.yml

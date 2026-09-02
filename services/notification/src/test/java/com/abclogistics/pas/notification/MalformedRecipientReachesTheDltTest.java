@@ -39,6 +39,7 @@ class MalformedRecipientReachesTheDltTest {
         processed = mock(ProcessedEventRepository.class);
         identity = mock(IdentityGrpcClient.class);
         service = new NotificationService(notifications, processed, new RecipientResolver(identity));
+        when(processed.claim(any())).thenReturn(1);
     }
 
     @Test
@@ -110,7 +111,7 @@ class MalformedRecipientReachesTheDltTest {
                 "assignee_ids", List.of());
 
         assertThat(fanOut(record)).isZero();
-        verify(processed).save(any());
+        verify(processed).claim(any());
     }
 
     @Test
@@ -118,13 +119,12 @@ class MalformedRecipientReachesTheDltTest {
         when(identity.listUsersByRole("ACCOUNTANT")).thenReturn(List.of());
 
         assertThat(fanOut(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"))).isZero();
-        verify(processed).save(any());
+        verify(processed).claim(any());
     }
 
-    /** A malformed event must not leave a half-written inbox or a processed_event behind. */
+    /** A malformed event must not leave a half-written inbox behind; the claim rolls back with it. */
     private void nothingWasWritten() {
         verify(notifications, never()).save(any());
-        verify(processed, never()).save(any());
     }
 
     private int fanOut(ConsumerRecord<String, String> record) {

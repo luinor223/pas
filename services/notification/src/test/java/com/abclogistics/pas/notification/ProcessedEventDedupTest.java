@@ -36,6 +36,7 @@ class ProcessedEventDedupTest {
         processed = mock(ProcessedEventRepository.class);
         service = new NotificationService(notifications, processed,
                 new RecipientResolver(mock(IdentityGrpcClient.class)));
+        when(processed.claim(any())).thenReturn(1);
     }
 
     @Test
@@ -45,7 +46,7 @@ class ProcessedEventDedupTest {
 
         assertThat(service.fanOut(event)).isEqualTo(2);
 
-        when(processed.existsById(event.eventId())).thenReturn(true);
+        when(processed.claim(event.eventId())).thenReturn(0);
 
         assertThat(service.fanOut(event)).isZero();
         verify(notifications, times(2)).save(any());   // still only the first delivery's two rows
@@ -59,7 +60,7 @@ class ProcessedEventDedupTest {
 
         service.fanOut(event);
 
-        verify(processed).existsById(event.eventId());
+        verify(processed).claim(event.eventId());
     }
 
     @Test
@@ -77,12 +78,12 @@ class ProcessedEventDedupTest {
 
     @Test
     void anAlreadyProcessedEventNeverReachesTheRecipientResolver() {
-        // the dedup check is the first thing that happens: resolving would cost a gRPC hop
+        // the claim is the first thing that happens: resolving would cost a gRPC hop
         IdentityGrpcClient identity = mock(IdentityGrpcClient.class);
         NotificationService svc = new NotificationService(notifications, processed,
                 new RecipientResolver(identity));
         EventEnvelope event = EventFixtures.envelope(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"));
-        when(processed.existsById(event.eventId())).thenReturn(true);
+        when(processed.claim(event.eventId())).thenReturn(0);
 
         assertThat(svc.fanOut(event)).isZero();
         verify(identity, never()).listUsersByRole("ACCOUNTANT");

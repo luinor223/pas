@@ -41,6 +41,7 @@ class NotificationFanOutPerGroupTest {
         processed = mock(ProcessedEventRepository.class);
         identity = mock(IdentityGrpcClient.class);
         service = new NotificationService(notifications, processed, new RecipientResolver(identity));
+        when(processed.claim(any())).thenReturn(1);
     }
 
     @Test
@@ -88,7 +89,7 @@ class NotificationFanOutPerGroupTest {
         when(identity.listUsersByRole("ACCOUNTANT")).thenReturn(List.of());
 
         assertThat(fanOut(EventFixtures.periodLocked("2026-08", "ACCOUNTANT"))).isZero();
-        verify(processed).save(any());
+        verify(processed).claim(any());
         verify(notifications, never()).save(any());
     }
 

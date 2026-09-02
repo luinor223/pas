@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -35,6 +36,7 @@ class DirectPublishSelfHealsTest {
         processed = mock(ProcessedEventRepository.class);
         service = new NotificationService(notifications, processed,
                 new RecipientResolver(mock(IdentityGrpcClient.class)));
+        when(processed.claim(any())).thenReturn(1);
     }
 
     @Test
@@ -50,7 +52,7 @@ class DirectPublishSelfHealsTest {
         assertThat(secondSweep.eventId()).isEqualTo(firstSweep.eventId());
 
         assertThat(service.fanOut(firstSweep)).isEqualTo(1);
-        when(processed.existsById(firstSweep.eventId())).thenReturn(true);
+        when(processed.claim(firstSweep.eventId())).thenReturn(0);
         assertThat(service.fanOut(secondSweep)).isZero();
     }
 
@@ -67,7 +69,7 @@ class DirectPublishSelfHealsTest {
         assertThat(afterExtension.eventId()).isNotEqualTo(before.eventId());
 
         assertThat(service.fanOut(before)).isEqualTo(1);
-        when(processed.existsById(before.eventId())).thenReturn(true);
+        when(processed.claim(before.eventId())).thenReturn(0);
         assertThat(service.fanOut(afterExtension)).isEqualTo(1);
     }
 
@@ -85,7 +87,7 @@ class DirectPublishSelfHealsTest {
         assertThat(secondSweep.eventId()).isEqualTo(firstSweep.eventId());
 
         assertThat(service.fanOut(firstSweep)).isEqualTo(1);
-        when(processed.existsById(firstSweep.eventId())).thenReturn(true);
+        when(processed.claim(firstSweep.eventId())).thenReturn(0);
         assertThat(service.fanOut(secondSweep)).isZero();
     }
 

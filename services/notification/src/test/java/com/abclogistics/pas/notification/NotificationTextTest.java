@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,7 +30,9 @@ class NotificationTextTest {
     void setUp() {
         notifications = mock(NotificationRepository.class);
         identity = mock(IdentityGrpcClient.class);
-        service = new NotificationService(notifications, mock(ProcessedEventRepository.class),
+        ProcessedEventRepository processed = mock(ProcessedEventRepository.class);
+        when(processed.claim(any())).thenReturn(1);
+        service = new NotificationService(notifications, processed,
                 new RecipientResolver(identity));
     }
 

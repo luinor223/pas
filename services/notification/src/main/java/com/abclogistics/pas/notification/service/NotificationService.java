@@ -3,7 +3,6 @@ package com.abclogistics.pas.notification.service;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.notification.domain.Notification;
 import com.abclogistics.pas.notification.domain.NotificationCategory;
-import com.abclogistics.pas.notification.domain.ProcessedEvent;
 import com.abclogistics.pas.notification.dto.NotificationResponse;
 import com.abclogistics.pas.notification.dto.InboxResponse;
 import com.abclogistics.pas.notification.event.EventEnvelope;
@@ -39,20 +38,18 @@ public class NotificationService {
     /** Creates one row per recipient and records the event atomically. */
     @Transactional
     public int fanOut(EventEnvelope event) {
-        if (processed.existsById(event.eventId())) {
+        // Zero recipients is still a completed event, so the claim is what marks it processed.
+        if (processed.claim(event.eventId()) == 0) {
             return 0;
         }
         NotificationCategory category = NotificationCategories.of(event.eventType());
+        NotificationContent content = NotificationText.render(event);
         List<UUID> targets = recipients.recipientsOf(event);
         for (UUID recipient : targets) {
             notifications.save(Notification.of(recipient, category, event.eventId(),
                     event.eventType(), event.documentType(), event.documentId(),
-                    documentNo(event),
-                    NotificationText.title(event.eventType(), event.payload()),
-                    NotificationText.body(event.eventType(), event.payload())));
+                    documentNo(event), content.title(), content.body()));
         }
-        // Zero recipients is still a completed event.
-        processed.save(ProcessedEvent.of(event.eventId()));
         return targets.size();
     }
 

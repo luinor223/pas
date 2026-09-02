@@ -8,7 +8,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Consumer-side dedup (D6). PK is the envelope {@code event_id}. */
+/** Consumer-side dedup (D6). PK is the envelope {@code event_id}, and the only writer is
+ *  {@code ProcessedEventRepository#claim} — there is no way to construct one by hand. */
 @Entity
 @Table(name = "processed_event")
 public class ProcessedEvent {
@@ -21,13 +22,6 @@ public class ProcessedEvent {
     private Instant processedAt;
 
     protected ProcessedEvent() { }
-
-    public static ProcessedEvent of(UUID eventId) {
-        ProcessedEvent e = new ProcessedEvent();
-        e.id = eventId;
-        e.processedAt = Instant.now();
-        return e;
-    }
 
     public UUID getId() { return id; }
     public Instant getProcessedAt() { return processedAt; }

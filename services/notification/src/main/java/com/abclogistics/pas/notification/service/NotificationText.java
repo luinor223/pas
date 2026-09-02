@@ -1,6 +1,7 @@
 package com.abclogistics.pas.notification.service;
 
 import com.abclogistics.pas.common.events.MalformedEventException;
+import com.abclogistics.pas.notification.event.EventEnvelope;
 
 import java.util.Map;
 
@@ -9,7 +10,13 @@ final class NotificationText {
 
     private NotificationText() { }
 
-    static String title(String eventType, Map<String, Object> payload) {
+    /** Rendered before the recipient loop, so a zero-recipient event is validated too. */
+    static NotificationContent render(EventEnvelope event) {
+        return new NotificationContent(title(event.eventType(), event.payload()),
+                body(event.eventType(), event.payload()));
+    }
+
+    private static String title(String eventType, Map<String, Object> payload) {
         return switch (eventType) {
             case "workflow.step_assigned" -> "New document assigned to you";
             case "workflow.step_overdue" -> "Approval overdue";
@@ -23,7 +30,7 @@ final class NotificationText {
         };
     }
 
-    static String body(String eventType, Map<String, Object> payload) {
+    private static String body(String eventType, Map<String, Object> payload) {
         return switch (eventType) {
             case "workflow.step_assigned" -> "%s requires your review at the %s step."
                     .formatted(documentNo(eventType, payload),
