@@ -88,6 +88,22 @@ public class StatementService {
             throw new IllegalStateException("Contract must be ACTIVE or EXPIRED, got: " + contract.getStatus());
         }
 
+        // PAY-01: assert period within [valid_from, valid_to]
+        LocalDate periodStart = LocalDate.parse(periodCode + "-01"); // first day of month
+        LocalDate periodEnd = periodStart.plusMonths(1).minusDays(1); // last day of month
+        if (contract.hasValidFrom() && !contract.getValidFrom().isEmpty()) {
+            LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
+            if (periodEnd.isBefore(validFrom)) {
+                throw new IllegalStateException("Period ends before contract valid_from (PAY-01)");
+            }
+        }
+        if (contract.hasValidTo() && !contract.getValidTo().isEmpty()) {
+            LocalDate validTo = LocalDate.parse(contract.getValidTo());
+            if (periodStart.isAfter(validTo)) {
+                throw new IllegalStateException("Period starts after contract valid_to (PAY-01)");
+            }
+        }
+
         // 2. Sync pull: operations volumes (must be LOCKED)
         ListVolumesResponse volumes = operationsClient.listVolumes(req.contractId(), periodCode);
         if (!"LOCKED".equals(volumes.getPeriodState())) {
@@ -108,6 +124,18 @@ public class StatementService {
                 throw new IllegalStateException("Unpriced service: " + vr.getServiceCode()
                     + " — no suitable price list for this service");
             }
+        }
+
+        // 4b. No duplicate live statement for (contract, period)
+        List<PaymentStatement> existing = statementRepo.findByContractId(contractId, PageRequest.of(0, 100))
+            .getContent();
+        boolean duplicateLive = existing.stream()
+            .filter(s -> periodCode.equals(s.getPeriodCode()))
+            .filter(s -> s.getAdjustsStatementId() == null)
+            .anyMatch(s -> s.getStatus() != PaymentStatement.StatementStatus.CANCELLED
+                && s.getStatus() != PaymentStatement.StatementStatus.REJECTED);
+        if (duplicateLive) {
+            throw new IllegalStateException("A live statement already exists for this contract+period");
         }
 
         // 5. Create statement
@@ -183,7 +211,18 @@ public class StatementService {
         statement.setTotalAmount(totalAmount);
         statementRepo.save(statement);
 
-        // 8. Audit outbox
+        // 8. Status history (D17)
+        StatusHistory history = new StatusHistory();
+        history.setStatement(statement);
+        history.setFromStatus(PaymentStatement.StatementStatus.DRAFT.name());
+        history.setToStatus(PaymentStatement.StatementStatus.CALCULATED.name());
+        history.setTriggerKind(StatusHistory.TriggerKind.U);
+        history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
+        history.setOccurredAt(Instant.now());
+        statement.getStatusHistory().add(history);
+
+        // 9. Audit outbox
         auditOutbox(statement, "statement.calculated");
 
         return toResponse(statement);
@@ -198,17 +237,29 @@ public class StatementService {
             throw new IllegalStateException("Only CALCULATED statements can be reconciled");
         }
 
-        // Re-fetch volumes and verify
+        // PAY-02: Re-fetch volumes and verify (period still LOCKED)
         ListVolumesResponse volumes = operationsClient.listVolumes(
             statement.getContractId().toString(), statement.getPeriodCode());
         if (!"LOCKED".equals(volumes.getPeriodState())) {
             throw new IllegalStateException("Period is no longer LOCKED");
         }
 
+        PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         statement.setStatus(PaymentStatement.StatementStatus.RECONCILED);
         statement.setReconciledAt(Instant.now());
         statement.setReconciledBy(SecurityUtils.currentUserId());
         statementRepo.save(statement);
+
+        // Status history (D17)
+        StatusHistory history = new StatusHistory();
+        history.setStatement(statement);
+        history.setFromStatus(oldStatus.name());
+        history.setToStatus(PaymentStatement.StatementStatus.RECONCILED.name());
+        history.setTriggerKind(StatusHistory.TriggerKind.U);
+        history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
+        history.setOccurredAt(Instant.now());
+        statement.getStatusHistory().add(history);
 
         auditOutbox(statement, "statement.reconciled");
         return toResponse(statement);
