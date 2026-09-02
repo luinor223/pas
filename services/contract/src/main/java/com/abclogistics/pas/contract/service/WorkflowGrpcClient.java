@@ -12,6 +12,7 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +28,8 @@ public class WorkflowGrpcClient {
     private final ManagedChannel channel;
     private final WorkflowInternalGrpc.WorkflowInternalBlockingStub stub;
 
+    // Select this constructor instead of the protected test constructor.
+    @Autowired
     public WorkflowGrpcClient(@Value("${workflow.grpc.host:localhost}") String host,
                               @Value("${workflow.grpc.port:50056}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();

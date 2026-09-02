@@ -5,6 +5,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,8 +17,15 @@ import java.util.UUID;
 
 public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
+    // Response mapping happens after the service transaction closes.
+    @Override
+    @EntityGraph(attributePaths = "customer")
+    Optional<Contract> findById(UUID id);
+
+    @EntityGraph(attributePaths = "customer")
     Optional<Contract> findByContractNo(String contractNo);
 
+    @EntityGraph(attributePaths = "customer")
     @Query("""
             select c from Contract c
             where (:customerId is null or c.customer.id = :customerId)
