@@ -4,6 +4,9 @@ import com.abclogistics.pas.billing.domain.*;
 import com.abclogistics.pas.billing.dto.*;
 import com.abclogistics.pas.billing.grpc.*;
 import com.abclogistics.pas.billing.repository.*;
+import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.SecurityUtils;
@@ -62,18 +65,15 @@ public class StatementService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<StatementResponse> list(int page, int size) {
+    public Page<StatementResponse> list(int page, int size) {
         Page<PaymentStatement> statements = statementRepo.findAllSorted(PageRequest.of(page, size));
-        List<StatementResponse> data = statements.getContent().stream()
-            .map(this::toResponse)
-            .toList();
-        return new PageResponse<>(data, new Meta(page, size));
+        return statements.map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
     public StatementResponse getByStatementNo(String statementNo) {
         PaymentStatement stmt = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
         return toResponse(stmt);
     }
 
@@ -85,57 +85,53 @@ public class StatementService {
         // 1. Sync pull: contract
         GetContractResponse contract = contractClient.getContract(req.contractId());
         if (!"ACTIVE".equals(contract.getStatus()) && !"EXPIRED".equals(contract.getStatus())) {
-            throw new IllegalStateException("Contract must be ACTIVE or EXPIRED, got: " + contract.getStatus());
+            throw new FailedPreconditionException("Contract must be ACTIVE or EXPIRED, got: " + contract.getStatus());
         }
 
         // PAY-01: assert period within [valid_from, valid_to]
-        LocalDate periodStart = LocalDate.parse(periodCode + "-01"); // first day of month
-        LocalDate periodEnd = periodStart.plusMonths(1).minusDays(1); // last day of month
+        LocalDate periodStart = LocalDate.parse(periodCode + "-01");
+        LocalDate periodEnd = periodStart.plusMonths(1).minusDays(1);
         if (contract.getValidFrom() != null && !contract.getValidFrom().isEmpty()) {
             LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
             if (periodEnd.isBefore(validFrom)) {
-                throw new IllegalStateException("Period ends before contract valid_from (PAY-01)");
+                throw new FailedPreconditionException("Period ends before contract valid_from (PAY-01)");
             }
         }
         if (contract.getValidTo() != null && !contract.getValidTo().isEmpty()) {
             LocalDate validTo = LocalDate.parse(contract.getValidTo());
             if (periodStart.isAfter(validTo)) {
-                throw new IllegalStateException("Period starts after contract valid_to (PAY-01)");
+                throw new FailedPreconditionException("Period starts after contract valid_to (PAY-01)");
             }
         }
 
         // 2. Sync pull: operations volumes (must be LOCKED)
         ListVolumesResponse volumes = operationsClient.listVolumes(req.contractId(), periodCode);
         if (!"LOCKED".equals(volumes.getPeriodState())) {
-            throw new IllegalStateException("Period must be LOCKED, got: " + volumes.getPeriodState());
+            throw new FailedPreconditionException("Period must be LOCKED, got: " + volumes.getPeriodState());
         }
 
         // 3. Sync pull: pricing effective version
         GetEffectivePriceListResponse priceList = pricingClient.getEffectivePriceList(
             req.contractId(), contract.getCustomerId(), contract.getServiceGroup(), volumes.getPeriodEnd());
 
-        // Build price lookup: service_code -> PriceLine
         Map<String, PriceLine> priceLookup = priceList.getLinesList().stream()
             .collect(Collectors.toMap(PriceLine::getServiceCode, pl -> pl, (a, b) -> b));
 
         // 4. Validate all volumes are priced
         for (VolumeRecord vr : volumes.getVolumesList()) {
             if (!priceLookup.containsKey(vr.getServiceCode())) {
-                throw new IllegalStateException("Unpriced service: " + vr.getServiceCode()
+                throw new FailedPreconditionException("Unpriced service: " + vr.getServiceCode()
                     + " — no suitable price list for this service");
             }
         }
 
         // 4b. No duplicate live statement for (contract, period)
-        List<PaymentStatement> existing = statementRepo.findByContractId(contractId, PageRequest.of(0, 100))
-            .getContent();
-        boolean duplicateLive = existing.stream()
-            .filter(s -> periodCode.equals(s.getPeriodCode()))
-            .filter(s -> s.getAdjustsStatementId() == null)
-            .anyMatch(s -> s.getStatus() != PaymentStatement.StatementStatus.CANCELLED
-                && s.getStatus() != PaymentStatement.StatementStatus.REJECTED);
+        boolean duplicateLive = statementRepo
+            .existsByContractIdAndPeriodCodeAndAdjustsStatementIdIsNullAndStatusNotIn(
+                contractId, periodCode,
+                List.of(PaymentStatement.StatementStatus.CANCELLED, PaymentStatement.StatementStatus.REJECTED));
         if (duplicateLive) {
-            throw new IllegalStateException("A live statement already exists for this contract+period");
+            throw new ConflictException("A live statement already exists for this contract+period");
         }
 
         // 5. Create statement
@@ -188,7 +184,6 @@ public class StatementService {
             line.setSource(StatementLine.LineSource.CALCULATED);
             lineRepo.save(line);
 
-            // Link volume records — store record_no as the reference
             for (VolumeRecord vr : serviceVolumes) {
                 StatementLineVolume link = new StatementLineVolume();
                 link.setLine(line);
@@ -204,23 +199,13 @@ public class StatementService {
         // 7. Compute tax and total
         BigDecimal taxAmount = subtotal.multiply(statement.getVatRate())
             .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        BigDecimal totalAmount = subtotal.add(taxAmount);
-
         statement.setSubtotal(subtotal);
         statement.setTaxAmount(taxAmount);
-        statement.setTotalAmount(totalAmount);
+        statement.setTotalAmount(subtotal.add(taxAmount));
         statementRepo.save(statement);
 
         // 8. Status history (D17)
-        StatusHistory history = new StatusHistory();
-        history.setStatement(statement);
-        history.setFromStatus(PaymentStatement.StatementStatus.DRAFT.name());
-        history.setToStatus(PaymentStatement.StatementStatus.CALCULATED.name());
-        history.setTriggerKind(StatusHistory.TriggerKind.U);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
-        history.setOccurredAt(Instant.now());
-        statement.getStatusHistory().add(history);
+        recordHistory(statement, null, PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
 
         // 9. Audit outbox
         auditOutbox(statement, "statement.calculated");
@@ -231,17 +216,17 @@ public class StatementService {
     @Transactional
     public StatementResponse reconcile(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         if (statement.getStatus() != PaymentStatement.StatementStatus.CALCULATED) {
-            throw new IllegalStateException("Only CALCULATED statements can be reconciled");
+            throw new FailedPreconditionException("Only CALCULATED statements can be reconciled");
         }
 
         // PAY-02: Re-fetch volumes and verify (period still LOCKED)
         ListVolumesResponse volumes = operationsClient.listVolumes(
             statement.getContractId().toString(), statement.getPeriodCode());
         if (!"LOCKED".equals(volumes.getPeriodState())) {
-            throw new IllegalStateException("Period is no longer LOCKED");
+            throw new FailedPreconditionException("Period is no longer LOCKED");
         }
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
@@ -250,17 +235,7 @@ public class StatementService {
         statement.setReconciledBy(SecurityUtils.currentUserId());
         statementRepo.save(statement);
 
-        // Status history (D17)
-        StatusHistory history = new StatusHistory();
-        history.setStatement(statement);
-        history.setFromStatus(oldStatus.name());
-        history.setToStatus(PaymentStatement.StatementStatus.RECONCILED.name());
-        history.setTriggerKind(StatusHistory.TriggerKind.U);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
-        history.setOccurredAt(Instant.now());
-        statement.getStatusHistory().add(history);
-
+        recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.RECONCILED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.reconciled");
         return toResponse(statement);
     }
@@ -268,18 +243,18 @@ public class StatementService {
     @Transactional
     public StatementResponse submit(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         if (statement.getStatus() != PaymentStatement.StatementStatus.RECONCILED) {
-            throw new IllegalStateException("Only RECONCILED statements can be submitted");
+            throw new FailedPreconditionException("Only RECONCILED statements can be submitted");
         }
 
         // PAY-04 checks
         if (statement.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalStateException("total_amount must be >= 0 (PAY-04)");
+            throw new FailedPreconditionException("total_amount must be >= 0 (PAY-04)");
         }
         if (statement.getLines().isEmpty()) {
-            throw new IllegalStateException("Statement must have at least 1 line (PAY-04)");
+            throw new FailedPreconditionException("Statement must have at least 1 line (PAY-04)");
         }
 
         // ValidateStartable pre-check (registry §5, seq-06 m27)
@@ -288,16 +263,7 @@ public class StatementService {
         statement.setStatus(PaymentStatement.StatementStatus.SUBMITTED);
         statementRepo.save(statement);
 
-        // Status history (D17)
-        StatusHistory history = new StatusHistory();
-        history.setStatement(statement);
-        history.setFromStatus(PaymentStatement.StatementStatus.RECONCILED.name());
-        history.setToStatus(PaymentStatement.StatementStatus.SUBMITTED.name());
-        history.setTriggerKind(StatusHistory.TriggerKind.U);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
-        history.setOccurredAt(Instant.now());
-        statement.getStatusHistory().add(history);
+        recordHistory(statement, PaymentStatement.StatementStatus.RECONCILED, PaymentStatement.StatementStatus.SUBMITTED, StatusHistory.TriggerKind.U, null);
 
         // Submit wiring: write workflow.start_requested to outbox (D4)
         UUID idempotencyKey = UUID.randomUUID();
@@ -319,16 +285,16 @@ public class StatementService {
     @Transactional
     public StatementResponse updateStatus(String statementNo, String newStatus, String triggerRef) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         PaymentStatement.StatementStatus status = PaymentStatement.StatementStatus.valueOf(newStatus);
 
         // Validate allowed transitions per registry §9
         boolean valid = switch (status) {
-            case DRAFT -> oldStatus == PaymentStatement.StatementStatus.CALCULATED  // D14f controlled edit
-                || oldStatus == PaymentStatement.StatementStatus.REJECTED            // user revise
-                || oldStatus == PaymentStatement.StatementStatus.REVISION;           // user revise
+            case DRAFT -> oldStatus == PaymentStatement.StatementStatus.CALCULATED
+                || oldStatus == PaymentStatement.StatementStatus.REJECTED
+                || oldStatus == PaymentStatement.StatementStatus.REVISION;
             case RECONCILED -> oldStatus == PaymentStatement.StatementStatus.CALCULATED;
             case SUBMITTED -> oldStatus == PaymentStatement.StatementStatus.RECONCILED;
             case APPROVED -> oldStatus == PaymentStatement.StatementStatus.SUBMITTED;
@@ -342,12 +308,11 @@ public class StatementService {
         };
 
         if (!valid) {
-            throw new IllegalStateException("Invalid transition: " + oldStatus + " → " + status);
+            throw new ConflictException("Invalid transition: " + oldStatus + " → " + status);
         }
 
         statement.setStatus(status);
 
-        // Compute due_date on ISSUED
         if (status == PaymentStatement.StatementStatus.ISSUED) {
             statement.setIssuedAt(Instant.now());
             statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
@@ -355,20 +320,11 @@ public class StatementService {
 
         statementRepo.save(statement);
 
-        // Status history (D17)
-        StatusHistory history = new StatusHistory();
-        history.setStatement(statement);
-        history.setFromStatus(oldStatus.name());
-        history.setToStatus(status.name());
-        history.setTriggerKind(triggerRef != null && triggerRef.startsWith("W")
+        StatusHistory.TriggerKind kind = triggerRef != null && triggerRef.startsWith("W")
             ? StatusHistory.TriggerKind.W
             : triggerRef != null && triggerRef.startsWith("E")
-                ? StatusHistory.TriggerKind.E : StatusHistory.TriggerKind.U);
-        history.setTriggerRef(triggerRef);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
-        history.setOccurredAt(Instant.now());
-        statement.getStatusHistory().add(history);
+                ? StatusHistory.TriggerKind.E : StatusHistory.TriggerKind.U;
+        recordHistory(statement, oldStatus, status, kind, triggerRef);
 
         // On APPROVED→SIGNING: write esign.session_requested to outbox (D10, registry §6 third use)
         if (oldStatus == PaymentStatement.StatementStatus.APPROVED
@@ -391,36 +347,21 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse getSigningPayload(String statementId) {
-        PaymentStatement statement = statementRepo.findById(Long.parseLong(statementId))
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementId));
-
-        PaymentStatement.StatementStatus status = statement.getStatus();
-        if (status != PaymentStatement.StatementStatus.APPROVED
-            && status != PaymentStatement.StatementStatus.SIGNING) {
-            throw new IllegalStateException("Statement must be APPROVED or SIGNING for signing payload");
-        }
-
-        return toResponse(statement);
-    }
-
-    @Transactional
     public StatementResponse editLine(String statementNo, EditLineRequest req) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         PaymentStatement.StatementStatus status = statement.getStatus();
         if (status != PaymentStatement.StatementStatus.DRAFT
             && status != PaymentStatement.StatementStatus.CALCULATED) {
-            throw new IllegalStateException("Only DRAFT or CALCULATED statements can be edited");
+            throw new FailedPreconditionException("Only DRAFT or CALCULATED statements can be edited");
         }
 
-        // Find the line
         Optional<StatementLine> lineOpt = statement.getLines().stream()
             .filter(l -> l.getLineNo() == req.lineNo())
             .findFirst();
         if (lineOpt.isEmpty()) {
-            throw new IllegalArgumentException("Line not found: " + req.lineNo());
+            throw new NotFoundException("Line not found: " + req.lineNo());
         }
 
         StatementLine line = lineOpt.get();
@@ -429,7 +370,6 @@ public class StatementService {
         line.setSource(StatementLine.LineSource.MANUAL);
         if (req.note() != null) line.setNote(req.note());
 
-        // Recalculate amount
         line.setAmount(line.getUnitPrice().multiply(line.getQuantity())
             .setScale(2, RoundingMode.HALF_UP));
         lineRepo.save(line);
@@ -438,16 +378,7 @@ public class StatementService {
         if (status == PaymentStatement.StatementStatus.CALCULATED) {
             PaymentStatement.StatementStatus oldStatus = statement.getStatus();
             statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
-
-            StatusHistory history = new StatusHistory();
-            history.setStatement(statement);
-            history.setFromStatus(oldStatus.name());
-            history.setToStatus(PaymentStatement.StatementStatus.DRAFT.name());
-            history.setTriggerKind(StatusHistory.TriggerKind.U);
-            history.setActorId(SecurityUtils.currentUserId());
-            history.setActorName(SecurityUtils.currentUserName());
-            history.setOccurredAt(Instant.now());
-            statement.getStatusHistory().add(history);
+            recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         }
 
         statementRepo.save(statement);
@@ -458,13 +389,12 @@ public class StatementService {
     @Transactional
     public StatementResponse createAdjustment(String statementNo, AdjustmentRequest req) {
         PaymentStatement original = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         if (original.getStatus() != PaymentStatement.StatementStatus.ISSUED) {
-            throw new IllegalStateException("Only ISSUED statements can have adjustments");
+            throw new FailedPreconditionException("Only ISSUED statements can have adjustments");
         }
 
-        // Create adjustment statement (PAY-05)
         PaymentStatement adjustment = new PaymentStatement();
         adjustment.setStatementNo(generateStatementNo());
         adjustment.setContractId(original.getContractId());
@@ -484,7 +414,6 @@ public class StatementService {
         adjustment.setStatus(PaymentStatement.StatementStatus.DRAFT);
         statementRepo.save(adjustment);
 
-        // Create lines from request
         BigDecimal subtotal = BigDecimal.ZERO;
         int lineNo = 1;
         for (AdjustmentRequest.AdjustmentLineInput input : req.lines()) {
@@ -511,17 +440,7 @@ public class StatementService {
         adjustment.setTotalAmount(subtotal.add(taxAmount));
         statementRepo.save(adjustment);
 
-        // Status history for the adjustment
-        StatusHistory history = new StatusHistory();
-        history.setStatement(adjustment);
-        history.setFromStatus(null);
-        history.setToStatus(PaymentStatement.StatementStatus.DRAFT.name());
-        history.setTriggerKind(StatusHistory.TriggerKind.U);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
-        history.setOccurredAt(Instant.now());
-        adjustment.getStatusHistory().add(history);
-
+        recordHistory(adjustment, null, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         auditOutbox(adjustment, "statement.adjustment_created");
         return toResponse(adjustment);
     }
@@ -529,44 +448,45 @@ public class StatementService {
     @Transactional
     public StatementResponse cancelStatement(String statementNo, String reason) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         if (oldStatus != PaymentStatement.StatementStatus.APPROVED
             && oldStatus != PaymentStatement.StatementStatus.SIGNED) {
-            throw new IllegalStateException("Only APPROVED or SIGNED statements can be cancelled");
-        }
-
-        // PAY-05: statement:cancel_approved permission check
-        if (!SecurityUtils.hasPermission("statement:cancel_approved")) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                "Requires statement:cancel_approved permission");
+            throw new FailedPreconditionException("Only APPROVED or SIGNED statements can be cancelled");
         }
 
         statement.setStatus(PaymentStatement.StatementStatus.CANCELLED);
         statementRepo.save(statement);
 
-        // Status history (D17)
-        StatusHistory history = new StatusHistory();
-        history.setStatement(statement);
-        history.setFromStatus(oldStatus.name());
-        history.setToStatus(PaymentStatement.StatementStatus.CANCELLED.name());
-        history.setTriggerKind(StatusHistory.TriggerKind.U);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
-        history.setNote(reason);
-        history.setOccurredAt(Instant.now());
-        statement.getStatusHistory().add(history);
-
+        recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.cancelled");
         return toResponse(statement);
     }
 
     @Transactional(readOnly = true)
-    public Object getWorkflowProgress(String statementNo) {
+    public WorkflowProgressResponse getWorkflowProgress(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new IllegalArgumentException("Statement not found: " + statementNo));
-        return workflowClient.getInstanceByDocument("PAYMENT_STATEMENT", statement.getId().toString());
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+        Object instance = workflowClient.getInstanceByDocument("PAYMENT_STATEMENT", statement.getId().toString());
+        return new WorkflowProgressResponse(statementNo, instance);
+    }
+
+    private void recordHistory(PaymentStatement statement,
+                               PaymentStatement.StatementStatus fromStatus,
+                               PaymentStatement.StatementStatus toStatus,
+                               StatusHistory.TriggerKind kind,
+                               String triggerRef) {
+        StatusHistory history = new StatusHistory();
+        history.setStatement(statement);
+        history.setFromStatus(fromStatus != null ? fromStatus.name() : null);
+        history.setToStatus(toStatus.name());
+        history.setTriggerKind(kind);
+        history.setTriggerRef(triggerRef);
+        history.setActorId(SecurityUtils.currentUserId());
+        history.setActorName(SecurityUtils.currentUserName());
+        history.setOccurredAt(Instant.now());
+        statement.getStatusHistory().add(history);
     }
 
     private LocalDate computeDueDate(String paymentTerm, LocalDate baseDate) {
@@ -608,8 +528,7 @@ public class StatementService {
     }
 
     private StatementResponse toResponse(PaymentStatement ps) {
-        List<StatementLineResponse> lineResponses = lineRepo.findByStatementIdOrderByLineNo(ps.getId())
-            .stream()
+        List<StatementLineResponse> lineResponses = ps.getLines().stream()
             .map(this::toLineResponse)
             .toList();
         return new StatementResponse(
@@ -634,10 +553,11 @@ public class StatementService {
     }
 
     private StatementLineResponse toLineResponse(StatementLine line) {
-        List<VolumeLinkResponse> links = lineVolumeRepo.findByLineId(line.getId())
-            .stream()
-            .map(vl -> new VolumeLinkResponse(vl.getId(), vl.getVolumeRecordId(), vl.getRecordNo(), vl.getQuantity()))
-            .toList();
+        List<VolumeLinkResponse> links = line.getVolumeLinks() != null
+            ? line.getVolumeLinks().stream()
+                .map(vl -> new VolumeLinkResponse(vl.getId(), vl.getVolumeRecordId(), vl.getRecordNo(), vl.getQuantity()))
+                .toList()
+            : List.of();
         return new StatementLineResponse(
             line.getId(), line.getLineNo(), line.getServiceCode(), line.getServiceName(),
             line.getUnit(), line.getUnitPrice(), line.getQuantity(), line.getAmount(),
