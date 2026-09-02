@@ -39,6 +39,7 @@ public class StatementService {
     private final PricingGrpcClient pricingClient;
     private final OperationsGrpcClient operationsClient;
     private final WorkflowGrpcClient workflowClient;
+    private final EsignGrpcClient esignClient;
 
     public StatementService(PaymentStatementRepository statementRepo,
                             StatementLineRepository lineRepo,
@@ -47,7 +48,8 @@ public class StatementService {
                             ContractGrpcClient contractClient,
                             PricingGrpcClient pricingClient,
                             OperationsGrpcClient operationsClient,
-                            WorkflowGrpcClient workflowClient) {
+                            WorkflowGrpcClient workflowClient,
+                            EsignGrpcClient esignClient) {
         this.statementRepo = statementRepo;
         this.lineRepo = lineRepo;
         this.lineVolumeRepo = lineVolumeRepo;
@@ -56,6 +58,7 @@ public class StatementService {
         this.pricingClient = pricingClient;
         this.operationsClient = operationsClient;
         this.workflowClient = workflowClient;
+        this.esignClient = esignClient;
     }
 
     @Transactional(readOnly = true)
@@ -316,6 +319,22 @@ public class StatementService {
         history.setOccurredAt(Instant.now());
         statement.getStatusHistory().add(history);
 
+        // On APPROVED→SIGNING: write esign.session_requested to outbox (D10, registry §6 third use)
+        if (oldStatus == PaymentStatement.StatementStatus.APPROVED
+            && status == PaymentStatement.StatementStatus.SIGNING) {
+            UUID esignKey = UUID.randomUUID();
+            OutboxEvent esignEvent = OutboxEvent.event(
+                "esign.session_requested",
+                "PAYMENT_STATEMENT",
+                statement.getId(),
+                String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
+                    + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\"}",
+                    esignKey, statement.getId(), statement.getStatementNo(),
+                    statement.getCustomerName() != null ? statement.getCustomerName() : "")
+            );
+            outboxRepo.save(esignEvent);
+        }
+
         auditOutbox(statement, "statement.status_changed");
         return toResponse(statement);
     }
@@ -348,14 +367,21 @@ public class StatementService {
         return "PMT-" + String.format("%04d", seq);
     }
 
-    private void auditOutbox(PaymentStatement statement, String eventType) {
-        OutboxEvent event = OutboxEvent.event(
-            eventType,
-            "PAYMENT_STATEMENT",
-            UUID.randomUUID(),
-            String.format("{\"statementNo\":\"%s\",\"status\":\"%s\"}",
-                statement.getStatementNo(), statement.getStatus())
-        );
+    private void auditOutbox(PaymentStatement statement, String action) {
+        UUID actorId = SecurityUtils.currentUserId();
+        String actorName = SecurityUtils.currentUserName();
+        String payload = String.format(
+            "{\"source_service\":\"billing\",\"entity_type\":\"PAYMENT_STATEMENT\","
+            + "\"entity_id\":\"%s\",\"entity_no\":\"%s\",\"action\":\"%s\","
+            + "\"actor_id\":\"%s\",\"actor_name\":\"%s\",\"actor_department\":\"\","
+            + "\"before_status\":null,\"after_status\":\"%s\",\"changes\":{},\"note\":null,"
+            + "\"ip_address\":null,\"occurred_at\":\"%s\"}",
+            statement.getId(), statement.getStatementNo(), action,
+            actorId != null ? actorId.toString() : "null",
+            actorName != null ? actorName : "",
+            statement.getStatus(),
+            Instant.now());
+        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", statement.getId(), payload);
         outboxRepo.save(event);
     }
 

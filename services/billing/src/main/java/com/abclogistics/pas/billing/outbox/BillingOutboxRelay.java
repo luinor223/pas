@@ -4,6 +4,7 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelay;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
+import com.abclogistics.pas.billing.grpc.EsignGrpcClient;
 import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -24,19 +25,22 @@ import java.util.concurrent.TimeUnit;
 public class BillingOutboxRelay extends OutboxRelay {
 
     static final String START_REQUESTED = "workflow.start_requested";
+    static final String ESIGN_REQUESTED = "esign.session_requested";
 
     private static final Logger log = LoggerFactory.getLogger(BillingOutboxRelay.class);
 
     private final KafkaTemplate<String, String> kafka;
     private final WorkflowGrpcClient workflow;
+    private final EsignGrpcClient esign;
     private final ObjectMapper objectMapper;
 
     public BillingOutboxRelay(OutboxRepository outbox, OutboxRelayProperties props, TransactionTemplate tx,
                                KafkaTemplate<String, String> kafka, WorkflowGrpcClient workflow,
-                               ObjectMapper objectMapper) {
+                               EsignGrpcClient esign, ObjectMapper objectMapper) {
         super(outbox, props, tx);
         this.kafka = kafka;
         this.workflow = workflow;
+        this.esign = esign;
         this.objectMapper = objectMapper;
     }
 
@@ -44,6 +48,8 @@ public class BillingOutboxRelay extends OutboxRelay {
     protected void dispatch(OutboxEvent event) throws Exception {
         if (START_REQUESTED.equals(event.getEventType())) {
             dispatchStartInstance(event);
+        } else if (ESIGN_REQUESTED.equals(event.getEventType())) {
+            dispatchCreateSigningSession(event);
         } else {
             kafka.send(kafkaRecord(event)).get(5, TimeUnit.SECONDS);
             log.debug("Published billing outbox {} type={} topic={}", event.getId(), event.getEventType(), event.topic());
@@ -73,9 +79,35 @@ public class BillingOutboxRelay extends OutboxRelay {
         }
     }
 
+    private void dispatchCreateSigningSession(OutboxEvent event) {
+        try {
+            JsonNode p = objectMapper.readTree(event.getPayload());
+            String idempotencyKey = p.get("idempotency_key").asString();
+            esign.createSigningSession(
+                p.get("document_type").asString(),
+                p.get("document_id").asString(),
+                p.get("document_no").asString(),
+                text(p, "signer_name"),
+                "",
+                idempotencyKey);
+            log.debug("CreateSigningSession dispatched for statement {}", p.get("document_id").asString());
+        } catch (StatusRuntimeException e) {
+            if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {
+                return;
+            }
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Override
     protected String destination(OutboxEvent event) {
-        return START_REQUESTED.equals(event.getEventType()) ? "WorkflowInternal.StartInstance" : event.topic();
+        return switch (event.getEventType()) {
+            case START_REQUESTED -> "WorkflowInternal.StartInstance";
+            case ESIGN_REQUESTED -> "EsignInternal.CreateSigningSession";
+            default -> event.topic();
+        };
     }
 
     @Override

@@ -70,6 +70,11 @@ workflow:
     host: ${WORKFLOW_GRPC_HOST:localhost}
     port: ${WORKFLOW_GRPC_PORT:50056}
 
+esign:
+  grpc:
+    host: ${ESIGN_GRPC_HOST:localhost}
+    port: ${ESIGN_GRPC_PORT:50057}
+
 redis:
   perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
