@@ -7,10 +7,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-/**
- * The `audit-service` group on `pas.audit` — the topic's only consumer, and the only event on
- * it is `audit.recorded` (registry §4).
- */
+/** Consumes {@code audit.recorded} from {@code pas.audit}. */
 @Component
 public class AuditEventListener {
 
@@ -28,10 +25,9 @@ public class AuditEventListener {
             autoStartup = "${audit.kafka.listener-enabled:true}")
     public void onAuditRecorded(ConsumerRecord<String, String> record) {
         String eventType = EventHeaders.required(record, EventHeaders.EVENT_TYPE);
-        // all three headers are mandatory in §4, so a record missing one is malformed here too
+        // Registry §4 requires all three headers.
         EventHeaders.required(record, EventHeaders.DOCUMENT_TYPE);
         if (!EVENT_TYPE.equals(eventType)) {
-            // not skipped, like the notification listener does for another service's event
             throw new MalformedEventException(
                     "%s carries %s only, got %s".formatted(TOPIC, EVENT_TYPE, eventType));
         }

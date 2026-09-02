@@ -14,10 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * The admin UC "Tra cứu audit log" (seq-02). User traffic, so REST rather than gRPC (D16), and
- * gated by `audit:view_all` — held by SYSTEM_ADMIN alone (registry §7).
- */
+/** Admin search API for the centralized audit trail. */
 @RestController
 @RequestMapping("/audit-records")
 public class AuditRecordController {

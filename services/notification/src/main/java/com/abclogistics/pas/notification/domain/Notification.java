@@ -12,10 +12,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * One row per recipient per event (4.9). {@code title}/{@code body} are write-time snapshots, so a
- * notification stays readable after the source document is renamed or cancelled (db-notification.md).
- */
+/** One snapshotted notification for one recipient. */
 @Entity
 @Table(name = "notification")
 public class Notification extends BaseEntity {

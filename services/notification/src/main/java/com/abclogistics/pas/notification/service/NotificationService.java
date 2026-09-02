@@ -36,12 +36,7 @@ public class NotificationService {
         this.recipients = recipients;
     }
 
-    /**
-     * One event becomes one row per recipient, written in the same transaction as the {@code
-     * processed_event} row — a redelivery must not double the inbox (D6). An event that
-     * resolves to nobody is still marked processed, or it is retried for ever. @return how many
-     * notification rows this call wrote; 0 on a redelivery
-     */
+    /** Creates one row per recipient and records the event atomically. */
     @Transactional
     public int fanOut(EventEnvelope event) {
         if (processed.existsById(event.eventId())) {
@@ -56,16 +51,12 @@ public class NotificationService {
                     NotificationText.title(event.eventType(), event.payload()),
                     NotificationText.body(event.eventType(), event.payload())));
         }
-        // marked even when nobody was resolved, or the event is redelivered for ever
+        // Zero recipients is still a completed event.
         processed.save(ProcessedEvent.of(event.eventId()));
         return targets.size();
     }
 
-    /**
-     * The bell list plus every tab's counter in one call. The counters are <b>not</b> filtered by
-     * this request's own {@code unreadOnly} / {@code category} — a tab's badge must not change
-     * because that tab is open.
-     */
+    /** Returns the filtered inbox and unfiltered tab counters. */
     @Transactional(readOnly = true)
     public InboxResponse inbox(UUID recipient, boolean unreadOnly, NotificationCategory category,
                                Pageable pageable) {
@@ -80,7 +71,6 @@ public class NotificationService {
         return value == null ? null : value.toString();
     }
 
-    /** Every tab reports a number, including the ones the group-by returns no row for. */
     private Map<String, Long> counts(UUID recipient) {
         Map<String, Long> counts = new LinkedHashMap<>();
         for (NotificationCategory c : NotificationCategory.values()) {
@@ -96,7 +86,7 @@ public class NotificationService {
         return counts;
     }
 
-    /** Idempotent: the conditional update means re-marking keeps the original {@code read_at}. */
+    /** Re-marking preserves the original {@code read_at}. */
     @Transactional
     public void markRead(UUID id, UUID recipient) {
         notifications.findById(id)

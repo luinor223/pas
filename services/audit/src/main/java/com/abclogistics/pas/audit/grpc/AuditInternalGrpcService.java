@@ -11,15 +11,10 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.grpc.server.service.GrpcService;
 
-/**
- * {@code AuditInternal.ListRecords} — the non-status half of a document's History tab (registry
- * §5). The status timeline is the owning service's local {@code status_history} and never comes
- * from here (D15/D17).
- */
+/** Serves non-status entity history to owner services. */
 @GrpcService
 public class AuditInternalGrpcService extends AuditInternalGrpc.AuditInternalImplBase {
 
-    /** A History tab shows a page, not a table; an unbounded size would let one call read it all. */
     public static final int MAX_PAGE_SIZE = 200;
     public static final int DEFAULT_PAGE_SIZE = 20;
 
@@ -51,8 +46,6 @@ public class AuditInternalGrpcService extends AuditInternalGrpc.AuditInternalImp
 
     private static String entityType(ListRecordsRequest request) {
         if (request.getEntityType().isBlank()) {
-            // without it the query widens to "every entity with this id" — a cross-entity read
-            // through the per-entity door, which is the split seq-02 draws
             throw new IllegalArgumentException("entity_type is required");
         }
         return request.getEntityType();
@@ -66,7 +59,7 @@ public class AuditInternalGrpcService extends AuditInternalGrpc.AuditInternalImp
         }
     }
 
-    /** proto3 has no absent int32: an unset size arrives as 0, which PageRequest rejects. */
+    /** Proto3 sends an unset size as zero. */
     private static PageRequest pageable(ListRecordsRequest request) {
         if (request.getPage() < 0 || request.getSize() < 0) {
             throw new IllegalArgumentException("page and size must not be negative");
@@ -75,7 +68,7 @@ public class AuditInternalGrpcService extends AuditInternalGrpc.AuditInternalImp
         return PageRequest.of(request.getPage(), size);
     }
 
-    /** proto3 scalars cannot be null, so every nullable column becomes "" deliberately. */
+    /** Proto3 scalar fields represent null as an empty string. */
     private AuditRecord toProto(com.abclogistics.pas.audit.domain.AuditRecord r) {
         return AuditRecord.newBuilder()
                 .setSourceService(text(r.getSourceService()))

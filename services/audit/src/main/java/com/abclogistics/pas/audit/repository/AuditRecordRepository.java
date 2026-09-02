@@ -15,11 +15,7 @@ import java.util.UUID;
 /** INSERT + SELECT only — the grants say so, and so does this interface. */
 public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
 
-    /**
-     * The ingest path. Native because {@code ON CONFLICT DO NOTHING} has no JPA equivalent:
-     * {@code save} would SELECT-then-UPDATE and let a replay overwrite the original. @return 1
-     * when the row was inserted, 0 when this event had already been recorded
-     */
+    /** Native insert prevents a replay from overwriting the original row. */
     @Modifying
     @Query(value = """
             insert into audit.audit_record (
@@ -48,19 +44,11 @@ public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
                                 @Param("ipAddress") String ipAddress,
                                 @Param("occurredAt") Instant occurredAt);
 
-    /** The History tab's hot path — {@code (entity_type, entity_id, occurred_at DESC)}. */
+    /** Entity History tab query. */
     Page<AuditRecord> findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
             String entityType, UUID entityId, Pageable pageable);
 
-    /**
-     * The admin cross-entity search. Every filter is optional and ANDed.
-     *
-     * <p>The shape is dictated by Postgres, which cannot type a bare {@code :p is null} and fails
-     * the whole statement at bind time. Non-null columns use {@code col = coalesce(:p, col)}, which
-     * takes its type from the column. The two <em>nullable</em> columns cannot: {@code NULL = NULL}
-     * is false, so coalesce there would silently drop every system action the moment no actor
-     * filter was given — they keep the explicit null check, with a cast where the type needs one.
-     */
+    /** Optional admin filters; casts keep nullable parameters typed in Postgres. */
     @Query("""
             select r from AuditRecord r
             where r.entityType    = coalesce(:entityType, r.entityType)

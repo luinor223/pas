@@ -5,10 +5,7 @@ import com.abclogistics.pas.notification.domain.NotificationCategory;
 
 import java.util.Map;
 
-/**
- * {@code event_type} → Figma tab (registry §8). Every event registry §4 lists
- * notification-service against appears here exactly once; nothing else does.
- */
+/** Maps consumed event types to inbox categories. */
 public final class NotificationCategories {
 
     private static final Map<String, NotificationCategory> BY_EVENT_TYPE = Map.of(
@@ -22,20 +19,12 @@ public final class NotificationCategories {
 
     private NotificationCategories() { }
 
-    /**
-     * Whether this service consumes the event type at all — the listener's pre-deserialization
-     * filter. Separate from {@link #of} on purpose: a record for another service is routine and
-     * skipped, while an event we claim to consume but cannot categorize is a bug.
-     */
+    /** Used by the listener before payload deserialization. */
     public static boolean handles(String eventType) {
         return eventType != null && BY_EVENT_TYPE.containsKey(eventType);
     }
 
-    /**
-     * @throws MalformedEventException for an event type this service does not consume — no
-     * redelivery makes it categorizable, so it belongs on the DLT. A silent {@code SYSTEM}
-     * default would hide a new producer event from whoever added it.
-     */
+    /** Fails instead of silently assigning an unknown event to {@code SYSTEM}. */
     public static NotificationCategory of(String eventType) {
         NotificationCategory category = BY_EVENT_TYPE.get(eventType);
         if (category == null) {

@@ -12,24 +12,14 @@ import tools.jackson.core.JacksonException;
 
 import java.time.Duration;
 
-/**
- * Registry §4's "a record that can never succeed goes to {@code <topic>.DLT}", built once for both
- * consumers so a fix to one is a fix to both.
- */
+/** Shared retry and dead-letter policy for Kafka consumers. */
 public final class ConsumerErrorHandling {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerErrorHandling.class);
 
     private ConsumerErrorHandling() { }
 
-    /**
-     * Transient failures retry with exponential backoff; permanent ones go to the DLT on the first
-     * attempt. The partition is keyed on the document, so every wasted attempt stalls other
-     * documents too — but the budget still has to outlast a database or identity restart, or a
-     * restart turns into a hole in the audit trail.
-     *
-     * @param retryAttempts number of <em>retries</em>, so a transient failure is tried n + 1 times
-     */
+    /** Retries transient failures and sends permanent ones directly to the DLT. */
     public static DefaultErrorHandler errorHandler(KafkaOperations<?, ?> kafkaTemplate,
                                                    String dltSuffix, int retryAttempts,
                                                    Duration retryBackoff, Duration maxRetryBackoff) {
@@ -40,12 +30,11 @@ public final class ConsumerErrorHandling {
         return handler;
     }
 
-    /** Dead-lettering is logged at ERROR: nothing else tells an operator the record needs replaying. */
     public static DeadLetterPublishingRecoverer recoverer(KafkaOperations<?, ?> kafkaTemplate,
                                                           String dltSuffix, int retryAttempts) {
         return new DeadLetterPublishingRecoverer(kafkaTemplate, (record, e) -> {
             TopicPartition target = dlt(record, dltSuffix);
-            // the budget, not the attempts spent: a malformed record is recovered without any retry
+            // Malformed records may use none of the configured retry budget.
             log.error("Dead-lettering {}-{}@{} to {} (retry budget {}); replay it once the cause is "
                     + "fixed", record.topic(), record.partition(), record.offset(), target.topic(),
                     retryAttempts, e);

@@ -11,14 +11,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * One immutable audit row (4.10). Deliberately not a {@code BaseEntity}: there is no
- * {@code updated_at}, no {@code version} and no setter, because the table grants INSERT + SELECT
- * only — a business service cannot rewrite its own history (db-audit.md).
- *
- * <p>{@code id} is the producer's outbox row id, i.e. the envelope {@code event_id}. That is what
- * makes the PK the dedup key and is why this service needs no {@code processed_event}.
- */
+/** Immutable audit row; its event ID is also the deduplication key. */
 @Entity
 @Table(name = "audit_record")
 public class AuditRecord {
@@ -56,7 +49,7 @@ public class AuditRecord {
     @Column(name = "after_status", updatable = false)
     private String afterStatus;
 
-    /** Stored and returned, never interpreted — that is what stops this becoming a god-service. */
+    /** Stored and returned without interpretation. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(updatable = false)
     private Map<String, Object> changes;

@@ -9,10 +9,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * The `notification-service` consumer group on `pas.events` — the events registry §4 lists it
- * against, and no others.
- */
+/** Consumes notification event types from {@code pas.events}. */
 @Component
 public class EventListener {
 
@@ -28,7 +25,7 @@ public class EventListener {
             containerFactory = "kafkaListenerContainerFactory",
             autoStartup = "${notification.kafka.listener-enabled:true}")
     public void onEvent(ConsumerRecord<String, String> record) {
-        // present but not ours = routine, skipped before deserializing
+        // Ignore event types owned by other consumers.
         if (!NotificationCategories.handles(EventHeaders.required(record, EventHeaders.EVENT_TYPE))) {
             return;
         }

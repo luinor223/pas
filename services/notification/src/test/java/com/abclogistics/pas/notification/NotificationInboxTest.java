@@ -223,6 +223,6 @@ class NotificationInboxTest {
     private static Notification notificationFor(UUID recipient, String documentNo) {
         return Notification.of(recipient, NotificationCategory.APPROVAL, UUID.randomUUID(),
                 "workflow.step_assigned", "CONTRACT", UUID.randomUUID(), documentNo,
-                "Hồ sơ cần xử lý", documentNo + " đang chờ bạn duyệt");
+                "New document assigned to you", documentNo + " requires your review");
     }
 }

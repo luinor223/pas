@@ -9,10 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * The consumer side of registry §4's wire contract, shared because both consumers read it the
- * same way and a second copy is a second chance to drift.
- */
+/** Reads the shared Kafka wire contract from headers and payload. */
 public final class EventHeaders {
 
     public static final String EVENT_ID = "event_id";
@@ -36,11 +33,7 @@ public final class EventHeaders {
         return value;
     }
 
-    /**
-     * The dedup key. Absent or unparseable is permanent, not transient: without it a redelivery
-     * cannot be told from a new event, so no number of retries makes the record safe to
-     * process.
-     */
+    /** Reads the required UUID deduplication key. */
     public static UUID eventId(ConsumerRecord<?, ?> record) {
         String value = required(record, EVENT_ID);
         try {
@@ -50,12 +43,7 @@ public final class EventHeaders {
         }
     }
 
-    /**
-     * The value, which §4 defines as a JSON <em>object</em>. A JSON null, an array or a bare
-     * scalar parses without error but is not a payload, and letting one through hands every
-     * downstream reader a null map to trip over — one NullPointerException per redelivery, for
-     * ever.
-     */
+    /** Reads the record value as a JSON object. */
     public static Map<String, Object> payload(ConsumerRecord<?, String> record, ObjectMapper mapper) {
         Object parsed;
         try {

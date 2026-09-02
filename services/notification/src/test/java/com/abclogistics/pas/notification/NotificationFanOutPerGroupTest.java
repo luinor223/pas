@@ -102,7 +102,7 @@ class NotificationFanOutPerGroupTest {
 
     @Test
     void theRequesterIsNotifiedWhenAStepIsActioned() {
-        // 4.9's "hồ sơ bị từ chối": the submitter is the one who has to do something about it
+        // The submitter needs the outcome.
         UUID requestedBy = UUID.randomUUID();
 
         assertThat(fanOut(EventFixtures.stepActioned(UUID.randomUUID(), requestedBy, "REQUEST_REVISION")))

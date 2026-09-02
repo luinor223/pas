@@ -8,11 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/**
- * Who a given event notifies (registry §4, db-notification.md). Recipient ids that the producer
- * already knows travel in the payload (`assignee_ids`, `requested_by`, `owner_user_id`);
- * role-addressed events carry `recipient_role` and resolve through identity.
- */
+/** Resolves each event to user IDs using registry §4. */
 @Service
 public class RecipientResolver {
 
@@ -22,12 +18,7 @@ public class RecipientResolver {
         this.identity = identity;
     }
 
-    /**
-     * Distinct recipients, in a stable order. Empty means the event genuinely addresses nobody —
-     * a role with no members. A recipient field the producer got wrong is a
-     * {@link MalformedEventException} instead, so it reaches the DLT rather than being marked
-     * processed and lost.
-     */
+    /** Returns distinct recipients; malformed recipient data goes to the DLT. */
     public List<UUID> recipientsOf(EventEnvelope event) {
         return switch (event.eventType()) {
             // the people who can act on it
@@ -43,7 +34,6 @@ public class RecipientResolver {
         };
     }
 
-    /** An empty result here is an answer: the role exists and nobody holds it. */
     private List<UUID> byRole(EventEnvelope event) {
         Object role = event.payload().get("recipient_role");
         if (role == null || role.toString().isBlank()) {
@@ -58,7 +48,7 @@ public class RecipientResolver {
             throw new MalformedEventException("%s carries no %s array".formatted(
                     event.eventType(), field));
         }
-        // distinct: one user can hold two roles on the same step, and the producer snapshots both
+        // A user may match the same step more than once.
         return raw.stream().map(value -> uuid(event, field, value)).distinct().toList();
     }
 
@@ -66,11 +56,6 @@ public class RecipientResolver {
         return List.of(uuid(event, field, event.payload().get(field)));
     }
 
-    /**
-     * A recipient field that is absent or not a uuid is a producer defect no redelivery fixes.
-     * Notifying nobody would silently drop the event; the DLT keeps it, and the person who owns
-     * the producer gets a record to replay once it is fixed.
-     */
     private static UUID uuid(EventEnvelope event, String field, Object value) {
         String text = Objects.toString(value, "");
         try {

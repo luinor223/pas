@@ -17,11 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-/**
- * A user reads and marks their own notifications (4.9). The recipient is always the caller —
- * there is no path to another user's inbox, so `notification:read` (held by every role, §7) is
- * the only gate needed.
- */
+/** REST API for the caller's own notification inbox. */
 @RestController
 @RequestMapping("/notifications")
 public class NotificationController {

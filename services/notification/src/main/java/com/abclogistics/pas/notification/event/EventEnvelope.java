@@ -13,11 +13,7 @@ public record EventEnvelope(UUID eventId, String eventType,
                             String documentType, UUID documentId,
                             Map<String, Object> payload) {
 
-    /**
-     * @throws MalformedEventException when a required header is missing or unparseable, or the
-     * value is not a JSON object — all permanent, so the listener lets them reach the DLT
-     * rather than retrying a record no redelivery can fix.
-     */
+    /** Builds an event from the Kafka key, headers and JSON value. */
     public static EventEnvelope from(ConsumerRecord<String, String> record, ObjectMapper mapper) {
         UUID eventId = EventHeaders.eventId(record);
         String eventType = EventHeaders.required(record, EventHeaders.EVENT_TYPE);
@@ -26,12 +22,7 @@ public record EventEnvelope(UUID eventId, String eventType,
                 EventHeaders.payload(record, mapper));
     }
 
-    /**
-     * The partition key is the aggregate id, which for every <em>document</em> event in §4 is
-     * the document. {@code operations.period_locked} is the exception — it is not about a
-     * document and keys on {@code period_code} — so a non-uuid key means "no document", not a
-     * bad record.
-     */
+    /** Non-document events, such as period locks, use a non-UUID key. */
     private static UUID documentId(ConsumerRecord<String, String> record) {
         try {
             return record.key() == null ? null : UUID.fromString(record.key());

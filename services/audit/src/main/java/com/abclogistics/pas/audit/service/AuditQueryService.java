@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.UUID;
 
-/** The two read paths (db-audit.md, seq-02). Neither substitutes for the other. */
+/** Read paths for entity history and admin search. */
 @Service
 public class AuditQueryService {
 
@@ -20,13 +20,13 @@ public class AuditQueryService {
         this.records = records;
     }
 
-    /** Per-entity, gRPC-facing — an owning service's History tab. */
+    /** Per-entity history for the internal gRPC API. */
     @Transactional(readOnly = true)
     public Page<AuditRecord> forEntity(String entityType, UUID entityId, Pageable pageable) {
         return records.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(entityType, entityId, pageable);
     }
 
-    /** Cross-entity admin search, `audit:view_all`. */
+    /** Cross-entity admin search. */
     @Transactional(readOnly = true)
     public Page<AuditRecord> search(String entityType, String entityNo, UUID actorId,
                                     String sourceService, String action,
