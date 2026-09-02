@@ -2,6 +2,7 @@ package com.abclogistics.pas.billing.domain;
 
 import com.abclogistics.pas.common.persistence.BaseEntity;
 import jakarta.persistence.*;
+import org.hibernate.annotations.UuidGenerator;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -14,8 +15,8 @@ import java.util.UUID;
 public class PaymentStatement extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @UuidGenerator
+    private UUID id;
 
     @Column(name = "statement_no", length = 50, nullable = false, unique = true)
     private String statementNo;
@@ -73,7 +74,7 @@ public class PaymentStatement extends BaseEntity {
     private StatementStatus status = StatementStatus.DRAFT;
 
     @Column(name = "adjusts_statement_id")
-    private Long adjustsStatementId;
+    private UUID adjustsStatementId;
 
     @Column(name = "reconciled_at")
     private Instant reconciledAt;
@@ -103,7 +104,7 @@ public class PaymentStatement extends BaseEntity {
         DRAFT, CALCULATED, RECONCILED, SUBMITTED, APPROVED, SIGNING, SIGNED, ISSUED, REJECTED, REVISION, CANCELLED
     }
 
-    public Long getId() { return id; }
+    public UUID getId() { return id; }
     public String getStatementNo() { return statementNo; }
     public void setStatementNo(String statementNo) { this.statementNo = statementNo; }
     public UUID getContractId() { return contractId; }
@@ -140,8 +141,8 @@ public class PaymentStatement extends BaseEntity {
     public void setCurrency(String currency) { this.currency = currency; }
     public StatementStatus getStatus() { return status; }
     public void setStatus(StatementStatus status) { this.status = status; }
-    public Long getAdjustsStatementId() { return adjustsStatementId; }
-    public void setAdjustsStatementId(Long adjustsStatementId) { this.adjustsStatementId = adjustsStatementId; }
+    public UUID getAdjustsStatementId() { return adjustsStatementId; }
+    public void setAdjustsStatementId(UUID adjustsStatementId) { this.adjustsStatementId = adjustsStatementId; }
     public Instant getReconciledAt() { return reconciledAt; }
     public void setReconciledAt(Instant reconciledAt) { this.reconciledAt = reconciledAt; }
     public UUID getReconciledBy() { return reconciledBy; }

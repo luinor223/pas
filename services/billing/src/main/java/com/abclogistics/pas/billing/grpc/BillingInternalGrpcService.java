@@ -27,7 +27,7 @@ public class BillingInternalGrpcService extends BillingInternalGrpc.BillingInter
                                    StreamObserver<GetSigningPayloadResponse> responseObserver) {
         try {
             String statementId = request.getId();
-            PaymentStatement statement = statementRepo.findById(Long.parseLong(statementId))
+            PaymentStatement statement = statementRepo.findById(java.util.UUID.fromString(statementId))
                 .orElse(null);
 
             if (statement == null) {

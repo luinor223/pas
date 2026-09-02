@@ -144,7 +144,9 @@ public class StatementService {
         statement.setPeriodCode(periodCode);
         statement.setPeriodStart(LocalDate.parse(volumes.getPeriodStart()));
         statement.setPeriodEnd(LocalDate.parse(volumes.getPeriodEnd()));
-        statement.setPriceListVersionId(null);
+        if (priceList.getVersionId() != null && !priceList.getVersionId().isBlank()) {
+            statement.setPriceListVersionId(UUID.fromString(priceList.getVersionId()));
+        }
         statement.setPriceListNo(priceList.getPriceListNo());
         statement.setPriceListVersionNo(priceList.getVersionNo());
         statement.setPaymentTerm(contract.getPaymentTerm());
@@ -270,7 +272,7 @@ public class StatementService {
         OutboxEvent event = OutboxEvent.event(
             "workflow.start_requested",
             "PAYMENT_STATEMENT",
-            toUuid(statement.getId()),
+            statement.getId(),
             String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
                 + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"customer_name\":\"%s\"}",
                 idempotencyKey, statement.getId(), statement.getStatementNo(),
@@ -333,7 +335,7 @@ public class StatementService {
             OutboxEvent esignEvent = OutboxEvent.event(
                 "esign.session_requested",
                 "PAYMENT_STATEMENT",
-                toUuid(statement.getId()),
+                statement.getId(),
                 String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
                     + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\"}",
                     esignKey, statement.getId(), statement.getStatementNo(),
@@ -499,7 +501,7 @@ public class StatementService {
     }
 
     private String generateStatementNo() {
-        long seq = statementRepo.count() + 1;
+        long seq = statementRepo.nextStatementNoSeq();
         int year = java.time.Year.now().getValue();
         return String.format("PMT-%d-%04d", year, seq);
     }
@@ -518,14 +520,10 @@ public class StatementService {
             actorName != null ? actorName : "",
             statement.getStatus(),
             Instant.now());
-        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", toUuid(statement.getId()), payload);
+        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", statement.getId(), payload);
         outboxRepo.save(event);
     }
 
-    /** Convert Long id to deterministic UUID for outbox aggregateId. */
-    private static UUID toUuid(Long id) {
-        return new UUID(0L, id);
-    }
 
     private StatementResponse toResponse(PaymentStatement ps) {
         List<StatementLineResponse> lineResponses = ps.getLines().stream()

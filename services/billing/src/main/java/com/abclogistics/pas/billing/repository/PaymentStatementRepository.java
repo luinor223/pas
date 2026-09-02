@@ -13,7 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface PaymentStatementRepository extends JpaRepository<PaymentStatement, Long> {
+public interface PaymentStatementRepository extends JpaRepository<PaymentStatement, UUID> {
 
     Optional<PaymentStatement> findByStatementNo(String statementNo);
 
@@ -28,4 +28,7 @@ public interface PaymentStatementRepository extends JpaRepository<PaymentStateme
 
     boolean existsByContractIdAndPeriodCodeAndAdjustsStatementIdIsNullAndStatusNotIn(
         UUID contractId, String periodCode, java.util.List<PaymentStatement.StatementStatus> excludedStatuses);
+
+    @Query(value = "SELECT nextval('billing.statement_no_seq')", nativeQuery = true)
+    long nextStatementNoSeq();
 }

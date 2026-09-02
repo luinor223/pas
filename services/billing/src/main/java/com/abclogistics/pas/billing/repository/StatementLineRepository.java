@@ -5,9 +5,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.UUID;
 
 @Repository
-public interface StatementLineRepository extends JpaRepository<StatementLine, Long> {
+public interface StatementLineRepository extends JpaRepository<StatementLine, UUID> {
 
-    List<StatementLine> findByStatementIdOrderByLineNo(Long statementId);
+    List<StatementLine> findByStatementIdOrderByLineNo(UUID statementId);
 }

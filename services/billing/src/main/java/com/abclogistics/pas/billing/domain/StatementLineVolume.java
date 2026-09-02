@@ -2,15 +2,17 @@ package com.abclogistics.pas.billing.domain;
 
 import com.abclogistics.pas.common.persistence.BaseEntity;
 import jakarta.persistence.*;
+import org.hibernate.annotations.UuidGenerator;
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Table(name = "statement_line_volume", schema = "billing")
 public class StatementLineVolume extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @UuidGenerator
+    private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "line_id", nullable = false,
@@ -28,7 +30,7 @@ public class StatementLineVolume extends BaseEntity {
 
     public StatementLineVolume() {}
 
-    public Long getId() { return id; }
+    public UUID getId() { return id; }
     public StatementLine getLine() { return line; }
     public void setLine(StatementLine line) { this.line = line; }
     public String getVolumeRecordId() { return volumeRecordId; }

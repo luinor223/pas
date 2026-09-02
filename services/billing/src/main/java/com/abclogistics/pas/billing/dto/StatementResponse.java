@@ -3,9 +3,10 @@ package com.abclogistics.pas.billing.dto;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 public record StatementResponse(
-    Long id,
+    UUID id,
     String statementNo,
     String contractId,
     String contractNo,
@@ -23,7 +24,7 @@ public record StatementResponse(
     BigDecimal totalAmount,
     String currency,
     String status,
-    Long adjustsStatementId,
+    UUID adjustsStatementId,
     String reconciledAt,
     String issuedAt,
     LocalDate dueDate,

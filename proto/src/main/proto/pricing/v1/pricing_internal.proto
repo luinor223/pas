@@ -36,6 +36,7 @@ message GetEffectivePriceListResponse {
   string valid_from = 3;
   string valid_to = 4;
   repeated PriceLine lines = 5;
+  string version_id = 6;
 }
 
 message PriceLine {
