@@ -53,8 +53,9 @@ public class BillingOutboxRelay extends OutboxRelay {
     private void dispatchStartInstance(OutboxEvent event) {
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
+            UUID idempotencyKey = UUID.fromString(p.get("idempotency_key").asString());
             workflow.startInstance(
-                UUID.randomUUID(),
+                idempotencyKey,
                 p.get("document_type").asString(),
                 UUID.fromString(p.get("document_id").asString()),
                 p.get("document_no").asString(),
