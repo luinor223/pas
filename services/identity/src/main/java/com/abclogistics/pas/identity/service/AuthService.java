@@ -44,12 +44,25 @@ public class AuthService {
         JwtIssuer.IssuedToken access = jwtIssuer.issue(user);
         RefreshTokenService.Issued refresh = refreshTokens.issueForLogin(user.getId());
 
+        // permissions derived from roles + universal notification:read
+        java.util.List<String> perms = user.getRoles().stream()
+                .flatMap(r -> r.getPermissions().stream())
+                .map(p -> p.getCode())
+                .distinct()
+                .sorted()
+                .toList();
+        java.util.List<String> allPerms = new java.util.ArrayList<>(perms);
+        if (!allPerms.contains("notification:read")) {
+            allPerms.add("notification:read");
+            allPerms.sort(String::compareTo);
+        }
+
         return new LoginResponse(
                 access.token(),
                 refresh.rawToken(),
                 BEARER,
                 access.expiresAt(),
-                UserSummary.from(user));
+                UserSummary.from(user, allPerms));
     }
 
     /** Exchanges a valid refresh token for a fresh access token and a rotated refresh token. */

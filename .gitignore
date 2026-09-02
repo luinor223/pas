@@ -61,3 +61,4 @@ infra/keys/*.pem
 infra/docker/traefik/dynamic/jwt.yml
 !infra/keys/.gitkeep
 !infra/docker/traefik/dynamic/.gitkeep
+.playwright-cli/

@@ -53,6 +53,36 @@ public class UserService {
     }
 
     @Transactional
+    public UserResponse update(UUID id, com.abclogistics.pas.identity.dto.UpdateUserRequest request) {
+        AppUser user = load(id);
+        String newEmail = request.email();
+        if (!user.getEmail().equalsIgnoreCase(newEmail) && users.existsByEmail(newEmail)) {
+            throw new ConflictException("Email already exists: " + newEmail);
+        }
+        Department department = departments.findByCode(request.departmentCode())
+                .orElseThrow(() -> new NotFoundException("Unknown department: " + request.departmentCode()));
+        user.setFullName(request.fullName());
+        user.setEmail(newEmail);
+        user.setDepartment(department);
+        user.setUpdatedBy(SecurityUtils.currentUserId());
+        audit.record("USER", user.getId(), "user.updated", null,
+                Map.of("fullName", request.fullName(), "email", newEmail, "department", request.departmentCode()));
+        return UserResponse.from(user);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> permissionsForUser(UUID userId) {
+        AppUser user = users.findWithPermissionsById(userId)
+                .orElseThrow(() -> new NotFoundException("Unknown user: " + userId));
+        return user.getRoles().stream()
+                .flatMap(r -> r.getPermissions().stream())
+                .map(p -> p.getCode())
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    @Transactional
     public UserResponse create(CreateUserRequest request) {
         if (users.existsByUsername(request.username())) {
             throw new ConflictException("Username already exists: " + request.username());

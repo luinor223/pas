@@ -55,7 +55,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     navigate({ to: "/login" });
   }
 
-  const isActive = (to: string) => to === "/" ? pathname === "/" : pathname.startsWith(to.replace(/\/users$/, ""));
+  const isActive = (to: string) => {
+    if (to === "/") return pathname === "/";
+    if (to.startsWith("/admin")) return pathname.startsWith("/admin");
+    return pathname === to || pathname.startsWith(to + "/");
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">

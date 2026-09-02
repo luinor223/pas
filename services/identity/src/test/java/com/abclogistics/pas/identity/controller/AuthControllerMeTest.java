@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AuthControllerMeTest {
 
-    private final AuthController controller = new AuthController(null, null);
+    private final AuthController controller = new AuthController(null, null, null);
 
     @AfterEach
     void clearContext() {

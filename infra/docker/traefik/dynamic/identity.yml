@@ -12,7 +12,7 @@ http:
       middlewares: [identity-ratelimit, api-v1-strip]
       service: identity
     identity:
-      rule: PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`)
+      rule: PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`) || PathPrefix(`/api/v1/departments`) || PathPrefix(`/api/v1/permissions`)
       entryPoints: [web]
       middlewares: [identity-ratelimit, jwt-auth@file, api-v1-strip]
       service: identity

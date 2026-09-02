@@ -82,6 +82,8 @@ public class AppUser extends BaseEntity {
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public String getFullName() { return fullName; }
+    public void setFullName(String fullName) { this.fullName = fullName; }
+    public void setEmail(String email) { this.email = email; }
     public Department getDepartment() { return department; }
     public void setDepartment(Department department) { this.department = department; }
     public UserStatus getStatus() { return status; }
