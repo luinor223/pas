@@ -3,7 +3,9 @@ package com.abclogistics.pas.identity.controller;
 import com.abclogistics.pas.common.error.UnauthorizedException;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.identity.dto.UserSummary;
+import com.abclogistics.pas.identity.service.UserService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -13,10 +15,19 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 
 class AuthControllerMeTest {
 
-    private final AuthController controller = new AuthController(null, null, null);
+    private final UserService userService = mock(UserService.class);
+    private final AuthController controller = new AuthController(null, userService, null);
+
+    @BeforeEach
+    void setup() {
+        lenient().when(userService.permissionsForUser(any())).thenReturn(List.of("notification:read"));
+    }
 
     @AfterEach
     void clearContext() {

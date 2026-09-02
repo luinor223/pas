@@ -45,25 +45,14 @@ public class AuthController {
     }
 
     // The caller's own profile, from the edge-validated principal. Any authenticated user.
-    // Permissions are resolved from DB (roles -> permissions) + universal notification:read, not from JWT.
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public UserSummary me() {
         AuthenticatedUser user = SecurityUtils.currentUser()
                 .orElseThrow(() -> new UnauthorizedException("Not authenticated"));
-        java.util.List<String> perms;
-        try {
-            perms = userService.permissionsForUser(user.userId());
-        } catch (Exception e) {
-            perms = java.util.List.of();
-        }
-        java.util.List<String> allPerms = new java.util.ArrayList<>(perms);
-        if (!allPerms.contains("notification:read")) {
-            allPerms.add("notification:read");
-            allPerms.sort(String::compareTo);
-        }
+        java.util.List<String> perms = userService.permissionsForUser(user.userId());
         return new UserSummary(user.userId(), user.username(), user.fullName(),
-                user.department(), user.roles(), allPerms);
+                user.department(), user.roles(), perms);
     }
 
     // Refresh token comes from the pas_rt cookie; the body is a transitional fallback.

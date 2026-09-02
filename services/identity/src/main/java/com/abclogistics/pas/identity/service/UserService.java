@@ -72,14 +72,9 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<String> permissionsForUser(UUID userId) {
-        AppUser user = users.findWithPermissionsById(userId)
+        AppUser user = users.findById(userId)
                 .orElseThrow(() -> new NotFoundException("Unknown user: " + userId));
-        return user.getRoles().stream()
-                .flatMap(r -> r.getPermissions().stream())
-                .map(p -> p.getCode())
-                .distinct()
-                .sorted()
-                .toList();
+        return resolvePermissions(user);
     }
 
     @Transactional
@@ -133,6 +128,10 @@ public class UserService {
 
     private AppUser load(UUID id) {
         return users.findById(id).orElseThrow(() -> new NotFoundException("Unknown user: " + id));
+    }
+
+    private List<String> resolvePermissions(AppUser user) {
+        return PermissionResolver.fromUser(user);
     }
 
     private Set<Role> resolveRoles(List<String> roleCodes) {

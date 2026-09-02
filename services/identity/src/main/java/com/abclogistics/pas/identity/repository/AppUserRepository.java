@@ -14,11 +14,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     @EntityGraph(attributePaths = {"roles", "roles.permissions", "department"})
     Optional<AppUser> findByUsername(String username);
 
-    @EntityGraph(attributePaths = {"roles", "department"})
-    Optional<AppUser> findWithGraphById(UUID id);
-
+    @Override
     @EntityGraph(attributePaths = {"roles", "roles.permissions", "department"})
-    Optional<AppUser> findWithPermissionsById(UUID id);
+    Optional<AppUser> findById(UUID id);
 
     boolean existsByUsername(String username);
 
