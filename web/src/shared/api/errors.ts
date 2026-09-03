@@ -17,6 +17,19 @@ function userFriendlyMessage(raw: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
+  if (/workflow instance not in progress|step (?:is )?not active/i.test(withoutReferences)) {
+    return "This approval is no longer awaiting action. Refresh the list to see its current status.";
+  }
+  if (/concurrently modified|\bABORTED\b/i.test(withoutReferences)) {
+    return "Someone else updated this approval. Refresh the list and try again if it still needs action.";
+  }
+  if (/user not assignee/i.test(withoutReferences)) {
+    return "This approval is no longer assigned to you. Refresh the list to see your current tasks.";
+  }
+  if (/comment required for (?:action: )?(?:REJECT|REQUEST_REVISION)/i.test(withoutReferences)) {
+    return "Enter a reason before completing this action.";
+  }
+
   const cancellation = withoutReferences.match(/^(contract|addendum)\s+(\S+)\s+is\s+([A-Z_]+)\s+and cannot be cancelled\.?$/i);
   if (cancellation) {
     const [, type, number, status] = cancellation;

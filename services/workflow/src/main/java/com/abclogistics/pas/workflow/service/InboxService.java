@@ -75,6 +75,7 @@ public class InboxService {
     private InboxResponse.InboxItem toItem(WorkflowInstance inst, WorkflowStepInstance step) {
         return new InboxResponse.InboxItem(
                 inst.getId(),
+                step != null ? step.getId() : null,
                 inst.getDocumentTypeCode(),
                 inst.getDocumentId(),
                 inst.getDocumentNo(),
@@ -84,6 +85,7 @@ public class InboxService {
                 inst.getCurrentStepOrder() != null ? inst.getCurrentStepOrder() : 0,
                 step != null ? step.getName() : null,
                 step != null ? step.getApproverRole() : null,
+                step != null ? step.getActivatedAt() : null,
                 inst.getCreatedAt(),
                 inst.getRequestedBy(),
                 inst.getRequestedByName()

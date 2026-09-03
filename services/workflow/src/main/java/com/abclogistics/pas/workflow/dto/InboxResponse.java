@@ -7,6 +7,7 @@ import java.util.UUID;
 public record InboxResponse(List<InboxItem> items) {
     public record InboxItem(
             UUID instanceId,
+            UUID stepInstanceId,
             String documentTypeCode,
             UUID documentId,
             String documentNo,
@@ -16,6 +17,7 @@ public record InboxResponse(List<InboxItem> items) {
             int currentStepOrder,
             String currentStepName,
             String currentStepRole,
+            Instant stepActivatedAt,
             Instant createdAt,
             UUID requestedBy,
             String requestedByName
