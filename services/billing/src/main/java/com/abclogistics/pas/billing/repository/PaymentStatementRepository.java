@@ -31,4 +31,10 @@ public interface PaymentStatementRepository extends JpaRepository<PaymentStateme
 
     @Query(value = "SELECT nextval('billing.statement_no_seq')", nativeQuery = true)
     long nextStatementNoSeq();
+
+    // INSERT..RETURNING yields a row, so this is a selecting (not @Modifying) native query.
+    @Query(value = "INSERT INTO billing.statement_no_counter(year, last_no) VALUES (:year, 1)"
+        + " ON CONFLICT (year) DO UPDATE SET last_no = billing.statement_no_counter.last_no + 1"
+        + " RETURNING last_no", nativeQuery = true)
+    int nextStatementNoForYear(@Param("year") int year);
 }
