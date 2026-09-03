@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { customerQuery, contractsQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
-import { Badge } from "@/shared/components/badge";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { Button } from "@/shared/components/button";
+import { ContactTable } from "./ContactTable";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ContractResponse } from "../types/contractTypes";
@@ -129,15 +129,8 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
       {tab === "contacts" && (
         <Card>
           <CardHeader><CardTitle className="text-base">Contacts</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {c.contacts.length === 0 ? <div className="text-muted-foreground">No contacts.</div> : c.contacts.map((x) => (
-              <div key={x.id} className="border rounded p-2 flex justify-between">
-                <div>
-                  <div className="font-medium">{x.fullName} {x.primary && <Badge variant="secondary" className="ml-1">primary</Badge>}</div>
-                  <div className="text-xs text-muted-foreground">{x.title} · {x.email} · {x.phone}</div>
-                </div>
-              </div>
-            ))}
+          <CardContent>
+            <ContactTable contacts={c.contacts} />
           </CardContent>
         </Card>
       )}

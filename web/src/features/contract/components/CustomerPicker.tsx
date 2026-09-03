@@ -99,6 +99,13 @@ export function CustomerPicker({
       )}
       {open && (editing || !value) && (
         <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border bg-white shadow-lg text-sm">
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left hover:bg-muted text-muted-foreground"
+            onClick={() => { onChange(""); setOpen(false); setEditing(false); setText(""); setDebounced(""); }}
+          >
+            All customers
+          </button>
           {searchQ.isLoading ? (
             <div className="px-3 py-2 text-muted-foreground">Searching...</div>
           ) : results.length === 0 ? (

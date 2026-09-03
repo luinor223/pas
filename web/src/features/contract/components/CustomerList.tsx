@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { customersQuery, contractsQuery } from "../hooks/contractQueries";
+import { customersQuery, contractsQuery, customerQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { CustomerResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
@@ -8,7 +8,6 @@ import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Textarea } from "@/shared/components/textarea";
-import { Badge } from "@/shared/components/badge";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -21,6 +20,7 @@ import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { RowMenu } from "@/shared/components/row-menu";
+import { ContactTable } from "./ContactTable";
 
 const contactSchema = z.object({
   fullName: z.string().min(1, "Required"),
@@ -53,10 +53,13 @@ export function CustomerList() {
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [viewContacts, setViewContacts] = useState<CustomerResponse | null>(null);
+  // Customer id whose contacts are shown — the full record is fetched because
+  // list rows only carry primaryContact (contacts: []).
+  const [viewContactsId, setViewContactsId] = useState<string | null>(null);
 
   const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: 25 }));
   const contractsQ = useQuery(contractsQuery({ size: 1000 }));
+  const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
 
   const customers = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
@@ -159,7 +162,7 @@ export function CustomerList() {
         const c = row.original;
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
           { label: "View details", onClick: () => navigate({ to: "/customers", search: { id: c.id } as never }) },
-          { label: "View contacts", onClick: () => setViewContacts(c) },
+          { label: "View contacts", onClick: () => setViewContactsId(c.id) },
         ];
         if (canWrite) items.push({ label: "Edit", onClick: () => onEdit(c) });
         if (canWrite && c.status === "ACTIVE") items.push({ label: "Suspend", onClick: () => suspendMut.mutate(c.id), danger: true });
@@ -286,16 +289,16 @@ export function CustomerList() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!viewContacts} onOpenChange={(o) => !o && setViewContacts(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{viewContacts?.name} · Contacts</DialogTitle></DialogHeader>
-          <div className="space-y-2 text-sm">
-            {(viewContacts?.contacts ?? []).length === 0 ? <div className="text-muted-foreground">No contacts.</div> : viewContacts?.contacts.map((c) => (
-              <div key={c.id} className="border rounded p-2 flex justify-between">
-                <div><div className="font-medium">{c.fullName} {c.primary && <Badge variant="secondary" className="ml-1">primary</Badge>}</div><div className="text-xs text-muted-foreground">{c.title} · {c.email} · {c.phone}</div></div>
-              </div>
-            ))}
-          </div>
+      <Dialog open={!!viewContactsId} onOpenChange={(o) => !o && setViewContactsId(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
+          <DialogHeader><DialogTitle>{viewContactsQ.data?.name ?? "Customer"} · Contacts</DialogTitle></DialogHeader>
+          {viewContactsQ.isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading contacts...</div>
+          ) : viewContactsQ.isError ? (
+            <div className="text-sm text-destructive">{getApiErrorMessage(viewContactsQ.error, "Failed to load contacts")}</div>
+          ) : (
+            <ContactTable contacts={viewContactsQ.data?.contacts ?? []} />
+          )}
         </DialogContent>
       </Dialog>
     </div>
