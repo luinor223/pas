@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/shared/components/button";
+import { MoreHorizontal } from "lucide-react";
 
 export type RowMenuItem = {
   label: string;
@@ -13,16 +14,37 @@ export type RowMenuItem = {
 // Opens on click (touch + keyboard friendly); closes on outside click, Esc, scroll or resize.
 export function RowMenu({ items, title = "Row actions" }: { items: RowMenuItem[]; title?: string }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const [pos, setPos] = useState({ top: 0, right: 8, ready: false });
   const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const toggle = () => {
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
-    }
+    if (!open) setPos((current) => ({ ...current, ready: false }));
     setOpen((o) => !o);
   };
+
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current || !menuRef.current) return;
+
+    const button = btnRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const gap = 4;
+    const edge = 8;
+    const spaceBelow = window.innerHeight - button.bottom;
+    const preferredTop = spaceBelow >= menu.height + gap
+      ? button.bottom + gap
+      : button.top - menu.height - gap;
+    const top = Math.min(
+      Math.max(edge, preferredTop),
+      Math.max(edge, window.innerHeight - menu.height - edge),
+    );
+
+    setPos({
+      top,
+      right: Math.max(edge, window.innerWidth - button.right),
+      ready: true,
+    });
+  }, [open, items.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -48,16 +70,17 @@ export function RowMenu({ items, title = "Row actions" }: { items: RowMenuItem[]
 
   return (
     <>
-      <Button ref={btnRef} size="sm" variant="ghost" onClick={toggle} title={title} aria-haspopup="menu" aria-expanded={open}>
-        ...
+      <Button ref={btnRef} size="icon" variant="ghost" className="h-8 w-8" onClick={toggle} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open}>
+        <MoreHorizontal size={18} aria-hidden="true" />
       </Button>
       {open &&
         createPortal(
           <div
+            ref={menuRef}
             id="row-menu-portal"
             role="menu"
-            className="fixed z-50 w-48 rounded-md border bg-white shadow-lg text-left text-sm py-1"
-            style={{ top: pos.top, right: pos.right }}
+            className="fixed z-50 max-h-[calc(100vh-1rem)] w-48 overflow-y-auto rounded-md border bg-white py-1 text-left text-sm shadow-lg"
+            style={{ top: pos.top, right: pos.right, visibility: pos.ready ? "visible" : "hidden" }}
           >
             {items.map((it) => (
               <button

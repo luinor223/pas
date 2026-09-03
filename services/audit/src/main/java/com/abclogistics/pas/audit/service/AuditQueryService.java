@@ -28,10 +28,10 @@ public class AuditQueryService {
 
     /** Cross-entity admin search. */
     @Transactional(readOnly = true)
-    public Page<AuditRecord> search(String entityType, String entityNo, UUID actorId,
+    public Page<AuditRecord> search(String entityType, String query, UUID actorId,
                                     String sourceService, String action,
                                     Instant from, Instant to, Pageable pageable) {
-        return records.search(entityType, entityNo, actorId, sourceService, action,
+        return records.search(entityType, query, actorId, sourceService, action,
                 from, to, pageable);
     }
 }

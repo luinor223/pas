@@ -1,10 +1,10 @@
-import { api, type PageMeta } from "@/shared/api/client";
+import { api } from "@/shared/api/client";
+import { toPage, toParams, type PageMeta } from "@/shared/api/paging";
 import type {
   AddendumResponse,
   AttachmentResponse,
   ContractResponse,
   CustomerResponse,
-  PageResponse,
   ProgressResponse,
   StatusHistoryResponse,
   SubmitResponse,
@@ -41,26 +41,6 @@ export type AddendumListParams = PageParams & {
   effectiveFromFrom?: string;
   effectiveFromTo?: string;
 };
-
-function toParams(obj: Record<string, unknown>) {
-  const p = new URLSearchParams();
-  Object.entries(obj).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") p.set(k, String(v));
-  });
-  return p.toString() ? `?${p.toString()}` : "";
-}
-
-function toPage<T>(res: { data: unknown; meta?: PageMeta }): PageResponse<T> {
-  const content = Array.isArray(res.data) ? (res.data as T[]) : [];
-  const meta = res.meta;
-  return {
-    content,
-    totalElements: meta?.totalElements ?? content.length,
-    totalPages: meta?.totalPages ?? 1,
-    size: meta?.size ?? content.length,
-    number: meta?.page ?? 0,
-  };
-}
 
 export const contractApi = {
   // Customers

@@ -79,6 +79,6 @@ class AuditAuthorizationTest {
     }
 
     private Object search() {
-        return controller.search(null, null, null, null, null, null, null, PageRequest.of(0, 20));
+        return controller.search(null, null, null, null, null, null, null, null, PageRequest.of(0, 20));
     }
 }

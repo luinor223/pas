@@ -48,20 +48,23 @@ public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
     Page<AuditRecord> findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
             String entityType, UUID entityId, Pageable pageable);
 
-    /** Optional admin filters; casts keep nullable parameters typed in Postgres. */
+    /** Optional admin filters. Action is an exact producer action; the user-facing search matches
+     * case-insensitively on a substring across a record reference and the actor's snapshot name. */
     @Query("""
             select r from AuditRecord r
-            where r.entityType    = coalesce(:entityType, r.entityType)
-              and r.sourceService = coalesce(:sourceService, r.sourceService)
-              and r.action        = coalesce(:action, r.action)
+            where r.sourceService = coalesce(:sourceService, r.sourceService)
               and r.occurredAt   >= coalesce(:from, r.occurredAt)
               and r.occurredAt   <= coalesce(:to, r.occurredAt)
-              and (r.entityNo = :entityNo or :entityNo is null)
+              and (upper(r.entityType) = upper(:entityType) or :entityType is null)
+              and (r.action = :action or :action is null)
+              and ((lower(r.entityNo) like lower(concat('%', :query, '%'))
+                    or lower(r.actorName) like lower(concat('%', :query, '%')))
+                   or :query is null)
               and (r.actorId  = :actorId  or cast(:actorId as java.util.UUID) is null)
             order by r.occurredAt desc
             """)
     Page<AuditRecord> search(@Param("entityType") String entityType,
-                             @Param("entityNo") String entityNo,
+                             @Param("query") String query,
                              @Param("actorId") UUID actorId,
                              @Param("sourceService") String sourceService,
                              @Param("action") String action,

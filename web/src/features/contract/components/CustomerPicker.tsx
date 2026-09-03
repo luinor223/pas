@@ -13,11 +13,13 @@ export function CustomerPicker({
   onChange,
   label = "Customer",
   placeholder = "Type code or name...",
+  className,
 }: {
   value: string;
   onChange: (id: string) => void;
   label?: string;
   placeholder?: string;
+  className?: string;
 }) {
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -67,12 +69,13 @@ export function CustomerPicker({
   };
 
   return (
-    <div ref={boxRef} className="relative">
-      <Label>{label}</Label>
+    <div ref={boxRef} className={`relative ${className ?? ""}`}>
+      {label && <Label>{label}</Label>}
       {value && selected && !editing ? (
         <div className="flex items-center gap-1">
           <Input
             readOnly
+            aria-label={label || "Customer"}
             value={`${selected.code} · ${selected.name}`}
             onFocus={startReselect}
             onClick={startReselect}
@@ -91,6 +94,7 @@ export function CustomerPicker({
       ) : (
         <Input
           ref={searchRef}
+          aria-label={label || "Customer"}
           placeholder={value && selected ? `${selected.code} · ${selected.name} — type to replace...` : placeholder}
           value={text}
           onChange={(e) => { setText(e.target.value); setOpen(true); }}

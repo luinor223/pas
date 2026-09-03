@@ -9,11 +9,13 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { ContractResponse } from "../types/contractTypes";
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { formatDate, formatMoney } from "@/shared/lib/format";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 
 export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
   const navigate = useNavigate();
   const q = useQuery(customerQuery(id));
-  const contractsQ = useQuery(contractsQuery({ customerId: id, size: 25 }));
+  const contractsQ = useQuery(contractsQuery({ customerId: id, size: DEFAULT_PAGE_SIZE }));
   const [tab, setTab] = useState<"overview" | "contracts" | "contacts">("overview");
 
   const c = q.data;
@@ -30,9 +32,9 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
       accessorKey: "contractNo", header: "CONTRACT NO.",
       cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.id } as never} className="text-blue-600 hover:underline">{row.original.contractNo}</Link>,
     },
-    { accessorKey: "serviceGroup", header: "SERVICE GROUP" },
-    { accessorKey: "value", header: "VALUE (VND)", cell: ({ row }) => <span className="tabular-nums">{row.original.value?.toLocaleString("vi-VN") ?? "—"}</span> },
-    { accessorKey: "validFrom", header: "EFFECTIVE", cell: ({ row }) => <span className="text-xs">{row.original.validFrom}</span> },
+    { accessorKey: "serviceGroup", header: "SERVICE GROUP", cell: ({ row }) => <span className="capitalize">{row.original.serviceGroup.toLowerCase().replace(/_/g, " ")}</span> },
+    { accessorKey: "value", header: "VALUE", cell: ({ row }) => <span className="tabular-nums">{formatMoney(row.original.value, row.original.currency)}</span> },
+    { accessorKey: "validFrom", header: "EFFECTIVE", cell: ({ row }) => <span className="text-xs">{formatDate(row.original.validFrom)}</span> },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
   ];
 
@@ -53,7 +55,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         </div>
         <div className="flex gap-2">
           {onEdit && <Button variant="outline" onClick={onEdit}>Edit</Button>}
-          <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>Contracts</Button>
+          <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>View contracts</Button>
         </div>
       </div>
 
@@ -63,16 +65,13 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
             {t === "overview" ? "Overview" : t === "contracts" ? "Contracts" : "Contacts"}
           </Button>
         ))}
-        <span className="ml-2 text-xs text-muted-foreground self-center">Price Lists / Statements / Activity → pending pricing / billing services</span>
       </div>
 
       {tab === "overview" && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Active contracts</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : activeContracts}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total contract value</div><div className="text-xs text-muted-foreground">APPROVED + ACTIVE only</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : `${(approvedValue / 1e9).toFixed(1)}B VND`}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Outstanding balance</div><div className="text-sm text-muted-foreground mt-1">Pending billing-service — no mock balance shown.</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Avg. payment delay</div><div className="text-sm text-muted-foreground mt-1">Pending billing-service.</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved contract value</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : formatMoney(approvedValue, "VND")}</div><div className="mt-1 text-xs text-muted-foreground">Includes approved and active contracts</div></CardContent></Card>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -111,7 +110,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
               <a href={`/contracts?customerId=${c.id}`} className="text-sm text-blue-600 hover:underline">View all</a>
             </CardHeader>
             <CardContent>
-              {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts.slice(0, 5)} emptyMessage="No contracts" pageSize={25} />}
+              {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts.slice(0, 5)} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
             </CardContent>
           </Card>
         </>
@@ -121,7 +120,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         <Card>
           <CardHeader><CardTitle className="text-base">Contracts · {c.name}</CardTitle></CardHeader>
           <CardContent>
-            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts} emptyMessage="No contracts" pageSize={25} />}
+            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
           </CardContent>
         </Card>
       )}

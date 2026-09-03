@@ -17,13 +17,23 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
+import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CustomerPicker } from "./CustomerPicker";
 import { RowMenu } from "@/shared/components/row-menu";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
+import { DateRangeFields, isInvalidDateRange } from "@/shared/components/date-range-fields";
+import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
+import { FilterBar } from "@/shared/components/filter-bar";
+import { SearchInput } from "@/shared/components/search-input";
+import { formatDate, formatMoney } from "@/shared/lib/format";
+import { isUserCancellableStatus, SERVICE_GROUPS } from "../contractOptions";
+import { statusLabel } from "@/shared/lib/labels";
 
-const SERVICE_GROUPS = ["STEVEDORING", "WAREHOUSING", "TRANSPORTATION", "CONTAINER_HANDLING"];
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 const schema = z.object({
   customerId: z.string().min(1, "Required"),
@@ -50,6 +60,7 @@ export function ContractList() {
   const canRead = useHasPermission("contract:read");
   const canWrite = useHasPermission("contract:write");
   const canEsign = useHasPermission("esign:send");
+  const canCancelActive = useHasPermission("contract:cancel_active");
   const [q, setQ] = useState("");
   const [customerId, setCustomerId] = useState(() => new URLSearchParams(window.location.search).get("customerId") ?? "");
   const [status, setStatus] = useState("");
@@ -60,9 +71,11 @@ export function ContractList() {
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVersion, setEditVersion] = useState<number | null>(null);
+  const invalidFilterRange = isInvalidDateRange(validFromFrom, validToTo);
+  const hasFilters = !!(q || customerId || status || serviceGroup || validFromFrom || validToTo);
 
-  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: 25 };
-  const listQ = useQuery(contractsQuery(listParams));
+  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE };
+  const listQ = useQuery({ ...contractsQuery(listParams), enabled: canRead && !invalidFilterRange });
 
   const contracts = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
@@ -92,8 +105,12 @@ export function ContractList() {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setEditId(null); },
   });
+  const [confirmCancel, setConfirmCancel] = useState<ContractResponse | null>(null);
   const submitMut = useMutation({ mutationFn: (id: string) => contractApi.submitContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
-  const cancelMut = useMutation({ mutationFn: (id: string) => contractApi.cancelContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
+  const cancelMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => contractApi.cancelContract(id, reason),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setConfirmCancel(null); },
+  });
   const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
   const sendMut = useMutation({ mutationFn: (id: string) => contractApi.sendForSigningContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
 
@@ -104,13 +121,6 @@ export function ContractList() {
     });
   };
 
-  const fmtDate = (iso: string) => {
-    const [y, m, d] = iso.split("-");
-    return y && m && d ? `${d}/${m}/${y}` : iso;
-  };
-  const fmtMoney = (v: number | null, cur: string) =>
-    v == null ? "—" : `${v.toLocaleString("vi-VN")} ${cur === "VND" ? "" : cur}`.trim();
-
   const columns = useMemo<ColumnDef<ContractResponse>[]>(() => [
     {
       accessorKey: "contractNo", header: "CONTRACT NO.",
@@ -118,15 +128,16 @@ export function ContractList() {
     },
     { accessorKey: "customerName", header: "CUSTOMER", cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span> },
     { accessorKey: "serviceGroup", header: "SERVICE GROUP", cell: ({ row }) => <span className="text-sm capitalize">{row.original.serviceGroup.toLowerCase().replace(/_/g, " ")}</span> },
-    { accessorKey: "value", header: "VALUE (VND)", cell: ({ row }) => <span className="tabular-nums">{fmtMoney(row.original.value, row.original.currency)}</span> },
-    { accessorKey: "validFrom", header: "EFFECTIVE", cell: ({ row }) => <span className="text-xs">{fmtDate(row.original.validFrom)}</span> },
-    { accessorKey: "validTo", header: "EXPIRY", cell: ({ row }) => <span className="text-xs">{fmtDate(row.original.validTo)}</span> },
+    { accessorKey: "value", header: "VALUE", cell: ({ row }) => <span className="tabular-nums">{formatMoney(row.original.value, row.original.currency)}</span> },
+    { accessorKey: "validFrom", header: "EFFECTIVE", cell: ({ row }) => <span className="text-xs">{formatDate(row.original.validFrom)}</span> },
+    { accessorKey: "validTo", header: "EXPIRY", cell: ({ row }) => <span className="text-xs">{formatDate(row.original.validTo)}</span> },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
       id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
         const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
+        const cancellable = isUserCancellableStatus(c.status) && (c.status !== "ACTIVE" || canCancelActive);
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
           { label: "View details", onClick: () => navigate({ to: "/contracts", search: { id: c.id } as never }) },
           { label: "Download", onClick: () => navigate({ to: "/contracts", search: { id: c.id, tab: "attachments" } as never }) },
@@ -137,7 +148,7 @@ export function ContractList() {
         if (canWrite) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
         if (canWrite) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
         if (canEsign && c.status === "APPROVED") items.push({ label: "Send for signing", onClick: () => sendMut.mutate(c.id) });
-        if (canWrite) items.push({ label: "Cancel contract", onClick: () => cancelMut.mutate(c.id), danger: true });
+        if (canWrite && cancellable) items.push({ label: "Cancel contract", onClick: () => setConfirmCancel(c), danger: true });
         return (
           <div className="text-right">
             <RowMenu items={items} />
@@ -145,44 +156,82 @@ export function ContractList() {
         );
       },
     },
-  ], [canWrite, canEsign, navigate]);
+  ], [canWrite, canEsign, canCancelActive, navigate]);
 
-  if (!canRead) return <Card><CardContent className="p-6 text-sm">Need <code>contract:read</code></CardContent></Card>;
+  if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to contracts.</CardContent></Card>;
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Contracts ({total})</CardTitle>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              className="w-56 lg:w-72"
+              label="Search contracts"
+              placeholder="Search no/description/customer..."
+              value={q}
+              onChange={(value) => { setQ(value); setPage(0); }}
+            />
           {canWrite && <Button onClick={() => { reset({ customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 lg:grid-cols-7 gap-2 items-end">
-            <div><Label>Search</Label><Input placeholder="Search no/description/customer..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} /></div>
-            <CustomerPicker value={customerId} onChange={(id) => { setCustomerId(id); setPage(0); }} />
-            <div><Label>Status</Label><Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
-              <option value="">Status: All</option>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </Select></div>
-            <div><Label>Service group</Label><Select value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); setPage(0); }}>
+          <FilterBar className="items-center [&_input]:bg-card [&_select]:bg-card">
+            <CustomerPicker
+              className="w-full sm:w-52"
+              label=""
+              placeholder="All customers"
+              value={customerId}
+              onChange={(id) => { setCustomerId(id); setPage(0); }}
+            />
+            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+              <option value="">Status: All</option>{STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            </Select>
+            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); setPage(0); }}>
               <option value="">Group: All</option>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
-            </Select></div>
-            <div><Label>Effective from ≥</Label><Input type="date" value={validFromFrom} onChange={(e) => { setValidFromFrom(e.target.value); setPage(0); }} title="Contract valid-from on or after this date (inclusive)" /></div>
-            <div><Label>Expiry ≤</Label><Input type="date" value={validToTo} onChange={(e) => { setValidToTo(e.target.value); setPage(0); }} title="Contract valid-to on or before this date (inclusive)" /></div>
-            <Button variant="outline" onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); setPage(0); }}>Clear</Button>
-          </div>
-          <div className="text-xs text-muted-foreground">Date filter: contract fully inside range — valid-from ≥ Effective from AND valid-to ≤ Expiry (both inclusive).</div>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={25} />}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-xs text-muted-foreground">Rows per page: 25</span>
-            <div className="flex gap-2 items-center">
-              <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</Button>
-              <span className="py-1 text-xs text-muted-foreground">Page {page + 1} · {listQ.data?.totalPages ?? 1}</span>
-              <Button size="sm" variant="outline" disabled={!listQ.data || page + 1 >= (listQ.data.totalPages ?? 1)} onClick={() => setPage((p) => p + 1)}>Next</Button>
-            </div>
-          </div>
-          {(submitMut.isError || cancelMut.isError || reviseMut.isError || sendMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? cancelMut.error ?? reviseMut.error ?? sendMut.error) as unknown as Error, "Action failed")}</div>}
+            </Select>
+            <DateRangeFields
+              layout="inline"
+              from={validFromFrom}
+              to={validToTo}
+              fromLabel="Effective from"
+              toLabel="Expiry"
+              onFromChange={(value) => { setValidFromFrom(value); setPage(0); }}
+              onToChange={(value) => { setValidToTo(value); setPage(0); }}
+            />
+            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); setPage(0); }} />
+          </FilterBar>
+          <div className="text-xs text-muted-foreground">Date filters show contracts whose full term falls within the selected dates.</div>
+          {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} />}
+          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
+          {(submitMut.isError || reviseMut.isError || sendMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? reviseMut.error ?? sendMut.error) as unknown as Error, "Action failed")}</div>}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!confirmCancel}
+        title="Cancel this contract?"
+        body={
+          <>
+            <p>
+              Contract <span className="font-medium">{confirmCancel?.contractNo}</span> for{" "}
+              <span className="font-medium">{confirmCancel?.customerName}</span> will be cancelled.
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              Any approval already in progress stops, and the cancellation stays on the contract's
+              history. This cannot be undone here.
+            </p>
+          </>
+        }
+        confirmLabel="Cancel contract"
+        pendingLabel="Cancelling..."
+        pending={cancelMut.isPending}
+        error={cancelMut.isError ? cancelMut.error : undefined}
+        reason={{ label: "Reason", placeholder: "Why is this contract being cancelled?" }}
+        onConfirm={(reason) => confirmCancel && cancelMut.mutate({ id: confirmCancel.id, reason })}
+        onCancel={() => setConfirmCancel(null)}
+      />
 
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">

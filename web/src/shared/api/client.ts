@@ -1,5 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 import { queryClient } from "@/shared/api/queryClient";
+import type { PageMeta } from "@/shared/api/paging";
 
 // Auth rides HttpOnly cookies (withCredentials); the edge validates them and injects X-User-*.
 // Mutations echo the pas_csrf cookie as X-CSRF-Token for the edge's double-submit check.
@@ -49,8 +50,6 @@ function refresh(): Promise<void> {
   refreshPromise = p;
   return p;
 }
-
-export type PageMeta = { page: number; size: number; totalElements: number; totalPages: number };
 
 // Backend envelope is {data, meta} (ApiResponseAdvice: Page -> {data: content[], meta: PageMeta}).
 // Unwrap data but preserve meta for paged callers (meta is lost if we only keep data).

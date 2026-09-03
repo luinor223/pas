@@ -13,6 +13,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  */
 @SpringBootApplication(scanBasePackages = {
         "com.abclogistics.pas.notification",
+        "com.abclogistics.pas.common.api",
         "com.abclogistics.pas.common.security",
         "com.abclogistics.pas.common.error"
 })

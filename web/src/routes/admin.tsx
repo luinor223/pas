@@ -12,13 +12,13 @@ function AdminLayout() {
     return <div className="text-sm text-muted-foreground p-4">Loading...</div>;
   }
   if (!perms.includes("user:manage")) {
-    return <Forbidden message="Administration requires user:manage permission." />;
+    return <Forbidden message="You do not have access to Administration." />;
   }
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold">Administration</h1>
-        <p className="text-sm text-muted-foreground">Users, roles and permissions. Workflows and document types are stubs for future services.</p>
+        <p className="text-sm text-muted-foreground">Manage users, roles, permissions, workflows and document types.</p>
       </div>
       <div className="flex gap-2 border-b pb-2">
         <Link to="/admin/users" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Users</Link>

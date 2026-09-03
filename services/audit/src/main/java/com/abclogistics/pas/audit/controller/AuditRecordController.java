@@ -30,13 +30,15 @@ public class AuditRecordController {
     public Page<AuditRecordResponse> search(
             @RequestParam(required = false) String entityType,
             @RequestParam(required = false) String entityNo,
+            @RequestParam(required = false) String query,
             @RequestParam(required = false) UUID actorId,
             @RequestParam(required = false) String sourceService,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             Pageable pageable) {
-        return audit.search(entityType, entityNo, actorId, sourceService, action, from, to, pageable)
+        String searchText = query == null || query.isBlank() ? entityNo : query;
+        return audit.search(entityType, searchText, actorId, sourceService, action, from, to, pageable)
                 .map(AuditRecordResponse::of);
     }
 }

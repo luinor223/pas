@@ -3,9 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ca
 export const Route = createFileRoute("/admin/document-types")({
   component: () => (
     <Card>
-      <CardHeader><CardTitle>Document Types (stub)</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Document Types</CardTitle></CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        Placeholder for <code>document_type_config</code> CRUD (<code>doctype:configure</code>).
+        Document type configuration is not available yet.
       </CardContent>
     </Card>
   ),

@@ -116,10 +116,34 @@ class AuditRecordSearchIT {
     }
 
     @Test
+    void anActionFilterDoesNotMatchActionsThatOnlyContainItsName() {
+        record("contract-service", "CONTRACT", contractId, "HD-2026-0001", "ATTACH", lan, MAR);
+        record("contract-service", "CONTRACT", contractId, "HD-2026-0001", "DETACH", lan, MAR);
+
+        Page<AuditRecord> page = audit.search(null, null, null, null, "ATTACH", null, null, first());
+
+        assertThat(page.getContent()).extracting(AuditRecord::getAction).containsExactly("ATTACH");
+    }
+
+    @Test
     void anEntityNoNarrowsToOneDocumentsTrail() {
         Page<AuditRecord> page = audit.search(null, "HD-2026-0001", null, null, null, null, null, first());
 
         assertThat(page.getTotalElements()).isEqualTo(3);
+    }
+
+    @Test
+    void searchMatchesPartialRecordNumbersCaseInsensitively() {
+        Page<AuditRecord> page = audit.search(null, "hd-2026-00", null, null, null, null, null, first());
+
+        assertThat(page.getTotalElements()).isEqualTo(3);
+    }
+
+    @Test
+    void searchAlsoMatchesPartialActorNames() {
+        Page<AuditRecord> page = audit.search(null, "thi l", null, null, null, null, null, first());
+
+        assertThat(page.getTotalElements()).isEqualTo(4);
     }
 
     @Test

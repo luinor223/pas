@@ -13,12 +13,18 @@ import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
+import { FilterBar } from "@/shared/components/filter-bar";
+import { SearchInput } from "@/shared/components/search-input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useNavigate } from "@tanstack/react-router";
+import { RowMenu } from "@/shared/components/row-menu";
+import { departmentLabel, roleLabel } from "@/shared/lib/labels";
+import { formatDateTime } from "@/shared/lib/format";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 
 const createSchema = z.object({
   username: z.string().min(2),
@@ -157,65 +163,74 @@ export function UserTable() {
         );
       },
     },
-    { accessorKey: "department", header: "DEPARTMENT" },
+    { accessorKey: "department", header: "DEPARTMENT", cell: ({ row }) => departmentLabel(row.original.department) },
     {
       id: "roles",
       header: "ROLE",
       enableSorting: false,
-      cell: ({ row }) => <div className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>)}</div>,
+      cell: ({ row }) => <div className="flex flex-wrap gap-1">{row.original.roles.map((code) => <Badge key={code} variant="secondary" className="text-xs">{roleLabel(code)}</Badge>)}</div>,
     },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
       accessorKey: "lastLoginAt",
       header: "LAST LOGIN",
-      cell: ({ row }) => <span className="text-xs">{row.original.lastLoginAt ? new Date(row.original.lastLoginAt).toLocaleString() : "-"}</span>,
+      cell: ({ row }) => <span className="text-xs">{formatDateTime(row.original.lastLoginAt)}</span>,
     },
     {
       id: "actions",
-      header: "Actions",
+      header: () => <span className="sr-only">Actions</span>,
       enableSorting: false,
       cell: ({ row }) => {
         const u = row.original;
         const isSelf = u.id === currentUser?.id;
+        const items = [
+          { label: "Edit user", onClick: () => setEditUserId(u.id) },
+          { label: "Manage roles", onClick: () => { setEditRolesId(u.id); setEditCodes(u.roles); } },
+          u.status === "ACTIVE"
+            ? { label: isSelf ? "Disable my account" : "Disable user", onClick: () => setConfirmDisable(u), danger: true }
+            : { label: "Enable user", onClick: () => toggleMut.mutate({ id: u.id, enable: true }) },
+        ];
         return (
-          <div className="space-x-1">
-            <Button size="sm" variant="outline" onClick={() => setEditUserId(u.id)}>Edit</Button>
-            <Button size="sm" variant="outline" onClick={() => { setEditRolesId(u.id); setEditCodes(u.roles); }}>Roles</Button>
-            {u.status === "ACTIVE" ? (
-              <Button size="sm" variant="destructive" onClick={() => setConfirmDisable(u)} title={isSelf ? "You are about to disable yourself" : undefined}>Disable</Button>
-            ) : (
-              <Button size="sm" onClick={() => toggleMut.mutate({ id: u.id, enable: true })}>Enable</Button>
-            )}
+          <div className="flex justify-end">
+            <RowMenu items={items} title={`Actions for ${u.fullName}`} />
           </div>
         );
       },
     },
-  ], [currentUser?.id]);
+  ], [currentUser?.id, roles]);
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Users ({filtered.length}/{users.length})</CardTitle>
-          <Button onClick={() => setOpenCreate(true)}>+ New User</Button>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              className="w-56 lg:w-72"
+              label="Search users"
+              placeholder="Search users..."
+              value={q}
+              onChange={setQ}
+            />
+            <Button onClick={() => setOpenCreate(true)}>+ New User</Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-col lg:flex-row gap-2">
-            <Input placeholder="Search users..." value={q} onChange={(e) => setQ(e.target.value)} className="lg:max-w-sm flex-1" />
-            <Select className="w-full lg:w-[170px]" value={dept} onChange={(e) => setDept(e.target.value)}>
+          <FilterBar>
+            <Select className="w-full sm:w-44" aria-label="Filter by department" value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="All">Department: All</option>
-              {deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{d.code}</option>)}
+              {deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}
             </Select>
-            <Select className="w-full lg:w-[190px]" value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select className="w-full sm:w-48" aria-label="Filter by role" value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="All">Role: All</option>
-              {roles.map((r) => <option key={r.code} value={r.code}>{r.code}</option>)}
+              {roles.map((r) => <option key={r.code} value={r.code}>{roleLabel(r.code)}</option>)}
             </Select>
-            <Select className="w-full lg:w-[160px]" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select className="w-full sm:w-44" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="All">Status: All</option>
               <option value="ACTIVE">ACTIVE</option>
               <option value="DISABLED">DISABLED</option>
             </Select>
-          </div>
+          </FilterBar>
 
           {usersQ.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading...</div>
@@ -235,14 +250,15 @@ export function UserTable() {
 
       {/* Create dialog */}
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Create user</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
+        <DialogContent className="max-w-lg overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-6 pt-6"><DialogTitle>Create user</DialogTitle></DialogHeader>
+          <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 space-y-3 overflow-y-auto px-6 pb-4">
             <div><Label>Username</Label><Input {...register("username")} />{errors.username && <p className="text-xs text-destructive">{errors.username.message}</p>}</div>
             <div><Label>Email</Label><Input {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
             <div><Label>Password (min 8)</Label><Input type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
             <div><Label>Full name</Label><Input {...register("fullName")} />{errors.fullName && <p className="text-xs text-destructive">{errors.fullName.message}</p>}</div>
-            <div><Label>Department</Label><Select {...register("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</Select></div>
+            <div><Label>Department</Label><Select {...register("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}</Select></div>
             <div>
               <Label>Roles</Label>
               <div className="grid grid-cols-2 gap-2 border rounded p-3 max-h-48 overflow-auto">
@@ -257,14 +273,15 @@ export function UserTable() {
                       }}
                       className="mt-0.5"
                     />
-                    <span><span className="font-medium">{r.code}</span><span className="text-xs text-muted-foreground block">{r.name}</span></span>
+                    <span className="font-medium">{roleLabel(r.code)}</span>
                   </label>
                 ))}
               </div>
               {errors.roleCodes && <p className="text-xs text-destructive">{errors.roleCodes.message}</p>}
             </div>
             {createMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(createMut.error, "Create failed")}</div>}
-            <DialogFooter>
+            </div>
+            <DialogFooter className="mt-0 shrink-0 border-t bg-card px-6 py-4">
               <Button type="button" variant="outline" onClick={() => { setOpenCreate(false); reset(); }}>Cancel</Button>
               <Button type="submit" disabled={createMut.isPending}>{createMut.isPending ? "Creating..." : "Create"}</Button>
             </DialogFooter>
@@ -279,7 +296,7 @@ export function UserTable() {
           <form onSubmit={submitEdit((d) => editUserId && updateMut.mutate({ id: editUserId, data: d }))} className="space-y-3">
             <div><Label>Full name</Label><Input {...regEdit("fullName")} />{editErrors.fullName && <p className="text-xs text-destructive">{editErrors.fullName.message}</p>}</div>
             <div><Label>Email</Label><Input {...regEdit("email")} />{editErrors.email && <p className="text-xs text-destructive">{editErrors.email.message}</p>}</div>
-            <div><Label>Department</Label><Select {...regEdit("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</Select></div>
+            <div><Label>Department</Label><Select {...regEdit("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}</Select></div>
             {updateMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(updateMut.error, "Update failed")}</div>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditUserId(null)}>Cancel</Button>
@@ -292,15 +309,14 @@ export function UserTable() {
       {/* Edit roles dialog */}
       <Dialog open={!!editRolesId} onOpenChange={(o) => !o && setEditRolesId(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit roles - {editUser?.username}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Manage roles for {editUser?.fullName}</DialogTitle></DialogHeader>
           <div className="space-y-2">
             <Label>Select roles</Label>
             <div className="grid grid-cols-1 gap-2 border rounded p-3 max-h-64 overflow-auto">
               {roles.map((r) => (
                 <label key={r.code} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted px-2 py-1 rounded">
                   <input type="checkbox" checked={editCodes.includes(r.code)} onChange={(e) => setEditCodes(e.target.checked ? [...editCodes, r.code] : editCodes.filter((c) => c !== r.code))} />
-                  <span className="font-medium">{r.code}</span>
-                  <span className="text-xs text-muted-foreground">- {r.name}</span>
+                  <span className="font-medium">{roleLabel(r.code)}</span>
                   {editUser?.roles.includes(r.code) && <Badge variant="secondary" className="ml-auto text-xs">current</Badge>}
                 </label>
               ))}
@@ -315,28 +331,24 @@ export function UserTable() {
         </DialogContent>
       </Dialog>
 
-      {/* Disable confirm */}
-      <Dialog open={!!confirmDisable} onOpenChange={(o) => !o && setConfirmDisable(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Disable user?</DialogTitle></DialogHeader>
-          <div className="text-sm">
-            {confirmDisable?.id === currentUser?.id ? (
-              <div className="space-y-2">
-                <p>You are about to <span className="font-semibold text-destructive">disable your own account</span> (<code>{confirmDisable?.username}</code>).</p>
-                <p className="text-muted-foreground">You will be logged out immediately and your refresh tokens revoked. Continue?</p>
-              </div>
-            ) : (
-              <p>Disable <span className="font-medium">{confirmDisable?.fullName}</span> (<code>{confirmDisable?.username}</code>)? Their refresh tokens will be revoked.</p>
-            )}
+      <ConfirmDialog
+        open={!!confirmDisable}
+        title="Disable user?"
+        body={confirmDisable?.id === currentUser?.id ? (
+          <div className="space-y-2">
+            <p>You are about to <span className="font-semibold text-destructive">disable your own account</span> ({confirmDisable?.username}).</p>
+            <p className="text-muted-foreground">You will be signed out immediately and unable to sign in again until another administrator re-enables your account.</p>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDisable(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={toggleMut.isPending} onClick={() => confirmDisable && toggleMut.mutate({ id: confirmDisable.id, enable: false })}>
-              {toggleMut.isPending ? "Disabling..." : "Confirm Disable"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        ) : (
+          <p>Disable <span className="font-medium">{confirmDisable?.fullName}</span> ({confirmDisable?.username})? They will be signed out and unable to sign in until their account is re-enabled.</p>
+        )}
+        confirmLabel="Disable user"
+        pendingLabel="Disabling..."
+        pending={toggleMut.isPending}
+        error={toggleMut.isError ? toggleMut.error : undefined}
+        onConfirm={() => confirmDisable && toggleMut.mutate({ id: confirmDisable.id, enable: false })}
+        onCancel={() => setConfirmDisable(null)}
+      />
     </div>
   );
 }

@@ -18,10 +18,19 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
+import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link } from "@tanstack/react-router";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
+import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
+import { FilterBar } from "@/shared/components/filter-bar";
+import { SearchInput } from "@/shared/components/search-input";
+import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES, isUserCancellableStatus } from "../contractOptions";
+import { statusLabel } from "@/shared/lib/labels";
+import { humanize } from "@/shared/lib/text";
 
-const CHANGE_TYPES = ["UNIT_PRICE_CHANGE", "TERM_EXTENSION", "ADDED_SERVICE", "PAYMENT_TERMS"];
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 const lineSchema = z.object({
   serviceCode: z.string().min(1),
@@ -51,6 +60,7 @@ export function AddendumList() {
   const qc = useQueryClient();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
+  const canCancelActive = useHasPermission("contract:cancel_active");
   // Deep-link default for the create form (e.g. contract detail's Create addendum).
   // There is intentionally no contract filter: Figma has none, and contract-scoped
   // addenda live on the contract detail page.
@@ -61,8 +71,10 @@ export function AddendumList() {
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<AddendumResponse | null>(null);
+  const hasFilters = !!(status || changeType || q);
 
-  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: 25 }));
+  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
   const items = listQ.data?.content ?? [];
 
@@ -95,7 +107,10 @@ export function AddendumList() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setEditId(null); },
   });
   const submitMut = useMutation({ mutationFn: (id: string) => contractApi.submitAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
-  const cancelMut = useMutation({ mutationFn: (id: string) => contractApi.cancelAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
+  const cancelMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => contractApi.cancelAddendum(id, reason),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setConfirmCancel(null); },
+  });
   const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
 
   const onEdit = (a: AddendumResponse) => {
@@ -119,58 +134,82 @@ export function AddendumList() {
       id: "actions", header: "ACTIONS", enableSorting: false,
       cell: ({ row }) => {
         const a = row.original;
+        const cancellable = isUserCancellableStatus(a.status) && (a.status !== "ACTIVE" || canCancelActive);
         return (
           <div className="flex gap-1 flex-wrap">
             {canWrite && (a.status === "DRAFT" || a.status === "REVISION_REQUESTED") && <Button size="sm" variant="outline" onClick={() => onEdit(a)}>Edit</Button>}
             {canWrite && a.status === "DRAFT" && <Button size="sm" onClick={() => submitMut.mutate(a.id)}>Submit</Button>}
             {canWrite && a.status === "REJECTED" && <Button size="sm" onClick={() => reviseMut.mutate(a.id)}>Revise</Button>}
-            {canWrite && <Button size="sm" variant="destructive" onClick={() => cancelMut.mutate(a.id)}>Cancel</Button>}
+            {canWrite && cancellable && <Button size="sm" variant="destructive" onClick={() => setConfirmCancel(a)}>Cancel</Button>}
           </div>
         );
       },
     },
-  ], [canWrite]);
+  ], [canWrite, canCancelActive]);
 
-  if (!canRead) return <Card><CardContent className="p-6 text-sm">Need <code>addendum:read</code></CardContent></Card>;
+  if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to addenda.</CardContent></Card>;
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Addenda ({listQ.data?.totalElements ?? 0})</CardTitle>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              className="w-56 lg:w-72"
+              label="Search addenda"
+              placeholder="Search no/description..."
+              value={q}
+              onChange={(value) => { setQ(value); setPage(0); }}
+            />
           {canWrite && <Button onClick={() => { reset({ contractId: defaultContractId || (contractsQ.data?.content?.[0]?.id ?? ""), changeType: changeType || CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-2 items-end">
-            <div><Label>Search</Label><Input placeholder="Search no/description..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} /></div>
-            <div><Label>Status</Label><Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
-              <option value="">Status: All</option>{["DRAFT","SUBMITTED","UNDER_REVIEW","APPROVED","ACTIVE","REJECTED","REVISION_REQUESTED","CANCELLED"].map((s) => <option key={s} value={s}>{s}</option>)}
-            </Select></div>
-            <div><Label>Change type</Label><Select value={changeType} onChange={(e) => { setChangeType(e.target.value); setPage(0); }}>
-              <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </Select></div>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }}>Clear</Button>
-            </div>
-          </div>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={25} />}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-xs text-muted-foreground">Rows per page: 25</span>
-            <div className="flex gap-2 items-center">
-              <Button size="sm" variant="outline" disabled={page===0} onClick={() => setPage((p)=>Math.max(0,p-1))}>Previous</Button>
-              <span className="py-1 text-xs text-muted-foreground">Page {page+1} · {listQ.data?.totalPages ?? 1}</span>
-              <Button size="sm" variant="outline" disabled={!listQ.data || page+1 >= (listQ.data.totalPages ?? 1)} onClick={() => setPage((p)=>p+1)}>Next</Button>
-            </div>
-          </div>
+          <FilterBar>
+                        <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+              <option value="">Status: All</option>{["DRAFT","SUBMITTED","UNDER_REVIEW","APPROVED","ACTIVE","REJECTED","REVISION_REQUESTED","CANCELLED"].map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            </Select>
+            <Select className="w-full sm:w-48" aria-label="Filter by change type" value={changeType} onChange={(e) => { setChangeType(e.target.value); setPage(0); }}>
+              <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
+            </Select>
+            <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }} />
+          </FilterBar>
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} />}
+          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={listQ.data?.totalElements ?? 0} onPageChange={setPage} />
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!confirmCancel}
+        title="Cancel this addendum?"
+        body={
+          <>
+            <p>
+              Addendum <span className="font-medium">{confirmCancel?.addendumNo}</span> on contract{" "}
+              <span className="font-medium">{confirmCancel?.contractNo}</span> will be cancelled.
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              Any approval already in progress stops, and the cancellation stays on the addendum's
+              history. This cannot be undone here.
+            </p>
+          </>
+        }
+        confirmLabel="Cancel addendum"
+        pendingLabel="Cancelling..."
+        pending={cancelMut.isPending}
+        error={cancelMut.isError ? cancelMut.error : undefined}
+        reason={{ label: "Reason", placeholder: "Why is this addendum being cancelled?" }}
+        onConfirm={(reason) => confirmCancel && cancelMut.mutate({ id: confirmCancel.id, reason })}
+        onCancel={() => setConfirmCancel(null)}
+      />
 
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create addendum</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
             <div><Label>Contract *</Label><Select {...register("contractId")}><option value="">Select</option>{(contractsQ.data?.content ?? []).map((c) => <option key={c.id} value={c.id}>{c.contractNo} [{c.status}]</option>)}</Select>{errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}</div>
-            <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</Select></div>
+            <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
             <div className="grid grid-cols-2 gap-2"><div><Label>Effective from *</Label><Input type="date" {...register("effectiveFrom")} />{errors.effectiveFrom && <p className="text-xs text-destructive">{errors.effectiveFrom.message}</p>}</div>{watchedType==="TERM_EXTENSION" && <div><Label>New valid to *</Label><Input type="date" {...register("newValidTo")} />{errors.newValidTo && <p className="text-xs text-destructive">{String(errors.newValidTo.message)}</p>}</div>}{watchedType==="PAYMENT_TERMS" && <div><Label>Payment term override *</Label><Input {...register("paymentTermOverride")} /></div>}</div>
             {watchedType==="ADDED_SERVICE" && (
@@ -201,7 +240,7 @@ export function AddendumList() {
           <DialogHeader><DialogTitle>Edit addendum</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d)=>updateMut.mutate(d))} className="space-y-3">
             <div><Label>Contract *</Label><Select {...register("contractId")}><option value="">Select</option>{(contractsQ.data?.content ?? []).map((c)=><option key={c.id} value={c.id}>{c.contractNo}</option>)}</Select></div>
-            <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</Select></div>
+            <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map(t=><option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
             <div className="grid grid-cols-2 gap-2"><div><Label>Effective from *</Label><Input type="date" {...register("effectiveFrom")} /></div>{watchedType==="TERM_EXTENSION" && <div><Label>New valid to</Label><Input type="date" {...register("newValidTo")} /></div>}{watchedType==="PAYMENT_TERMS" && <div><Label>Payment term override</Label><Input {...register("paymentTermOverride")} /></div>}</div>
             {watchedType==="ADDED_SERVICE" && <div><Label>Services</Label><div className="space-y-1 border rounded p-2">{fields.map((f,i)=><div key={f.id} className="grid grid-cols-12 gap-1"><div className="col-span-3"><Input {...register(`services.${i}.serviceCode` as const)} placeholder="Code" /></div><div className="col-span-4"><Input {...register(`services.${i}.serviceName` as const)} placeholder="Name" /></div><div className="col-span-2"><Input {...register(`services.${i}.unit` as const)} placeholder="Unit" /></div><div className="col-span-2"><Input {...register(`services.${i}.scopeNote` as const)} placeholder="Scope" /></div><Button type="button" variant="ghost" size="sm" className="col-span-1" onClick={()=>remove(i)}>×</Button></div>)}<Button type="button" size="sm" variant="outline" onClick={()=>append({serviceCode:"",serviceName:"",unit:"",scopeNote:""})}>+ Service</Button></div></div>}
