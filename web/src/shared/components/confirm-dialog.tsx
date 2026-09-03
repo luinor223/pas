@@ -51,12 +51,17 @@ function ConfirmDialogBody({
           <div>{body}</div>
           {reason && (
             <div>
-              <Label>{reason.label}{reason.required ? " *" : ""}</Label>
+              <Label>
+                {reason.label}{reason.required ? " *" : ""}
+                {!reason.required && <span className="font-normal text-muted-foreground"> (optional)</span>}
+              </Label>
               <Textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={reason.placeholder}
                 rows={3}
+                required={reason.required}
+                aria-required={reason.required || undefined}
               />
             </div>
           )}

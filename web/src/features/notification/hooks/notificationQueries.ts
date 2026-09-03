@@ -16,4 +16,6 @@ export const unreadCountQuery = () =>
     queryKey: ["inbox", { size: 1 }],
     queryFn: () => notificationApi.inbox({ size: 1 }),
     select: (d) => d.unreadCount,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });

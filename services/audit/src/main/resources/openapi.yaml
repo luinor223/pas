@@ -29,7 +29,7 @@ paths:
         - { name: entityNo, in: query, deprecated: true, schema: { type: string }, description: "legacy record-number search; ignored when query is supplied" }
         - { name: actorId, in: query, schema: { type: string, format: uuid } }
         - { name: sourceService, in: query, schema: { type: string, enum: [identity-service, contract-service, pricing-service, operations-service, billing-service, workflow-service, esign-service] } }
-        - { name: action, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string }, description: "exact producer action selected by the activity filter" }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
         - { name: page, in: query, schema: { type: integer, default: 0 } }

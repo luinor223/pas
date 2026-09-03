@@ -1,5 +1,7 @@
 export type PageMeta = { page: number; size: number; totalElements: number; totalPages: number };
 
+export const DEFAULT_PAGE_SIZE = 15;
+
 export type PageResponse<T> = {
   content: T[];
   totalElements: number;

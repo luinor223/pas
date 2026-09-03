@@ -9,6 +9,8 @@ type DateRangeFieldsProps = {
   type?: "date" | "datetime-local";
   fromLabel?: string;
   toLabel?: string;
+  /** "grid" fills two cells of a parent grid; "inline" stays compact inside a FilterBar. */
+  layout?: "grid" | "inline";
 };
 
 export function isInvalidDateRange(from: string, to: string): boolean {
@@ -24,8 +26,43 @@ export function DateRangeFields({
   type = "date",
   fromLabel = "From",
   toLabel = "To",
+  layout = "grid",
 }: DateRangeFieldsProps) {
   const invalid = isInvalidDateRange(from, to);
+
+  if (layout === "inline") {
+    return (
+      <>
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="shrink-0">{fromLabel}</span>
+          <Input
+            type={type}
+            className="w-40"
+            value={from}
+            max={to || undefined}
+            aria-invalid={invalid}
+            onChange={(event) => onFromChange(event.target.value)}
+          />
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="shrink-0">{toLabel}</span>
+          <Input
+            type={type}
+            className="w-40"
+            value={to}
+            min={from || undefined}
+            aria-invalid={invalid}
+            onChange={(event) => onToChange(event.target.value)}
+          />
+        </label>
+        {invalid && (
+          <p role="alert" className="w-full text-sm text-destructive">
+            “{toLabel}” must be the same as or later than “{fromLabel}”.
+          </p>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="contents">

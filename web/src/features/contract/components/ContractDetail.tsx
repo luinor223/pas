@@ -12,6 +12,7 @@ import type { AddendumResponse } from "../types/contractTypes";
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -19,7 +20,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
   const q = useQuery(contractQuery(id));
   const progQ = useQuery(contractProgressQuery(id));
   const histQ = useQuery(contractHistoryQuery(id));
-  const addQ = useQuery(addendaQuery({ contractId: id, size: 25 }));
+  const addQ = useQuery(addendaQuery({ contractId: id, size: DEFAULT_PAGE_SIZE }));
   const attQ = useQuery(attachmentsQuery("CONTRACT", id));
   const [tab, setTab] = useState<Tab>(
     initialTab === "attachments" ? "attachments" : "overview",
@@ -162,7 +163,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
         <Card>
           <CardHeader><CardTitle className="text-base">Addenda for {c.contractNo}</CardTitle></CardHeader>
           <CardContent>
-            {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={25} />}
+            {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={DEFAULT_PAGE_SIZE} />}
           </CardContent>
         </Card>
       )}

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { BellOff, CheckCheck } from "lucide-react";
+import { BellOff, CheckCheck, RefreshCw } from "lucide-react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Forbidden } from "@/shared/components/Forbidden";
 import { Badge } from "@/shared/components/badge";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { cn } from "@/shared/lib/cn";
 import { formatDateTime, formatRelative } from "@/shared/lib/format";
@@ -15,7 +16,7 @@ import { inboxQuery } from "../hooks/notificationQueries";
 import { notificationApi } from "../services/notificationApi";
 import type { NotificationCategory, NotificationResponse } from "../types/notificationTypes";
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 // Tabs and their counters come from InboxResponse.counts, which is computed
 // unfiltered - so a tab shows its total even while another tab is displayed.
@@ -55,6 +56,9 @@ export function NotificationList() {
       sort: "createdAt,desc",
     }),
     enabled: canRead,
+    // Keep the newest page current without making every historical page poll.
+    refetchInterval: canRead && page === 0 ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const inbox = listQ.data;
@@ -86,19 +90,38 @@ export function NotificationList() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>
-          Notifications{inbox ? ` (${inbox.unreadCount} unread)` : ""}
-        </CardTitle>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!inbox || inbox.unreadCount === 0 || markAllRead.isPending}
-          onClick={() => markAllRead.mutate()}
-        >
-          <CheckCheck size={15} className="mr-1.5" />
-          {markAllRead.isPending ? "Marking..." : "Mark all read"}
-        </Button>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+        <div>
+          <CardTitle>
+            Notifications{inbox ? ` (${inbox.unreadCount} unread)` : ""}
+          </CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {page === 0
+              ? "Automatically checks for new notifications every 30 seconds."
+              : "Refresh to check this page for updates."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={listQ.isFetching}
+            onClick={() => listQ.refetch()}
+          >
+            <RefreshCw size={14} className={listQ.isFetching ? "mr-1.5 animate-spin" : "mr-1.5"} />
+            {listQ.isFetching ? "Checking..." : "Refresh"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!inbox || inbox.unreadCount === 0 || markAllRead.isPending}
+            onClick={() => markAllRead.mutate()}
+          >
+            <CheckCheck size={15} className="mr-1.5" />
+            {markAllRead.isPending ? "Marking..." : "Mark all read"}
+          </Button>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -181,12 +204,9 @@ function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () =>
   const unread = n.readAt === null;
   const route = n.documentType ? DOCUMENT_ROUTES[n.documentType] : undefined;
   const linked = !!route && !!n.documentId;
-
-  // Opening marks it read; a read row stays actionable so its document is
-  // always one click away.
   const handleOpen = () => { if (unread) onOpen(); };
 
-  const body = (
+  const content = (
     <>
       <span
         className={cn("mt-2 h-2 w-2 shrink-0 rounded-full", unread ? "bg-primary" : "bg-transparent")}
@@ -199,9 +219,7 @@ function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () =>
           </span>
           <Badge variant="secondary">{CATEGORY_LABEL[n.category] ?? n.category}</Badge>
           {n.documentNo && (
-            <span className={cn("text-xs", linked ? "text-primary" : "text-muted-foreground")}>
-              {n.documentNo}
-            </span>
+            <span className={cn("text-xs", linked ? "text-primary" : "text-muted-foreground")}>{n.documentNo}</span>
           )}
         </div>
         <p className="mt-0.5 text-sm text-muted-foreground">{n.body}</p>
@@ -217,23 +235,23 @@ function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () =>
     </>
   );
 
-  const className = cn(
-    "flex w-full gap-3 px-1 py-3 text-left transition-colors hover:bg-muted/50",
-    unread && "bg-primary/[0.03]"
+  const rowClassName = cn(
+    "flex w-full gap-3 rounded-sm px-1 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+    unread && "bg-primary/[0.03]",
+    (linked || unread) && "hover:bg-muted/50",
   );
 
-  // One control per row instead of a button wrapping a link: a link when the
-  // document has a screen, a button when opening only marks it read.
   if (linked) {
     return (
-      <Link to={route} search={{ id: n.documentId } as never} className={className} onClick={handleOpen}>
-        {body}
+      <Link to={route} search={{ id: n.documentId } as never} className={rowClassName} onClick={handleOpen}>
+        {content}
       </Link>
     );
   }
-  return (
-    <button type="button" className={className} onClick={handleOpen} disabled={!unread}>
-      {body}
-    </button>
-  );
+
+  if (unread) {
+    return <button type="button" className={rowClassName} onClick={handleOpen}>{content}</button>;
+  }
+
+  return <div className={rowClassName}>{content}</div>;
 }

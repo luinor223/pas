@@ -13,6 +13,8 @@ import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
+import { FilterBar } from "@/shared/components/filter-bar";
+import { SearchInput } from "@/shared/components/search-input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -200,27 +202,35 @@ export function UserTable() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Users ({filtered.length}/{users.length})</CardTitle>
-          <Button onClick={() => setOpenCreate(true)}>+ New User</Button>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              className="w-56 lg:w-72"
+              label="Search users"
+              placeholder="Search users..."
+              value={q}
+              onChange={setQ}
+            />
+            <Button onClick={() => setOpenCreate(true)}>+ New User</Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-col lg:flex-row gap-2">
-            <Input placeholder="Search users..." value={q} onChange={(e) => setQ(e.target.value)} className="lg:max-w-sm flex-1" />
-            <Select className="w-full lg:w-[170px]" value={dept} onChange={(e) => setDept(e.target.value)}>
+          <FilterBar>
+            <Select className="w-full sm:w-44" aria-label="Filter by department" value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="All">Department: All</option>
               {deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}
             </Select>
-            <Select className="w-full lg:w-[190px]" value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select className="w-full sm:w-48" aria-label="Filter by role" value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="All">Role: All</option>
               {roles.map((r) => <option key={r.code} value={r.code}>{roleLabel(r.code)}</option>)}
             </Select>
-            <Select className="w-full lg:w-[160px]" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select className="w-full sm:w-44" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="All">Status: All</option>
               <option value="ACTIVE">ACTIVE</option>
               <option value="DISABLED">DISABLED</option>
             </Select>
-          </div>
+          </FilterBar>
 
           {usersQ.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading...</div>

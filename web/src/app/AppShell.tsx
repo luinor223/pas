@@ -1,10 +1,10 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, Building2, FileText, FilePlus2, Tags, BarChart3, ReceiptText,
-  CheckSquare, PenLine, Bell, ScrollText, Settings, LogOut, Search, ChevronRight,
-  PanelLeftClose, PanelLeftOpen,
+  CheckSquare, PenLine, Bell, ScrollText, Settings, LogOut, ChevronRight,
+  PanelLeftClose, PanelLeftOpen, UserRound, ChevronDown,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo, LogoMark } from "@/shared/components/Logo";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
@@ -43,11 +43,14 @@ const NAV: Group[] = [
 const CRUMB: Record<string, { group: string; label: string }> = Object.fromEntries(
   NAV.flatMap((g) => g.items.map((i) => [i.to, { group: g.heading, label: i.label }]))
 );
+CRUMB["/profile"] = { group: "Overview", label: "Profile" };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => window.localStorage.getItem("pas.sidebar-collapsed") === "true"
   );
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const { data: user } = useCurrentUser();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -58,6 +61,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const crumb = CRUMB[pathname] ?? matchCrumb(pathname);
   const initials = (user?.fullName ?? "?").split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [accountMenuOpen]);
 
   async function onLogout() {
     try { await authApi.logout(); } catch { /* ignore */ }
@@ -132,18 +153,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className={`flex items-center border-t border-white/10 py-3 ${sidebarCollapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"}`}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
-            {initials}
-          </div>
-          <div className={`min-w-0 flex-1 ${sidebarCollapsed ? "hidden" : ""}`}>
-            <div className="truncate text-sm font-medium text-white">{user?.fullName ?? "-"}</div>
-            <div className="truncate text-xs text-white/50">{user?.department ? departmentLabel(user.department) : ""}</div>
-          </div>
-          <button onClick={onLogout} title="Sign out" className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white">
-            <LogOut size={16} />
-          </button>
-        </div>
       </aside>
 
       {/* Main */}
@@ -155,13 +164,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-semibold text-foreground">{crumb.label}</span>
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <div className="relative hidden md:block">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                placeholder="Search records..."
-                className="h-9 w-64 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
             <Link
               to="/notifications"
               className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted"
@@ -174,6 +176,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </Link>
+            <div ref={accountMenuRef} className="relative">
+              <button
+                type="button"
+                aria-label="Open account menu"
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
+                onClick={() => setAccountMenuOpen((open) => !open)}
+                className="flex items-center gap-2 rounded-full p-1 pr-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  {initials}
+                </span>
+                <ChevronDown size={14} className="text-muted-foreground" aria-hidden="true" />
+              </button>
+
+              {accountMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+                >
+                  <div className="border-b border-border px-4 py-3">
+                    <div className="truncate text-sm font-semibold">{user?.fullName ?? "Your account"}</div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {user?.department ? departmentLabel(user.department) : user?.username}
+                    </div>
+                  </div>
+                  <div className="p-1.5">
+                    <Link
+                      to="/profile"
+                      role="menuitem"
+                      onClick={() => setAccountMenuOpen(false)}
+                      className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <UserRound size={16} className="text-muted-foreground" />
+                      View profile
+                    </Link>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setAccountMenuOpen(false); void onLogout(); }}
+                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <LogOut size={16} className="text-muted-foreground" />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
         <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-thin">

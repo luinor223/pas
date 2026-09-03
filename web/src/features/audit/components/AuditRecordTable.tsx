@@ -1,29 +1,31 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ArrowRight, ChevronRight, RefreshCw } from "lucide-react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
-import { Input } from "@/shared/components/input";
-import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DateRangeFields, isInvalidDateRange } from "@/shared/components/date-range-fields";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
+import { FilterBar } from "@/shared/components/filter-bar";
+import { SearchInput } from "@/shared/components/search-input";
 import { PaginationControls } from "@/shared/components/pagination-controls";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/dialog";
 import { Forbidden } from "@/shared/components/Forbidden";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { auditRecordsQuery } from "../hooks/auditQueries";
 import type { AuditRecordResponse } from "../types/auditTypes";
-import { AUDIT_ACTIVITIES, AUDIT_RECORD_TYPES } from "../auditOptions";
+import { AUDIT_ACTIVITIES, AUDIT_RECORD_TYPES, auditActivityLabel } from "../auditOptions";
 import { departmentLabel, permissionLabel, roleLabel } from "@/shared/lib/labels";
 import { AUDIT_MODULES, SERVICE_LABELS } from "@/shared/lib/modules";
 import { formatDateTime } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export function AuditRecordTable() {
   const canView = useHasPermission("audit:view_all");
@@ -53,9 +55,9 @@ export function AuditRecordTable() {
       sort: "occurredAt,desc",
     }),
     enabled: canView && !invalidDateRange,
-    // Audit records arrive asynchronously through Kafka. Refresh the newest
-    // page so recently ingested activity appears without a manual reload.
-    refetchInterval: canView && !invalidDateRange && page === 0 ? 5_000 : false,
+    // Audit records arrive asynchronously through Kafka. Check the unfiltered
+    // newest page at a restrained cadence; filtered searches refresh on demand.
+    refetchInterval: canView && !invalidDateRange && !hasFilters && page === 0 ? 30_000 : false,
     refetchIntervalInBackground: false,
   });
 
@@ -64,7 +66,6 @@ export function AuditRecordTable() {
   const visibleRecordTypes = sourceService
     ? AUDIT_RECORD_TYPES.filter((type) => type.module === sourceService)
     : AUDIT_RECORD_TYPES;
-
 
   function clear() {
     setSourceService("");
@@ -81,83 +82,113 @@ export function AuditRecordTable() {
 
   return (
     <Card className="min-w-0">
-      <CardHeader>
-        <CardTitle>Audit Log ({listQ.data?.totalElements ?? 0})</CardTitle>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle>Audit Log ({listQ.data?.totalElements ?? 0})</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {!hasFilters && page === 0
+              ? "Automatically checks for new activity every 30 seconds."
+              : "Refresh to check for new matching activity."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <SearchInput
+            className="w-56 lg:w-72"
+            label="Search audit records"
+            placeholder="Record, username or person"
+            value={searchQuery}
+            onChange={(value) => { setSearchQuery(value); setPage(0); }}
+          />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={invalidDateRange || listQ.isFetching}
+          onClick={() => listQ.refetch()}
+        >
+          <RefreshCw size={14} className={listQ.isFetching ? "mr-1.5 animate-spin" : "mr-1.5"} />
+          {listQ.isFetching ? "Checking..." : "Refresh"}
+        </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid min-w-0 grid-cols-1 items-end gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="min-w-0">
-            <Label>Search</Label>
-            <Input placeholder="Record, username or person" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }} />
-          </div>
-          <div className="min-w-0">
-            <Label>Module</Label>
-            <Select value={sourceService} onChange={(e) => { setSourceService(e.target.value); setEntityType(""); setPage(0); }}>
-              <option value="">All modules</option>
-              {AUDIT_MODULES.map((module) => (
-                <option key={module.value} value={module.value}>{module.label}</option>
-              ))}
-            </Select>
-          </div>
-          <div className="min-w-0">
-            <Label>Record type</Label>
-            <Select value={entityType} onChange={(e) => { setEntityType(e.target.value); setPage(0); }}>
-              <option value="">All record types</option>
-              {visibleRecordTypes.map((type) => (
-                <option key={type.value} value={type.value}>{type.label}</option>
-              ))}
-            </Select>
-          </div>
-          <div className="min-w-0">
-            <Label>Activity</Label>
-            <Select value={action} onChange={(e) => { setAction(e.target.value); setPage(0); }}>
-              <option value="">All activities</option>
-              {AUDIT_ACTIVITIES.map((activity) => (
-                <option key={activity.value} value={activity.value}>{activity.label}</option>
-              ))}
-            </Select>
-          </div>
+        <FilterBar>
+          <Select
+            className="w-full sm:w-44"
+            aria-label="Filter by module"
+            value={sourceService}
+            onChange={(e) => { setSourceService(e.target.value); setEntityType(""); setPage(0); }}
+          >
+            <option value="">All modules</option>
+            {AUDIT_MODULES.map((module) => (
+              <option key={module.value} value={module.value}>{module.label}</option>
+            ))}
+          </Select>
+          <Select
+            className="w-full sm:w-44"
+            aria-label="Filter by record type"
+            value={entityType}
+            onChange={(e) => { setEntityType(e.target.value); setPage(0); }}
+          >
+            <option value="">All record types</option>
+            {visibleRecordTypes.map((type) => (
+              <option key={type.value} value={type.value}>{type.label}</option>
+            ))}
+          </Select>
+          <Select
+            className="w-full sm:w-48"
+            aria-label="Filter by activity"
+            value={action}
+            onChange={(e) => { setAction(e.target.value); setPage(0); }}
+          >
+            <option value="">All activities</option>
+            {AUDIT_ACTIVITIES.map((activity) => (
+              <option key={activity.value} value={activity.value}>{activity.label}</option>
+            ))}
+          </Select>
           <DateRangeFields
+            layout="inline"
             type="date"
             from={from}
             to={to}
             onFromChange={(value) => { setFrom(value); setPage(0); }}
             onToChange={(value) => { setTo(value); setPage(0); }}
           />
-          <ClearFiltersButton size="sm" className="justify-self-start" disabled={!hasFilters} onClick={clear} />
-        </div>
+          <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={clear} />
+        </FilterBar>
 
-        {invalidDateRange ? null : listQ.isLoading ? (
-          <div className="text-sm text-muted-foreground">Loading...</div>
-        ) : listQ.isError ? (
-          <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed to load audit records")}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>OCCURRED AT</TableHead>
-                  <TableHead>ACTOR</TableHead>
-                  <TableHead>ACTIVITY</TableHead>
-                  <TableHead>AFFECTED RECORD</TableHead>
-                  <TableHead>STATUS</TableHead>
-                  <TableHead>MODULE</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">No audit records</TableCell>
-                  </TableRow>
-                ) : (
-                  rows.map((r) => (
-                    <AuditRow key={r.id} r={r} onSelect={() => setSelected(r)} />
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>OCCURRED AT</TableHead>
+                <TableHead>ACTOR</TableHead>
+                <TableHead>ACTIVITY</TableHead>
+                <TableHead>AFFECTED RECORD</TableHead>
+                <TableHead>STATUS</TableHead>
+                <TableHead>MODULE</TableHead>
+                <TableHead className="w-8"><span className="sr-only">View details</span></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invalidDateRange ? (
+                <MessageRow>Correct the date range to view activity.</MessageRow>
+              ) : listQ.isLoading ? (
+                <MessageRow>Loading activity...</MessageRow>
+              ) : listQ.isError ? (
+                <MessageRow destructive>{getApiErrorMessage(listQ.error, "Failed to load audit records")}</MessageRow>
+              ) : rows.length === 0 ? (
+                <MessageRow>
+                  {hasFilters ? "No activity matches your filters." : "No activity has been recorded yet."}
+                </MessageRow>
+              ) : (
+                rows.map((r) => (
+                  <AuditRow key={r.id} r={r} onSelect={() => setSelected(r)} />
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
 
         {listQ.data && !invalidDateRange && (
           <PaginationControls
@@ -176,63 +207,83 @@ export function AuditRecordTable() {
 }
 
 function AuditRow({ r, onSelect }: { r: AuditRecordResponse; onSelect: () => void }) {
+  // The row is a mouse convenience only - no role or tabIndex, so it stays a
+  // plain row for assistive tech and the timestamp button remains the one
+  // real control. Selecting text must not count as a click.
+  const openUnlessSelecting = () => {
+    if (window.getSelection()?.toString()) return;
+    onSelect();
+  };
+
   return (
-      <TableRow
-        className="cursor-pointer focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-        tabIndex={0}
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect();
-          }
-        }}
-        aria-label={`View details for ${activityLabel(r.action)} ${r.entityNo ?? humanize(r.entityType)}`}
-      >
-        <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(r.occurredAt)}</TableCell>
-        <TableCell>
-          {/* Snapshot names taken at write time, so they never drift with the user record. */}
-          <div className="font-medium">{r.actorName ?? "System"}</div>
-          {r.actorDepartment && <div className="text-xs text-muted-foreground">{departmentLabel(r.actorDepartment)}</div>}
-        </TableCell>
-        <TableCell className="whitespace-nowrap text-sm">{activityLabel(r.action)}</TableCell>
-        <TableCell>
-          <div className="text-xs text-muted-foreground">{humanize(r.entityType)}</div>
-          {r.entityNo && <div className="font-medium">{r.entityNo}</div>}
-        </TableCell>
-        <TableCell>
-          {r.beforeStatus && r.afterStatus ? (
-            <div className="flex items-center gap-1.5">
-              <StatusBadge status={r.beforeStatus} />
-              <ArrowRight size={13} className="shrink-0 text-muted-foreground" />
-              <StatusBadge status={r.afterStatus} />
-            </div>
-          ) : r.afterStatus ? (
-            <StatusBadge status={r.afterStatus} />
-          ) : r.beforeStatus ? (
+    <TableRow className="cursor-pointer hover:bg-muted/50" onClick={openUnlessSelecting}>
+      <TableCell className="whitespace-nowrap tabular-nums">
+        <button
+          type="button"
+          className="text-left focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onSelect}
+          title="View audit details"
+          aria-label={`View details for ${auditActivityLabel(r.action)} ${r.entityNo ?? humanize(r.entityType)}`}
+        >
+          {formatDateTime(r.occurredAt)}
+        </button>
+      </TableCell>
+      <TableCell>
+        {/* Snapshot names taken at write time, so they never drift with the user record. */}
+        <div className="font-medium">{r.actorName ?? "System"}</div>
+        {r.actorDepartment && <div className="text-xs text-muted-foreground">{departmentLabel(r.actorDepartment)}</div>}
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-sm">{auditActivityLabel(r.action)}</TableCell>
+      <TableCell>
+        <div className="text-xs text-muted-foreground">{humanize(r.entityType)}</div>
+        {r.entityNo && <div className="font-medium">{r.entityNo}</div>}
+      </TableCell>
+      <TableCell>
+        {r.beforeStatus && r.afterStatus ? (
+          <div className="flex items-center gap-1.5">
             <StatusBadge status={r.beforeStatus} />
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
-        </TableCell>
-        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-          {SERVICE_LABELS[r.sourceService] ?? humanize(r.sourceService)}
-        </TableCell>
-      </TableRow>
+            <ArrowRight size={13} className="shrink-0 text-muted-foreground" />
+            <StatusBadge status={r.afterStatus} />
+          </div>
+        ) : r.afterStatus ? (
+          <StatusBadge status={r.afterStatus} />
+        ) : r.beforeStatus ? (
+          <StatusBadge status={r.beforeStatus} />
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+        {SERVICE_LABELS[r.sourceService] ?? humanize(r.sourceService)}
+      </TableCell>
+      <TableCell className="w-8 px-2 text-muted-foreground">
+        <ChevronRight size={16} aria-hidden="true" />
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function MessageRow({ children, destructive = false }: { children: ReactNode; destructive?: boolean }) {
+  return (
+    <TableRow>
+      <TableCell colSpan={7} className={destructive ? "text-center text-destructive" : "text-center text-muted-foreground"}>
+        {children}
+      </TableCell>
+    </TableRow>
   );
 }
 
 function AuditDetailsDialog({ record, onClose }: { record: AuditRecordResponse | null; onClose: () => void }) {
   if (!record) return null;
   const changes = displayChanges(record.changes);
-  const isCreation = record.action === "CREATE" || record.action.endsWith(".created");
+  const isCreation = record.action === "CREATE" || record.action.endsWith(".created") || record.action.endsWith("_created");
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Audit details</DialogTitle>
-          <p className="text-sm text-muted-foreground">{activityLabel(record.action)}</p>
+          <p className="text-sm text-muted-foreground">{auditActivityLabel(record.action)}</p>
         </DialogHeader>
 
         <dl className="grid gap-x-8 gap-y-3 rounded-md border bg-muted/20 p-4 text-sm sm:grid-cols-2">
@@ -242,7 +293,15 @@ function AuditDetailsDialog({ record, onClose }: { record: AuditRecordResponse |
             label="Performed by"
             value={`${record.actorName ?? "System"}${record.actorDepartment ? ` · ${departmentLabel(record.actorDepartment)}` : ""}`}
           />
-          <Detail label="Affected record" value={`${humanize(record.entityType)}${record.entityNo ? ` · ${record.entityNo}` : ""}`} />
+          <Detail
+            label="Affected record"
+            value={(
+              <>
+                {humanize(record.entityType)}{record.entityNo ? ` · ${record.entityNo}` : ""}
+                <AffectedRecordLink record={record} />
+              </>
+            )}
+          />
         </dl>
 
         {(record.beforeStatus || record.afterStatus) && (
@@ -283,13 +342,24 @@ function AuditDetailsDialog({ record, onClose }: { record: AuditRecordResponse |
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 font-medium">{value}</dd>
     </div>
   );
+}
+
+function AffectedRecordLink({ record }: { record: AuditRecordResponse }) {
+  const className = "ml-2 inline-block text-primary hover:underline";
+  if (record.entityType === "CONTRACT") {
+    return <Link to="/contracts" search={{ id: record.entityId } as never} className={className}>Open contract</Link>;
+  }
+  if (record.entityType === "CUSTOMER") {
+    return <Link to="/customers" search={{ id: record.entityId } as never} className={className}>Open customer</Link>;
+  }
+  return null;
 }
 
 function StatusTransition({ before, after }: { before: string | null; after: string | null }) {
@@ -363,13 +433,15 @@ function formatValue(value: unknown, field?: string): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) {
-    if (!value.length) return "—";
-    if (field === "roles") return value.map((item) => roleLabel(String(item))).join(", ");
-    if (field === "permissions") return value.map((item) => permissionLabel(String(item))).join(", ");
-    return value.map((item) => formatValue(item)).join(", ");
+    const visible = value.filter((item) => !isUuidOnly(item));
+    if (!visible.length) return "—";
+    if (field === "roles") return visible.map((item) => roleLabel(String(item))).join(", ");
+    if (field === "permissions") return visible.map((item) => permissionLabel(String(item))).join(", ");
+    return visible.map((item) => formatValue(item)).join(", ");
   }
   if (typeof value === "object") {
     return Object.entries(value as Record<string, unknown>)
+      .filter(([, nested]) => !isUuidOnly(nested))
       .map(([k, v]) => `${humanize(k)}: ${formatValue(v)}`)
       .join(" · ");
   }
@@ -380,22 +452,16 @@ function formatValue(value: unknown, field?: string): string {
 
 function displayChanges(changes: Record<string, unknown> | null): Array<[string, unknown]> {
   if (!changes) return [];
-  return Object.entries(changes).filter(([field]) => field !== "trigger" && field !== "customerId");
+  return Object.entries(changes).filter(([field, value]) => field !== "trigger" && !isUuidOnly(value));
 }
 
-function activityLabel(action: string): string {
-  const labels: Record<string, string> = {
-    "role.permissions_replaced": "Role permissions updated",
-    "user.roles_updated": "User roles updated",
-    "user.created": "User created",
-    "user.updated": "User updated",
-    "user.enabled": "User enabled",
-    "user.disabled": "User disabled",
-    STATUS_CHANGE: "Status changed",
-    CREATE: "Created",
-    UPDATE: "Updated",
-    ATTACH: "Attachment added",
-    DETACH: "Attachment removed",
-  };
-  return labels[action] ?? humanize(action);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuidOnly(value: unknown): boolean {
+  if (typeof value === "string") return UUID_PATTERN.test(value);
+  if (Array.isArray(value)) return value.length > 0 && value.every(isUuidOnly);
+  const pair = changePair(value);
+  if (!pair) return false;
+  const values = [pair.from, pair.to].filter((item) => item !== null && item !== undefined && item !== "");
+  return values.length > 0 && values.every(isUuidOnly);
 }

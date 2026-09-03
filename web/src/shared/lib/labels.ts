@@ -19,6 +19,20 @@ const ROLES: Record<string, string> = {
   SYSTEM_ADMIN: "System Administrator",
 };
 
+const STATUSES: Record<string, string> = {
+  DRAFT: "Draft",
+  SUBMITTED: "Submitted",
+  UNDER_REVIEW: "Under review",
+  APPROVED: "Approved",
+  ACTIVE: "Active",
+  EXPIRED: "Expired",
+  REJECTED: "Rejected",
+  REVISION_REQUESTED: "Revision requested",
+  CANCELLED: "Cancelled",
+  SUSPENDED: "Suspended",
+  DISABLED: "Disabled",
+};
+
 // Keep these English labels aligned with permissions seeded by identity-service.
 // Unknown future codes intentionally fall back to a readable generated label.
 const PERMISSIONS: Record<string, string> = {
@@ -50,4 +64,5 @@ const PERMISSIONS: Record<string, string> = {
 
 export const departmentLabel = (code: string) => DEPARTMENTS[code] ?? humanize(code);
 export const roleLabel = (code: string) => ROLES[code] ?? humanize(code);
+export const statusLabel = (code: string) => STATUSES[code] ?? humanize(code);
 export const permissionLabel = (code: string) => PERMISSIONS[code] ?? humanize(code.split(":").pop() ?? code);

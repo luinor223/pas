@@ -10,11 +10,12 @@ import type { ContractResponse } from "../types/contractTypes";
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { formatDate, formatMoney } from "@/shared/lib/format";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 
 export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
   const navigate = useNavigate();
   const q = useQuery(customerQuery(id));
-  const contractsQ = useQuery(contractsQuery({ customerId: id, size: 25 }));
+  const contractsQ = useQuery(contractsQuery({ customerId: id, size: DEFAULT_PAGE_SIZE }));
   const [tab, setTab] = useState<"overview" | "contracts" | "contacts">("overview");
 
   const c = q.data;
@@ -109,7 +110,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
               <a href={`/contracts?customerId=${c.id}`} className="text-sm text-blue-600 hover:underline">View all</a>
             </CardHeader>
             <CardContent>
-              {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts.slice(0, 5)} emptyMessage="No contracts" pageSize={25} />}
+              {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts.slice(0, 5)} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
             </CardContent>
           </Card>
         </>
@@ -119,7 +120,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         <Card>
           <CardHeader><CardTitle className="text-base">Contracts · {c.name}</CardTitle></CardHeader>
           <CardContent>
-            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts} emptyMessage="No contracts" pageSize={25} />}
+            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
           </CardContent>
         </Card>
       )}

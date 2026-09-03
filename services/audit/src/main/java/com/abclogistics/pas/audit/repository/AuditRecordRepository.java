@@ -48,15 +48,15 @@ public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
     Page<AuditRecord> findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
             String entityType, UUID entityId, Pageable pageable);
 
-    /** Optional admin filters. Action and the user-facing search match case-insensitively on a
-     * substring; search covers both a record reference and the actor's snapshot name. */
+    /** Optional admin filters. Action is an exact producer action; the user-facing search matches
+     * case-insensitively on a substring across a record reference and the actor's snapshot name. */
     @Query("""
             select r from AuditRecord r
             where r.sourceService = coalesce(:sourceService, r.sourceService)
               and r.occurredAt   >= coalesce(:from, r.occurredAt)
               and r.occurredAt   <= coalesce(:to, r.occurredAt)
               and (upper(r.entityType) = upper(:entityType) or :entityType is null)
-              and (lower(r.action) like lower(concat('%', :action, '%')) or :action is null)
+              and (r.action = :action or :action is null)
               and ((lower(r.entityNo) like lower(concat('%', :query, '%'))
                     or lower(r.actorName) like lower(concat('%', :query, '%')))
                    or :query is null)

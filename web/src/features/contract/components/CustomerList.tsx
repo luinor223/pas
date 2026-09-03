@@ -17,11 +17,18 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
+import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { RowMenu } from "@/shared/components/row-menu";
+import { FilterBar } from "@/shared/components/filter-bar";
+import { SearchInput } from "@/shared/components/search-input";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ContactTable } from "./ContactTable";
+import { statusLabel } from "@/shared/lib/labels";
+
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 const contactSchema = z.object({
   fullName: z.string().min(1, "Required"),
@@ -59,7 +66,7 @@ export function CustomerList() {
   const [viewContactsId, setViewContactsId] = useState<string | null>(null);
   const [confirmSuspend, setConfirmSuspend] = useState<CustomerResponse | null>(null);
 
-  const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: 25 }));
+  const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: PAGE_SIZE }));
   const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
 
   const customers = listQ.data?.content ?? [];
@@ -177,26 +184,27 @@ export function CustomerList() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Customers ({total})</CardTitle>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              className="w-56 lg:w-72"
+              label="Search customers"
+              placeholder="Search code/name/tax..."
+              value={q}
+              onChange={(value) => { setQ(value); setPage(0); }}
+            />
           {canWrite && <Button onClick={() => { reset({ name: "", shortName: "", taxCode: "", address: "", representativeName: "", representativePosition: "", segment: "", contacts: [{ fullName: "", title: "", email: "", phone: "", primary: true }] }); setOpenCreate(true); }}>+ New Customer</Button>}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input placeholder="Search code/name/tax..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} className="max-w-sm" />
-            <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
-              <option value="All">Status: All</option><option value="ACTIVE">ACTIVE</option><option value="SUSPENDED">SUSPENDED</option>
+          <FilterBar>
+            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+              <option value="All">Status: All</option><option value="ACTIVE">{statusLabel("ACTIVE")}</option><option value="SUSPENDED">{statusLabel("SUSPENDED")}</option>
             </Select>
-          </div>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={25} />}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-xs text-muted-foreground">Rows per page: 25</span>
-            <div className="flex gap-2 items-center">
-              <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</Button>
-              <span className="py-1 text-xs text-muted-foreground">Page {page + 1} · {listQ.data?.totalPages ?? 1} pages</span>
-              <Button size="sm" variant="outline" disabled={!listQ.data || page + 1 >= (listQ.data?.totalPages ?? 1)} onClick={() => setPage((p) => p + 1)}>Next</Button>
-            </div>
-          </div>
+          </FilterBar>
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={PAGE_SIZE} />}
+          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
         </CardContent>
       </Card>
 
