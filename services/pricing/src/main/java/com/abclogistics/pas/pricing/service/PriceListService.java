@@ -72,6 +72,15 @@ public class PriceListService {
     }
 
     @Transactional(readOnly = true)
+    public PriceListVersion getVersion(UUID priceListId, UUID versionId) {
+        PriceListVersion version = getVersion(versionId);
+        if (!version.getPriceListId().equals(priceListId)) {
+            throw new NotFoundException("No price list version " + versionId + " for price list " + priceListId);
+        }
+        return version;
+    }
+
+    @Transactional(readOnly = true)
     public List<PriceLine> linesOf(UUID versionId) {
         return lines.findByVersionId(versionId);
     }

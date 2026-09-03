@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Placeholder } from "@/shared/components/Placeholder";
+import { PriceListPage } from "@/features/pricing";
 
 export const Route = createFileRoute("/price-lists")({
-  component: () => <Placeholder title="Price Lists" note="Manage prices and their effective dates." />,
+  validateSearch: (search: Record<string, unknown>) => ({
+    id: typeof search.id === "string" ? search.id : undefined,
+    versionId: typeof search.versionId === "string" ? search.versionId : undefined,
+  }),
+  component: PriceListPage,
 });

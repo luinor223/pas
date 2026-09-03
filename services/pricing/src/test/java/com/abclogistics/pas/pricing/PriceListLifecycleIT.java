@@ -1,6 +1,7 @@
 package com.abclogistics.pas.pricing;
 
 import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.pricing.domain.PriceList;
@@ -113,6 +114,30 @@ class PriceListLifecycleIT {
         PriceListVersion reloaded = lists.getVersion(v.getId());
         assertThat(reloaded.getAddendumId()).isEqualTo(addendumId);
         assertThat(reloaded.getValidFrom()).isEqualTo(from);
+    }
+
+    @Test
+    void versionsAreListedInVersionOrder() {
+        PriceList list = lists.create(null, null, "WAREHOUSING", null);
+        PriceListVersion first = lists.addVersion(list.getId(),
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 30), null);
+        PriceListVersion second = lists.addVersion(list.getId(),
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 12, 31), null);
+
+        assertThat(lists.versionsOf(list.getId()))
+                .extracting(PriceListVersion::getId)
+                .containsExactly(first.getId(), second.getId());
+    }
+
+    @Test
+    void nestedVersionLookupRejectsTheWrongPriceList() {
+        PriceList owner = lists.create(null, null, "WAREHOUSING", null);
+        PriceList other = lists.create(null, null, "STEVEDORING", null);
+        PriceListVersion version = lists.addVersion(owner.getId(),
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), null);
+
+        assertThatThrownBy(() -> lists.getVersion(other.getId(), version.getId()))
+                .isInstanceOf(NotFoundException.class);
     }
 
     @Test

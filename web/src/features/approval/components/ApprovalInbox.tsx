@@ -359,6 +359,9 @@ function documentLink(item: ApprovalInboxItem) {
   if (item.documentTypeCode === "CONTRACT") {
     return <Link to="/contracts" search={{ id: item.documentId } as never} className="text-primary hover:underline">{item.documentNo}</Link>;
   }
+  if (item.documentTypeCode === "PRICE_LIST") {
+    return <Link to="/price-lists" search={{ versionId: item.documentId } as never} className="text-primary hover:underline">{item.documentNo}</Link>;
+  }
   return item.documentNo;
 }
 

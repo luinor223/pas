@@ -1,4 +1,4 @@
-import { statusLabel } from "@/shared/lib/labels";
+import { roleLabel, statusLabel } from "@/shared/lib/labels";
 
 export function getApiErrorMessage(e: unknown, fallback: string): string {
   const message = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -8,12 +8,13 @@ export function getApiErrorMessage(e: unknown, fallback: string): string {
 const BUSINESS_STATUSES = [
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED",
   "REJECTED", "REVISION_REQUESTED", "CANCELLED", "SUSPENDED", "DISABLED",
+  "EFFECTIVE", "SUPERSEDED",
 ];
 
 /** Removes implementation references and translates common business-rule errors for users. */
 function userFriendlyMessage(raw: string): string {
   const withoutReferences = raw
-    .replace(/\s*\((?:registry\s*§[^)]*|CTR-\d+[^)]*|D\d+[^)]*)\)/gi, "")
+    .replace(/\s*\((?:registry\s*§[^)]*|[A-Z]{2,}-\d+[^)]*|D\d+[^)]*)\)/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -28,6 +29,17 @@ function userFriendlyMessage(raw: string): string {
   }
   if (/comment required for (?:action: )?(?:REJECT|REQUEST_REVISION)/i.test(withoutReferences)) {
     return "Enter a reason before completing this action.";
+  }
+  if (/validity overlaps an existing effective version of the same scope/i.test(withoutReferences)) {
+    return "These dates overlap an approved or effective price-list version for the same scope. Choose a non-overlapping period.";
+  }
+  if (/valid_from must be on or before valid_to/i.test(withoutReferences)) {
+    return "Valid to must be on or after Valid from.";
+  }
+
+  const missingApprover = withoutReferences.match(/no assignee for role:\s*([A-Z_]+)/i);
+  if (missingApprover) {
+    return `This approval cannot start because no active ${roleLabel(missingApprover[1].toUpperCase())} is assigned. Ask an administrator for help.`;
   }
 
   const cancellation = withoutReferences.match(/^(contract|addendum)\s+(\S+)\s+is\s+([A-Z_]+)\s+and cannot be cancelled\.?$/i);
