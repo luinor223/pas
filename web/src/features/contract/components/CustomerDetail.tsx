@@ -23,7 +23,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
 
   const contracts = contractsQ.data?.content ?? [];
   const activeContracts = contracts.filter((x) => x.status === "ACTIVE").length;
-  const totalValue = contracts.reduce((s, x) => s + (x.value ?? 0), 0);
+  const approvedValue = contracts.filter((x) => x.status === "APPROVED" || x.status === "ACTIVE").reduce((s, x) => s + (x.value ?? 0), 0);
 
   const recentColumns: ColumnDef<ContractResponse>[] = [
     {
@@ -70,7 +70,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Active contracts</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : activeContracts}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total contract value</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : `${(totalValue / 1e9).toFixed(1)}B VND`}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total contract value</div><div className="text-xs text-muted-foreground">APPROVED + ACTIVE only</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : `${(approvedValue / 1e9).toFixed(1)}B VND`}</div></CardContent></Card>
             <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Outstanding balance</div><div className="text-sm text-muted-foreground mt-1">Pending billing-service — no mock balance shown.</div></CardContent></Card>
             <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Avg. payment delay</div><div className="text-sm text-muted-foreground mt-1">Pending billing-service.</div></CardContent></Card>
           </div>

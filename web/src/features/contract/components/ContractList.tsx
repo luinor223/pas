@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { contractsQuery, customersQuery } from "../hooks/contractQueries";
+import { contractsQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { ContractResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
@@ -63,15 +63,15 @@ export function ContractList() {
 
   const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: 25 };
   const listQ = useQuery(contractsQuery(listParams));
-  const customersQ = useQuery(customersQuery({ size: 100 }));
 
   const contracts = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: "", validTo: "", paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" },
   });
+  const selectedCustomerId = watch("customerId");
 
   const toNum = (v: string | null | undefined) => (v === null || v === undefined || v === "" ? null : Number(v));
 
@@ -154,7 +154,7 @@ export function ContractList() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Contracts ({total})</CardTitle>
-          {canWrite && <Button onClick={() => { reset({ customerId: customersQ.data?.content?.[0]?.id ?? "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
+          {canWrite && <Button onClick={() => { reset({ customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 lg:grid-cols-7 gap-2 items-end">
@@ -188,7 +188,10 @@ export function ContractList() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
-            <div><Label>Customer *</Label><Select {...register("customerId")}><option value="">Select</option>{(customersQ.data?.content ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</Select>{errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}</div>
+            <div>
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." />
+              {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
+            </div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
             <div className="grid grid-cols-2 gap-2"><div><Label>Service group *</Label><Select {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label>Currency</Label><Input {...register("currency")} placeholder="VND" /></div></div>
             <div className="grid grid-cols-3 gap-2"><div><Label>Value</Label><Input type="number" step="0.01" {...register("value")} /></div><div><Label>Valid from *</Label><Input type="date" {...register("validFrom")} />{errors.validFrom && <p className="text-xs text-destructive">{errors.validFrom.message}</p>}</div><div><Label>Valid to *</Label><Input type="date" {...register("validTo")} />{errors.validTo && <p className="text-xs text-destructive">{errors.validTo.message}</p>}</div></div>
@@ -205,7 +208,10 @@ export function ContractList() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Edit contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => updateMut.mutate(d))} className="space-y-3">
-            <div><Label>Customer *</Label><Select {...register("customerId")}><option value="">Select</option>{(customersQ.data?.content ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</Select></div>
+            <div>
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." />
+              {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
+            </div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
             <div className="grid grid-cols-2 gap-2"><div><Label>Service group *</Label><Select {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label>Currency</Label><Input {...register("currency")} /></div></div>
             <div className="grid grid-cols-3 gap-2"><div><Label>Value</Label><Input type="number" step="0.01" {...register("value")} /></div><div><Label>Valid from *</Label><Input type="date" {...register("validFrom")} /></div><div><Label>Valid to *</Label><Input type="date" {...register("validTo")} /></div></div>
