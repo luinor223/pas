@@ -46,7 +46,7 @@ class StatementTotalsTest {
         service = new StatementService(statements, lines, links, outbox,
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
-                mock(EsignGrpcClient.class));
+                mock(EsignGrpcClient.class), mock(com.abclogistics.pas.common.audit.AuditRecorder.class));
     }
 
     @Test
@@ -55,7 +55,7 @@ class StatementTotalsTest {
         when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
 
         service.editLine("PMT-2026-0001",
-                new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), null));
+                new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), null, 0));
 
         // 10 x 200 = 2000 subtotal, 8% VAT = 160, total 2160
         assertThat(stmt.getSubtotal()).isEqualByComparingTo("2000.00");
@@ -69,7 +69,7 @@ class StatementTotalsTest {
         when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
 
         var response = service.editLine("PMT-2026-0001",
-                new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), "agreed adj"));
+                new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), "agreed adj", 0));
 
         assertThat(stmt.getStatus()).isEqualTo(PaymentStatement.StatementStatus.DRAFT);
         assertThat(stmt.getLines().get(0).getSource()).isEqualTo(StatementLine.LineSource.MANUAL);
@@ -83,7 +83,7 @@ class StatementTotalsTest {
         when(lines.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.addLine("PMT-2026-0001", new AddLineRequest("STORAGE", "Storage", "day",
-                new BigDecimal("50.00"), new BigDecimal("4"), null));
+                new BigDecimal("50.00"), new BigDecimal("4"), null, 0));
 
         // 1000 + 200 = 1200 subtotal, 96 tax, 1296 total
         assertThat(stmt.getLines()).hasSize(2);
@@ -94,13 +94,24 @@ class StatementTotalsTest {
     }
 
     @Test
+    void staleVersionLosesLoudly() {
+        PaymentStatement stmt = calculatedStatement();
+        when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
+
+        assertThatThrownBy(() -> service.editLine("PMT-2026-0001",
+                new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), null, 7)))
+                .isInstanceOf(com.abclogistics.pas.billing.error.UnprocessableEntityException.class)
+                .hasMessageContaining("Stale statement version");
+    }
+
+    @Test
     void editIsRejectedOutsideDraftAndCalculated() {
         PaymentStatement stmt = calculatedStatement();
         stmt.setStatus(PaymentStatement.StatementStatus.SIGNED);
         when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
 
         assertThatThrownBy(() -> service.editLine("PMT-2026-0001",
-                new EditLineRequest(1, new BigDecimal("1.00"), new BigDecimal("1"), null)))
+                new EditLineRequest(1, new BigDecimal("1.00"), new BigDecimal("1"), null, 0)))
                 .isInstanceOf(FailedPreconditionException.class)
                 .hasMessageContaining("DRAFT or CALCULATED");
     }

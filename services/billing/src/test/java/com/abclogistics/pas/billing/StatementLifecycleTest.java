@@ -41,6 +41,7 @@ class StatementLifecycleTest {
 
     private PaymentStatementRepository statements;
     private OutboxRepository outbox;
+    private com.abclogistics.pas.common.audit.AuditRecorder audit;
     private StatementService service;
 
     @BeforeEach
@@ -49,10 +50,11 @@ class StatementLifecycleTest {
         StatementLineRepository lines = mock(StatementLineRepository.class);
         StatementLineVolumeRepository links = mock(StatementLineVolumeRepository.class);
         outbox = mock(OutboxRepository.class);
+        audit = mock(com.abclogistics.pas.common.audit.AuditRecorder.class);
         service = new StatementService(statements, lines, links, outbox,
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
-                mock(EsignGrpcClient.class));
+                mock(EsignGrpcClient.class), audit);
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -89,9 +91,10 @@ class StatementLifecycleTest {
 
         assertThat(response.status()).isEqualTo("SIGNING");
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outbox, org.mockito.Mockito.times(2)).save(captor.capture());
+        verify(outbox).save(captor.capture());
         assertThat(captor.getAllValues())
                 .anyMatch(e -> "esign.session_requested".equals(e.getEventType()));
+        verify(audit).record(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

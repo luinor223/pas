@@ -89,6 +89,16 @@ class BillingOutboxRelayTest {
     }
 
     @Test
+    void malformedPayloadSurfacesUnwrappedForParking() {
+        OutboxEvent poison = OutboxEvent.event("workflow.start_requested",
+                "PAYMENT_STATEMENT", UUID.randomUUID(), "{not json");
+
+        // must reach isPermanentFailure as a JacksonException, not a RuntimeException wrapper
+        assertThatThrownBy(() -> relay.dispatch(poison))
+                .isInstanceOf(tools.jackson.core.JacksonException.class);
+    }
+
+    @Test
     void unroutableTypeParksLoudly() {
         assertThatThrownBy(() -> relay.dispatch(
                 OutboxEvent.event("billing.something_new", "PAYMENT_STATEMENT", UUID.randomUUID(), "{}")))

@@ -184,7 +184,7 @@ class BillingCalculateIT {
         // driving the total negative is refused by the CHECK constraint — and would have slipped
         // through silently before edits recomputed totals (stale positive total at submit)
         assertThatThrownBy(() -> service.editLine(created.statementNo(),
-                new EditLineRequest(1, new BigDecimal("-5.00"), new BigDecimal("10"), null)))
+                new EditLineRequest(1, new BigDecimal("-5.00"), new BigDecimal("10"), null, created.version())))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
 
         // the submit-time guard remains as defence in depth for the same rule
@@ -230,6 +230,36 @@ class BillingCalculateIT {
                 new AdjustmentRequest.AdjustmentLineInput("CNT", "Container handling", "TEU",
                         new BigDecimal("100.00"), new BigDecimal("1"), null))));
         assertThat(adjustment.status()).isEqualTo("DRAFT");
+        assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
+    }
+
+    @Test
+    void adjustmentReentersBuildPathToSubmitted() {
+        // build + issue the original first
+        StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-12"));
+        String no = created.statementNo();
+        service.reconcile(no);
+        service.submit(no);
+        service.updateStatus(no, "APPROVED", "W-i");
+        service.sendForSigning(no);
+        var stmtId = statements.findByStatementNo(no).orElseThrow().getId();
+        UUID eventId = UUID.randomUUID();
+        esignListener.onEvent(
+                "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
+                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
+        service.publish(no);
+
+        // the MANUAL-only adjustment walks DRAFT -> CALCULATED -> RECONCILED -> SUBMITTED
+        // with no volume pulls and no mapping gate (PAY-05/m39)
+        var adjustment = service.createAdjustment(no, new AdjustmentRequest("short-count", List.of(
+                new AdjustmentRequest.AdjustmentLineInput("CNT", "Container handling", "TEU",
+                        new BigDecimal("100.00"), new BigDecimal("1"), null))));
+        var recalculated = service.recalculate(adjustment.statementNo());
+        assertThat(recalculated.status()).isEqualTo("CALCULATED");
+        assertThat(recalculated.lines()).hasSize(1);
+        assertThat(recalculated.lines().get(0).source()).isEqualTo("MANUAL");
+        var submitted = service.submit(service.reconcile(adjustment.statementNo()).statementNo());
+        assertThat(submitted.status()).isEqualTo("SUBMITTED");
         assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
     }
 
