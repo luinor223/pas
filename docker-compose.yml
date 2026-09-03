@@ -384,6 +384,82 @@ services:
     labels:
       - "traefik.enable=false"
 
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_notification
+      DB_USER: notification
+      DB_PASSWORD: notification
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      IDENTITY_GRPC_HOST: identity-service
+      IDENTITY_GRPC_PORT: 50051
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      # only operations.period_locked needs identity, and a missed lookup retries
+      identity-service:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.notification.loadbalancer.server.port=8008"
+      - "traefik.http.middlewares.notification-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.notification-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.notification-docs-strip.stripprefix.prefixes=/docs/notification"
+      - "traefik.http.routers.notification.rule=PathPrefix(`/api/v1/notifications`)"
+      - "traefik.http.routers.notification.entrypoints=web"
+      - "traefik.http.routers.notification.middlewares=notification-ratelimit,jwt-auth@file,api-v1-strip"
+      # docs - public
+      - "traefik.http.routers.notification-docs.rule=PathPrefix(`/docs/notification`)"
+      - "traefik.http.routers.notification-docs.entrypoints=web"
+      - "traefik.http.routers.notification-docs.service=notification"
+      - "traefik.http.routers.notification-docs.middlewares=notification-docs-strip"
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: services/audit/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_audit
+      DB_USER: audit
+      DB_PASSWORD: audit
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # no identity-service, no owner services: audit consumes pas.audit and calls nobody (D15)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.audit.loadbalancer.server.port=8009"
+      - "traefik.http.middlewares.audit-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.audit-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.audit-docs-strip.stripprefix.prefixes=/docs/audit"
+      - "traefik.http.routers.audit.rule=PathPrefix(`/api/v1/audit-records`)"
+      - "traefik.http.routers.audit.entrypoints=web"
+      - "traefik.http.routers.audit.middlewares=audit-ratelimit,jwt-auth@file,api-v1-strip"
+      # docs - public
+      - "traefik.http.routers.audit-docs.rule=PathPrefix(`/docs/audit`)"
+      - "traefik.http.routers.audit-docs.entrypoints=web"
+      - "traefik.http.routers.audit-docs.service=audit"
+      - "traefik.http.routers.audit-docs.middlewares=audit-docs-strip"
+
   web:
     build:
       context: ./web

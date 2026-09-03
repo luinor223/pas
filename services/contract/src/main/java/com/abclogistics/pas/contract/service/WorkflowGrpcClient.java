@@ -12,9 +12,11 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +28,8 @@ public class WorkflowGrpcClient {
     private final ManagedChannel channel;
     private final WorkflowInternalGrpc.WorkflowInternalBlockingStub stub;
 
+    // Select this constructor instead of the protected test constructor.
+    @Autowired
     public WorkflowGrpcClient(@Value("${workflow.grpc.host:localhost}") String host,
                               @Value("${workflow.grpc.port:50056}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
@@ -53,9 +57,11 @@ public class WorkflowGrpcClient {
         }
     }
 
+    /** {@code requestedById} is required: workflow rejects a start with no submitter (D16). */
     public UUID startInstance(UUID idempotencyKey, String documentTypeCode, UUID documentId,
                               String documentNo, String customerName, String priority,
                               UUID requestedById, String requestedByName) {
+        Objects.requireNonNull(requestedById, "requestedById");
         StartInstanceRequest request = StartInstanceRequest.newBuilder()
                 .setIdempotencyKey(idempotencyKey.toString())
                 .setDocumentType(documentTypeCode)
@@ -63,7 +69,7 @@ public class WorkflowGrpcClient {
                 .setDocumentNo(documentNo)
                 .setCustomerName(customerName == null ? "" : customerName)
                 .setPriority(priority == null ? "" : priority)
-                .setRequestedById(requestedById == null ? "" : requestedById.toString())
+                .setRequestedById(requestedById.toString())
                 .setRequestedByName(requestedByName == null ? "" : requestedByName)
                 .build();
         return UUID.fromString(deadlined().startInstance(request).getInstanceId());

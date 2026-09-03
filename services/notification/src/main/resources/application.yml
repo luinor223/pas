@@ -1,0 +1,74 @@
+server:
+  port: 8008
+
+spring:
+  application:
+    name: notification-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_notification}
+    username: ${DB_USER:notification}
+    password: ${DB_PASSWORD:notification}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: notification
+
+  flyway:
+    enabled: true
+    schemas: notification
+
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 200
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+identity:
+  grpc:
+    host: ${IDENTITY_GRPC_HOST:localhost}
+    port: ${IDENTITY_GRPC_PORT:50051}
+
+redis:
+  perm-cache-ttl: PT6H
+  perm-prefix: "perm:role:"
+
+# notification-service is a pure sink: it consumes, it never produces (db-notification.md).
+outbox:
+  relay:
+    enabled: false
+
+notification:
+  kafka:
+    # an IT that drives the listener directly turns the container off, so it does not also
+    # race a real poll against a broker that is not there
+    listener-enabled: true
+    dlt-suffix: ".DLT"
+    # ~4 minutes of retry before the DLT, so a database or identity restart is not an audit gap
+    retry-attempts: 8
+    retry-backoff: PT2S
+    max-retry-backoff: PT60S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

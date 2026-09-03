@@ -88,7 +88,7 @@ flowchart TB
 | dashed `-.→` | asynchronous Kafka publish / consume (labelled with event types, §4) |
 | dashed to Redis | permission-cache traffic (§6) — identity writes `perm:role:*`, every service reads it to authorize a request |
 
-`audit.recorded` is produced by all seven state-owning services and is the only stream on `pas.audit`; audit-service is a pure read-model sink (D15). `notification-service` and `audit-service` consume only — they have no internal callers and expose no gRPC.
+`audit.recorded` is produced by all seven state-owning services and is the only stream on `pas.audit`; audit-service is a pure read-model sink (D15). `notification-service` consumes only — it has no internal callers and exposes no gRPC. `audit-service` also only consumes events, but it does expose one read-only internal method, `AuditInternal.ListRecords` (§5), which fills an owning service's History tab; nothing may write to it over gRPC.
 
 ## Internal gRPC dependencies (sync, §5)
 

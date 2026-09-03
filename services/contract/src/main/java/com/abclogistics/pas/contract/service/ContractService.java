@@ -90,13 +90,26 @@ public class ContractService {
 
     @Transactional(readOnly = true)
     public Page<Contract> search(UUID customerId, String status, String serviceGroup,
-                                 String q, Pageable pageable) {
+                                 String q,
+                                 String validFromFrom, String validFromTo,
+                                 String validToFrom, String validToTo,
+                                 Pageable pageable) {
         return contracts.search(
                 customerId,
                 RequestValues.parseOptional("status", status, DocumentStatus::valueOf, DocumentStatus.values()),
                 RequestValues.parseOptional("serviceGroup", serviceGroup, ServiceGroup::valueOf, ServiceGroup.values()),
                 RequestValues.likePattern(q),
+                RequestValues.parseOptionalDate("validFromFrom", validFromFrom),
+                RequestValues.parseOptionalDate("validFromTo", validFromTo),
+                RequestValues.parseOptionalDate("validToFrom", validToFrom),
+                RequestValues.parseOptionalDate("validToTo", validToTo),
                 pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Contract> search(UUID customerId, String status, String serviceGroup,
+                                 String q, Pageable pageable) {
+        return search(customerId, status, serviceGroup, q, null, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -283,12 +296,13 @@ public class ContractService {
         transitions.transition(contract, DocumentStatus.SUBMITTED, TriggerKind.U, null,
                 "Submitted for approval");
 
-        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
+        // submit is an authenticated endpoint, and the instance records who asked for it
+        AuthenticatedUser actor = SecurityUtils.currentUser().orElseThrow(
+                () -> new IllegalStateException("submit requires an authenticated user"));
         WorkflowStartRequested payload = new WorkflowStartRequested(
                 UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),
                 contract.getCustomer().getName(), "NORMAL",
-                actor == null ? null : actor.userId(),
-                actor == null ? "system" : actor.fullName());
+                actor.userId(), actor.fullName());
         outbox.save(OutboxEvent.event(WorkflowStartRequested.EVENT_TYPE,
                 EntityType.CONTRACT.name(), contract.getId(), objectMapper.writeValueAsString(payload)));
     }

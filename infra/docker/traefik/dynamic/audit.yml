@@ -1,0 +1,31 @@
+# Routing lives here, not in the compose labels — see contract.yml for why. The labels are kept
+# for hosts where the docker provider does work and produce an identical router.
+http:
+  routers:
+    audit:
+      rule: PathPrefix(`/api/v1/audit-records`)
+      entryPoints: [web]
+      middlewares: [audit-ratelimit, jwt-auth@file, api-v1-strip]
+      service: audit
+    audit-docs:
+      rule: PathPrefix(`/docs/audit`)
+      entryPoints: [web]
+      middlewares: [audit-docs-strip]
+      service: audit
+
+  middlewares:
+    audit-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+    audit-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/audit]
+
+  services:
+    audit:
+      loadBalancer:
+        servers:
+          # gRPC (50059) is deliberately absent: AuditInternal.ListRecords is service-to-service
+          # only and never reaches the edge (01-architecture.md sealed internal)
+          - url: http://audit-service:8009

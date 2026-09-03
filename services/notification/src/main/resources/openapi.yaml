@@ -1,0 +1,102 @@
+openapi: 3.0.3
+info:
+  title: PAS Notification Service
+  version: 1.0.0
+  description: >
+    A pure sink (4.9). Every row here is produced by consuming `pas.events`; nothing in this API
+    creates a notification, and this service publishes no events of its own. The recipient is
+    always the caller — there is no path to another user's inbox — so `notification:read`
+    (held by every role, registry §7) is the only gate. Per-user preferences are a deliberate
+    drop (db-notification.md): 4.9 lists fixed triggers.
+servers:
+  - url: /api/v1
+    description: Gateway (strips /api/v1)
+
+paths:
+  /notifications:
+    get:
+      summary: The caller's inbox, newest first
+      description: >
+        Returns the page plus `unreadCount`, so the Figma bell badge and the list come from one
+        call. `unread` and `category` are the tab axes (§8: All / Unread / Approvals / E-signature
+        / Expiring) and combine — "unread approvals" is reachable. `unreadCount` is unfiltered by
+        both, because the badge sits beside the tabs and must not describe only the open one.
+        `counts` carries what each tab shows (14-notifications.png renders All 32, Unread 8,
+        Approvals 5, E-signature 3, Expiring 4) — keyed `all`, `unread` and by category, from one
+        group-by rather than a query per tab, and unfiltered for the same reason `unreadCount` is.
+      parameters:
+        - { name: unread, in: query, schema: { type: boolean, default: false } }
+        - name: category
+          in: query
+          description: omit for the All tab
+          schema: { type: string, enum: [APPROVAL, ESIGN, EXPIRY, SYSTEM] }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InboxResponse' }
+        '403': { description: Requires notification:read }
+      security: [{ bearerAuth: [] }]
+
+  /notifications/{id}/read:
+    patch:
+      summary: Mark one notification read
+      description: >
+        Idempotent — re-marking keeps the original `read_at`. A notification belonging to another
+        user is 404, not 403: the caller must not learn that it exists.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Marked }
+        '403': { description: Requires notification:read }
+        '404': { description: No such notification for this recipient }
+      security: [{ bearerAuth: [] }]
+
+  /notifications/read-all:
+    patch:
+      summary: Mark every unread notification read ("Mark all as read")
+      responses:
+        '204': { description: Marked }
+        '403': { description: Requires notification:read }
+      security: [{ bearerAuth: [] }]
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    InboxResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/NotificationResponse' }
+        total: { type: integer, format: int64 }
+        unreadCount:
+          type: integer
+          format: int64
+          description: unfiltered by unread/category, so the badge stays correct while the list is filtered
+        counts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+          description: "tab counters: all, unread, APPROVAL, ESIGN, EXPIRY, SYSTEM"
+    NotificationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        category:
+          type: string
+          enum: [APPROVAL, ESIGN, EXPIRY, SYSTEM]
+          description: drives the Figma tab filters (registry §8)
+        eventType: { type: string, description: the source event_type (registry §4) }
+        documentType: { type: string, nullable: true }
+        documentId: { type: string, format: uuid, nullable: true }
+        documentNo: { type: string, nullable: true }
+        title:
+          type: string
+          description: write-time snapshot — stays readable if the document is later renamed
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: string, format: date-time, nullable: true, description: null = unread }

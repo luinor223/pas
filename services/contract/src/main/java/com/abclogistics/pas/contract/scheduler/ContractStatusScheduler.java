@@ -52,10 +52,11 @@ public class ContractStatusScheduler {
     }
 
     /**
-     * One scheduled entry point, because the four sweeps are ordered, not independent. An addendum
-     * extending a contract past today has to activate BEFORE the expiry sweep looks at the parent;
-     * scheduling the four separately would let the expiry run first on some runs, expire the
-     * contract, and then fail the extension for ever (its parent is no longer amendable).
+     * One scheduled entry point, because the four sweeps are ordered, not independent. An
+     * addendum extending a contract past today has to activate BEFORE the expiry sweep looks at
+     * the parent; scheduling the four separately would let the expiry run first on some runs,
+     * expire the contract, and then fail the extension for ever (its parent is no longer
+     * amendable).
      */
     @Scheduled(fixedDelayString = "${contract.status-sweep-interval}")
     public void runSweep() {
@@ -66,8 +67,9 @@ public class ContractStatusScheduler {
 
     /**
      * The ordered sweep, callable without the schedule. Every document gets its own transaction
-     * and its own try: one that cannot move must not end the run. {@code today} is read once and
-     * threaded through, or a sweep starting at 23:59:59 judges its four passes against two dates.
+     * and its own try: one that cannot move must not end the run. {@code today} is read once
+     * and threaded through, or a sweep starting at 23:59:59 judges its four passes against two
+     * dates.
      */
     public void sweep() {
         LocalDate today = LocalDate.now();
@@ -112,8 +114,8 @@ public class ContractStatusScheduler {
     }
 
     /**
-     * D9: published directly, no outbox row — the stamp is written only after the ack, so a lost
-     * warning re-fires next sweep and an outbox row would buy nothing.
+     * D9: published directly, no outbox row — the stamp is written only after the ack, so a
+     * lost warning re-fires next sweep and an outbox row would buy nothing.
      */
     public void publishExpiryWarnings(LocalDate today) {
         LocalDate horizon = today.plusDays(warningDays);
@@ -146,21 +148,9 @@ public class ContractStatusScheduler {
 
         UUID eventId = eventId(warning);
 
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("event_id", eventId.toString());
-        envelope.put("event_type", DOCUMENT_EXPIRING);
-        envelope.put("occurred_at", java.time.Instant.now().toString());
-        // the §4 envelope is fixed and a scheduler has no actor, as AuditRecorder also stamps it
-        envelope.put("actor_id", null);
-        envelope.put("actor_name", "system");
-        envelope.put("document_type", DOCUMENT_TYPE);
-        envelope.put("document_id", warning.contractId().toString());
-        envelope.put("payload", payload);
-
-        // key set explicitly: a direct-publish event has no outbox row to take an aggregate_id
-        // from, and a null key would round-robin these across partitions (registry §4)
+        // value is the bare payload, exactly as OutboxRelay#kafkaRecord publishes every outboxe
         ProducerRecord<String, String> record = new ProducerRecord<>(EVENTS_TOPIC,
-                warning.contractId().toString(), objectMapper.writeValueAsString(envelope));
+                warning.contractId().toString(), objectMapper.writeValueAsString(payload));
         record.headers().add(header("event_type", DOCUMENT_EXPIRING));
         record.headers().add(header("document_type", DOCUMENT_TYPE));
         // where consumers read their dedup key, as OutboxRelay#kafkaRecord does for every event
@@ -169,10 +159,10 @@ public class ContractStatusScheduler {
     }
 
     /**
-     * Derived, not random — what makes this event retryable without an outbox row. The ack and the
-     * stamp cannot be atomic, so a crash between them re-warns and two replicas can both send; a
-     * fresh uuid would make each of those a new event the consumer cannot dedupe. valid_to is in
-     * the key so an extension earns a new id (registry §4 change log).
+     * Derived, not random — what makes this event retryable without an outbox row. The ack and
+     * the stamp cannot be atomic, so a crash between them re-warns and two replicas can both
+     * send; a fresh uuid would make each of those a new event the consumer cannot dedupe.
+     * valid_to is in the key so an extension earns a new id (registry §4 change log).
      */
     static UUID eventId(ContractService.ExpiryWarning warning) {
         String name = "%s:%s:%s".formatted(

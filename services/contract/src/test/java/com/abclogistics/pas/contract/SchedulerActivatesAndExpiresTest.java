@@ -29,6 +29,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.scheduler.ContractStatusScheduler;
 import org.springframework.dao.OptimisticLockingFailureException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.ContractService;
@@ -63,10 +64,6 @@ import static org.mockito.Mockito.when;
  * CTR-05 + D14d + D9. Date-driven transitions belong to the scheduler, never to a user, and the
  * expiry warning is a DIRECT publish with no outbox row — a lost warning re-fires next run, and
  * an outbox row would only add a second copy.
- *
- * <p>The sweeps are also ORDERED, which is most of what these tests defend: a renewal addendum has
- * to reach the parent before the expiry sweep looks at it, and addenda have to apply
- * oldest-effective-date first, or a sweep catching up on a backlog silently picks a loser.
  */
 @Tag("integration")
 @Testcontainers
@@ -119,8 +116,7 @@ class SchedulerActivatesAndExpiresTest {
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        // the sweeps and the warning counts are global by nature — one contract left ACTIVE by
-        // another test would be a candidate here too, so each test starts on an empty schema
+        // the sweeps and the warning counts are global by nature
         jdbc.execute("truncate contract.status_history, contract.outbox, contract.attachment,"
                 + " contract.addendum_service, contract.addendum, contract.contract,"
                 + " contract.customer_contact, contract.customer cascade");
@@ -159,8 +155,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void activationIgnoresSigningProgress() {
-        // D14e: contract activation does not consult or depend on signing state. APPROVED -> ACTIVE
-        // fires on schedule whether or not a signing session exists, is in progress, or failed.
+        // D14e: contract activation does not consult or depend on signing state
         UUID id = contract(TODAY.minusDays(1), TODAY.plusYears(1), DocumentStatus.APPROVED);
 
         scheduler.sweep();
@@ -190,8 +185,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void oneUnprocessableDocumentDoesNotStopTheSweep() {
-        // an addendum whose parent was cancelled mid-approval is refused for ever; the contracts
-        // behind it in the same run must still be activated
+        // an addendum whose parent was cancelled mid-approval is refused for ever; the contract
         UUID cancelled = contract(TODAY.minusYears(1), TODAY.plusYears(1), DocumentStatus.ACTIVE);
         UUID doomed = approvedAddendum(termExtension(cancelled, TODAY.minusDays(1), TODAY.plusYears(2)));
         setStatus(cancelled, DocumentStatus.CANCELLED);
@@ -207,9 +201,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void aRenewalAddendumIsAppliedBeforeTheParentIsExpired() {
-        // The reason the four sweeps share one scheduled entry point. The contract's stored
-        // valid_to is already in the past; the extension that saves it activates the same day.
-        // Expiring first would flip it to EXPIRED and then refuse the extension for ever.
+        // The reason the four sweeps share one scheduled entry point
         UUID contractId = contract(TODAY.minusYears(1), TODAY.minusDays(1), DocumentStatus.ACTIVE);
         UUID renewal = approvedAddendum(
                 termExtension(contractId, TODAY.minusDays(1), TODAY.plusMonths(6)));
@@ -223,8 +215,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void addendaActivateInEffectiveDateOrderNotCreationOrder() {
-        // A sweep that has not run for days sees both at once. Applying them in creation order
-        // would leave the OLDER payment term standing as the contract's current one.
+        // A sweep that has not run for days sees both at once
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusYears(1), DocumentStatus.ACTIVE);
         approvedAddendum(paymentTerms(contractId, TODAY.minusDays(1), "NET60"));   // created first
         approvedAddendum(paymentTerms(contractId, TODAY.minusDays(10), "NET45"));  // effective earlier
@@ -236,9 +227,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void twoAddendaOnTheSameEffectiveDateResolveByCreationTime() {
-        // 4.3 does not say who wins a same-effective_from tie, so created_at decides: created
-        // later, applied later, value stands. Two separate transactions cannot share a timestamp
-        // here; if they ever did, id would only keep the order stable, not pick the later one.
+        // 4.3 does not say who wins a same-effective_from tie, so created_at decides
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusYears(1), DocumentStatus.ACTIVE);
         approvedAddendum(paymentTerms(contractId, TODAY.minusDays(1), "NET45"));
         approvedAddendum(paymentTerms(contractId, TODAY.minusDays(1), "NET60"));
@@ -267,28 +256,26 @@ class SchedulerActivatesAndExpiresTest {
         ProducerRecord<String, String> record = captor.getValue();
         assertThat(record.topic()).isEqualTo("pas.events");
         // keyed explicitly on the document: with no outbox row there is no aggregate_id to take
-        // one from, and a null key would round-robin the warnings across partitions (registry §4)
         assertThat(record.key()).isEqualTo(id.toString());
         assertThat(header(record, "event_type")).isEqualTo("document.expiring");
         assertThat(header(record, "document_type")).isEqualTo("CONTRACT");
         // the dedup key, in the header where every consumer already reads it (OutboxRelay does
-        // the same for outboxed events) — and identical to the envelope's, not a second id
-        assertThat(header(record, "event_id")).isEqualTo(eventIdOf(record));
         assertThat(header(record, "event_id")).isEqualTo(expectedEventId(id, TODAY.plusDays(10)));
         assertThat(record.value())
                 .contains("\"days_left\":10")
                 .contains(TODAY.plusDays(10).toString())
                 .contains(contractNoOf(id));
-        // the §4 envelope in full: a scheduler has no actor, and omitting the two fields would
-        // make this the one event a consumer has to special-case
+        // the value is the §4 payload alone — the same shape OutboxRelay publishes
         assertThat(record.value())
-                .contains("\"event_id\":")
-                .contains("\"event_type\":\"document.expiring\"")
-                .contains("\"occurred_at\":")
-                .contains("\"actor_id\":null")
-                .contains("\"actor_name\":\"system\"")
-                .contains("\"document_type\":\"CONTRACT\"")
-                .contains("\"document_id\":\"%s\"".formatted(id));
+                .doesNotContain("\"event_id\"")
+                .doesNotContain("\"event_type\"")
+                .doesNotContain("\"payload\"");
+        JsonNode value = objectMapper.readTree(record.value());
+        assertThat(value.size()).isEqualTo(4);
+        assertThat(value.has("document_no")).isTrue();
+        assertThat(value.has("expires_on")).isTrue();
+        assertThat(value.has("days_left")).isTrue();
+        assertThat(value.has("owner_user_id")).isTrue();
     }
 
     @Test
@@ -314,9 +301,7 @@ class SchedulerActivatesAndExpiresTest {
     @Test
     @SuppressWarnings("unchecked")
     void anExtensionEarnsAFreshWarningForTheNewTerm() {
-        // The bug a plain "already warned" timestamp would have: warned in this term, extended,
-        // and then silent through the whole new one. The stamp is the valid_to it warned FOR, so
-        // moving valid_to makes the contract a candidate again with nothing to reset.
+        // The bug a plain "already warned" timestamp would have
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         scheduler.publishExpiryWarnings(TODAY);
 
@@ -333,8 +318,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void aFailedSendLeavesNoStampSoTheWarningRefires() {
-        // The whole justification for skipping the outbox (D9). Stamping before the ack would
-        // turn a broker hiccup into a warning nobody ever receives.
+        // The whole justification for skipping the outbox (D9)
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
@@ -354,8 +338,7 @@ class SchedulerActivatesAndExpiresTest {
     @Test
     @SuppressWarnings("unchecked")
     void theEventIdIsDerivedFromTheWarningNotGeneratedFresh() {
-        // The ack and the stamp cannot be atomic, so a crash between them re-sends. With a random
-        // event_id that is a NEW event to the consumer and it warns the customer twice.
+        // The ack and the stamp cannot be atomic, so a crash between them re-sends
         UUID id = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
@@ -418,9 +401,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void aStaleAddendumCandidateIsAQuietNoOp() {
-        // The shape @Version does NOT cover: a candidate read outside the transaction, activated
-        // by an earlier sweep, arriving sequentially with no version conflict to lose. Without the
-        // guard this is an illegal ACTIVE -> ACTIVE edge and the sweep logs a healthy document.
+        // The shape @Version does NOT cover: a candidate read outside the transaction
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         UUID addendumId = approvedAddendum(termExtension(contractId, TODAY, TODAY.plusYears(2)));
         addenda.activate(addendumId);
@@ -436,8 +417,7 @@ class SchedulerActivatesAndExpiresTest {
 
     @Test
     void concurrentAddendumActivationsApplyTheEffectExactlyOnce() {
-        // @Version: one commits, the others roll back history, audit AND parent effect together.
-        // However the interleaving falls, the parent is extended once.
+        // @Version: one commits, the others roll back history
         UUID contractId = contract(TODAY.minusYears(1), TODAY.plusDays(10), DocumentStatus.ACTIVE);
         UUID addendumId = approvedAddendum(termExtension(contractId, TODAY, TODAY.plusYears(2)));
 
@@ -550,8 +530,9 @@ class SchedulerActivatesAndExpiresTest {
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
+    /** The header, not the value: that is where every consumer reads its dedup key (registry §4). */
     private String eventIdOf(ProducerRecord<String, String> record) {
-        return objectMapper.readTree(record.value()).get("event_id").asString();
+        return header(record, "event_id");
     }
 
     private UUID contract(LocalDate validFrom, LocalDate validTo, DocumentStatus status) {
