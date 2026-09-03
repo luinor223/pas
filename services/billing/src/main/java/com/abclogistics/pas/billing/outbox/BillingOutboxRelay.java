@@ -85,14 +85,14 @@ public class BillingOutboxRelay extends OutboxRelay {
         // JacksonException payload failure from isPermanentFailure (poison row retried forever).
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
-            UUID idempotencyKey = UUID.fromString(required(p, "idempotency_key", event));
+            UUID idempotencyKey = requiredUuid(p, "idempotency_key", event);
             UUID requestedById = uuidOrNull(text(p, "requested_by_id"));
             String documentId = required(p, "document_id", event);
             String documentNo = required(p, "document_no", event);
             workflow.startInstance(
                 idempotencyKey,
                 required(p, "document_type", event),
-                UUID.fromString(documentId),
+                requiredUuid(p, "document_id", event),
                 documentNo,
                 text(p, "customer_name"),
                 "NORMAL",
@@ -139,6 +139,20 @@ public class BillingOutboxRelay extends OutboxRelay {
                     .formatted(event.getId(), event.getEventType(), field));
         }
         return value;
+    }
+
+    /**
+     * R1: a malformed UUID is corruption, not an outage — like a missing field it must park.
+     * (The optional {@code requested_by_id} stays lenient via {@link #uuidOrNull}.)
+     */
+    private static UUID requiredUuid(JsonNode node, String field, OutboxEvent event) {
+        try {
+            return UUID.fromString(required(node, field, event));
+        } catch (IllegalArgumentException e) {
+            throw new UnroutableEventException(
+                "Outbox row %s (%s) has a malformed UUID in payload field '%s'"
+                    .formatted(event.getId(), event.getEventType(), field));
+        }
     }
 
     @Override
