@@ -46,6 +46,7 @@ public class StatementService {
     private final EsignGrpcClient esignClient;
     private final com.abclogistics.pas.common.audit.AuditRecorder auditRecorder;
     private final StatusHistoryRepository historyRepo;
+    private final tools.jackson.databind.ObjectMapper objectMapper;
 
     public StatementService(PaymentStatementRepository statementRepo,
                             StatementLineRepository lineRepo,
@@ -57,7 +58,8 @@ public class StatementService {
                             WorkflowGrpcClient workflowClient,
                             EsignGrpcClient esignClient,
                             com.abclogistics.pas.common.audit.AuditRecorder auditRecorder,
-                            StatusHistoryRepository historyRepo) {
+                            StatusHistoryRepository historyRepo,
+                            tools.jackson.databind.ObjectMapper objectMapper) {
         this.statementRepo = statementRepo;
         this.lineRepo = lineRepo;
         this.lineVolumeRepo = lineVolumeRepo;
@@ -69,6 +71,7 @@ public class StatementService {
         this.esignClient = esignClient;
         this.auditRecorder = auditRecorder;
         this.historyRepo = historyRepo;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
@@ -86,7 +89,12 @@ public class StatementService {
 
     @Transactional
     public StatementResponse calculate(CalculateStatementRequest req) {
-        UUID contractId = UUID.fromString(req.contractId());
+        UUID contractId;
+        try {
+            contractId = UUID.fromString(req.contractId());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("contractId must be a UUID (got \"" + req.contractId() + "\")");
+        }
         String periodCode = req.periodCode();
 
         // 1. Sync pull: contract
@@ -96,7 +104,12 @@ public class StatementService {
         }
 
         // PAY-01: assert period within [valid_from, valid_to]
-        LocalDate periodStart = LocalDate.parse(periodCode + "-01");
+        LocalDate periodStart;
+        try {
+            periodStart = LocalDate.parse(periodCode + "-01");
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException("periodCode must be YYYY-MM (got \"" + periodCode + "\")");
+        }
         LocalDate periodEnd = periodStart.plusMonths(1).minusDays(1);
         if (contract.getValidFrom() != null && !contract.getValidFrom().isEmpty()) {
             LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
@@ -335,26 +348,27 @@ public class StatementService {
 
         // Submit wiring: write workflow.start_requested to outbox (D4)
         UUID idempotencyKey = UUID.randomUUID();
-        StringBuilder payload = new StringBuilder(String.format(
-            "{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
-                + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"customer_name\":\"%s\"}",
-            idempotencyKey, statement.getId(), statement.getStatementNo(),
-            escape(statement.getCustomerName())));
+        Map<String, String> payload = new java.util.LinkedHashMap<>();
+        payload.put("idempotency_key", idempotencyKey.toString());
+        payload.put("document_type", "PAYMENT_STATEMENT");
+        payload.put("document_id", String.valueOf(statement.getId()));
+        payload.put("document_no", statement.getStatementNo());
+        if (statement.getCustomerName() != null) {
+            payload.put("customer_name", statement.getCustomerName());
+        }
         UUID requestedById = SecurityUtils.currentUserId();
         String requestedByName = SecurityUtils.currentUserName();
         if (requestedById != null) {
-            payload.insert(payload.length() - 1,
-                ",\"requested_by_id\":\"" + requestedById + "\"");
+            payload.put("requested_by_id", requestedById.toString());
         }
         if (requestedByName != null && !requestedByName.isBlank()) {
-            payload.insert(payload.length() - 1,
-                ",\"requested_by_name\":\"" + escape(requestedByName) + "\"");
+            payload.put("requested_by_name", requestedByName);
         }
         OutboxEvent event = OutboxEvent.event(
             "workflow.start_requested",
             "PAYMENT_STATEMENT",
             statement.getId(),
-            payload.toString()
+            toJson(payload)
         );
         outboxRepo.save(event);
 
@@ -484,6 +498,12 @@ public class StatementService {
         List<StatementLine> calculated = statement.getLines().stream()
             .filter(l -> l.getSource() == StatementLine.LineSource.CALCULATED)
             .toList();
+        // Delete links explicitly first: never rely on REMOVE-cascade reaching a LAZY
+        // collection across deleteAll (no orphanRemoval, no ON DELETE CASCADE in V1).
+        lineVolumeRepo.deleteAll(calculated.stream()
+            .flatMap(l -> l.getVolumeLinks().stream())
+            .toList());
+        calculated.forEach(l -> l.getVolumeLinks().clear());
         lineRepo.deleteAll(calculated);
         statement.getLines().removeAll(calculated);
 
@@ -594,14 +614,18 @@ public class StatementService {
             PaymentStatement.StatementStatus.SIGNING, StatusHistory.TriggerKind.U, null);
 
         UUID esignKey = UUID.randomUUID();
+        Map<String, String> esignPayload = new java.util.LinkedHashMap<>();
+        esignPayload.put("idempotency_key", esignKey.toString());
+        esignPayload.put("document_type", "PAYMENT_STATEMENT");
+        esignPayload.put("document_id", String.valueOf(statement.getId()));
+        esignPayload.put("document_no", statement.getStatementNo());
+        esignPayload.put("signer_name",
+            statement.getCustomerName() != null ? statement.getCustomerName() : "");
         OutboxEvent esignEvent = OutboxEvent.event(
             "esign.session_requested",
             "PAYMENT_STATEMENT",
             statement.getId(),
-            String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
-                + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\"}",
-                esignKey, statement.getId(), statement.getStatementNo(),
-                escape(statement.getCustomerName() != null ? statement.getCustomerName() : ""))
+            toJson(esignPayload)
         );
         outboxRepo.save(esignEvent);
         auditOutbox(statement, "statement.send_for_signing",
@@ -813,9 +837,12 @@ public class StatementService {
         statement.setTotalAmount(subtotal.add(taxAmount));
     }
 
-    private static String escape(String value) {
-        if (value == null) return "";
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    private String toJson(Map<String, String> payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to serialize outbox payload", e);
+        }
     }
 
     private void auditOutbox(PaymentStatement statement, String action, String beforeStatus) {
