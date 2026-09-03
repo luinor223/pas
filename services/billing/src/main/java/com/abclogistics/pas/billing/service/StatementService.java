@@ -45,6 +45,7 @@ public class StatementService {
     private final WorkflowGrpcClient workflowClient;
     private final EsignGrpcClient esignClient;
     private final com.abclogistics.pas.common.audit.AuditRecorder auditRecorder;
+    private final StatusHistoryRepository historyRepo;
 
     public StatementService(PaymentStatementRepository statementRepo,
                             StatementLineRepository lineRepo,
@@ -55,7 +56,8 @@ public class StatementService {
                             OperationsGrpcClient operationsClient,
                             WorkflowGrpcClient workflowClient,
                             EsignGrpcClient esignClient,
-                            com.abclogistics.pas.common.audit.AuditRecorder auditRecorder) {
+                            com.abclogistics.pas.common.audit.AuditRecorder auditRecorder,
+                            StatusHistoryRepository historyRepo) {
         this.statementRepo = statementRepo;
         this.lineRepo = lineRepo;
         this.lineVolumeRepo = lineVolumeRepo;
@@ -66,6 +68,7 @@ public class StatementService {
         this.workflowClient = workflowClient;
         this.esignClient = esignClient;
         this.auditRecorder = auditRecorder;
+        this.historyRepo = historyRepo;
     }
 
     @Transactional(readOnly = true)
@@ -216,7 +219,7 @@ public class StatementService {
         recordHistory(statement, null, PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
 
         // 9. Audit outbox
-        auditOutbox(statement, "statement.calculated");
+        auditOutbox(statement, "statement.calculated", null);
 
         return toResponse(statement);
     }
@@ -258,7 +261,10 @@ public class StatementService {
             Map<String, BigDecimal> currentQty = volumes.getVolumesList().stream()
                 .collect(Collectors.toMap(VolumeRecord::getRecordNo,
                     vr -> BigDecimal.valueOf(vr.getQuantity()), (a, b) -> b));
+            // MANUAL lines are listed for visibility, not checked (m24): a human correction
+            // must never wedge reconciliation — only system-managed CALCULATED links drift.
             List<String> drifted = statement.getLines().stream()
+                .filter(l -> l.getSource() == StatementLine.LineSource.CALCULATED)
                 .flatMap(l -> l.getVolumeLinks().stream())
                 .filter(link -> !java.util.Objects.equals(
                     link.getQuantity().stripTrailingZeros(),
@@ -280,7 +286,7 @@ public class StatementService {
         statementRepo.saveAndFlush(statement);
 
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.RECONCILED, StatusHistory.TriggerKind.U, null);
-        auditOutbox(statement, "statement.reconciled");
+        auditOutbox(statement, "statement.reconciled", oldStatus.name());
         return toResponse(statement);
     }
 
@@ -329,87 +335,31 @@ public class StatementService {
 
         // Submit wiring: write workflow.start_requested to outbox (D4)
         UUID idempotencyKey = UUID.randomUUID();
+        StringBuilder payload = new StringBuilder(String.format(
+            "{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
+                + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"customer_name\":\"%s\"}",
+            idempotencyKey, statement.getId(), statement.getStatementNo(),
+            escape(statement.getCustomerName())));
         UUID requestedById = SecurityUtils.currentUserId();
         String requestedByName = SecurityUtils.currentUserName();
+        if (requestedById != null) {
+            payload.insert(payload.length() - 1,
+                ",\"requested_by_id\":\"" + requestedById + "\"");
+        }
+        if (requestedByName != null && !requestedByName.isBlank()) {
+            payload.insert(payload.length() - 1,
+                ",\"requested_by_name\":\"" + escape(requestedByName) + "\"");
+        }
         OutboxEvent event = OutboxEvent.event(
             "workflow.start_requested",
             "PAYMENT_STATEMENT",
             statement.getId(),
-            String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
-                + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"customer_name\":\"%s\","
-                + "\"requested_by_id\":\"%s\",\"requested_by_name\":\"%s\"}",
-                idempotencyKey, statement.getId(), statement.getStatementNo(),
-                escape(statement.getCustomerName()),
-                requestedById != null ? requestedById : "",
-                escape(requestedByName))
+            payload.toString()
         );
         outboxRepo.save(event);
 
-        auditOutbox(statement, "statement.submitted");
-        return toResponse(statement);
-    }
-
-    @Transactional
-    public StatementResponse updateStatus(String statementNo, String newStatus, String triggerRef) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
-
-        PaymentStatement.StatementStatus oldStatus = statement.getStatus();
-        PaymentStatement.StatementStatus status = PaymentStatement.StatementStatus.valueOf(newStatus);
-
-        // Validate allowed transitions per registry §9
-        boolean valid = switch (status) {
-            case DRAFT -> oldStatus == PaymentStatement.StatementStatus.CALCULATED
-                || oldStatus == PaymentStatement.StatementStatus.REJECTED
-                || oldStatus == PaymentStatement.StatementStatus.REVISION;
-            case RECONCILED -> oldStatus == PaymentStatement.StatementStatus.CALCULATED;
-            case SUBMITTED -> oldStatus == PaymentStatement.StatementStatus.RECONCILED;
-            case APPROVED -> oldStatus == PaymentStatement.StatementStatus.SUBMITTED;
-            case SIGNING -> oldStatus == PaymentStatement.StatementStatus.APPROVED;
-            case SIGNED -> oldStatus == PaymentStatement.StatementStatus.SIGNING;
-            case ISSUED -> oldStatus == PaymentStatement.StatementStatus.SIGNED;
-            case CANCELLED -> oldStatus == PaymentStatement.StatementStatus.APPROVED
-                || oldStatus == PaymentStatement.StatementStatus.SIGNED;
-            case REJECTED, REVISION -> oldStatus == PaymentStatement.StatementStatus.SUBMITTED;
-            default -> false;
-        };
-
-        if (!valid) {
-            throw new ConflictException("Invalid transition: " + oldStatus + " → " + status);
-        }
-
-        statement.setStatus(status);
-
-        if (status == PaymentStatement.StatementStatus.ISSUED) {
-            statement.setIssuedAt(Instant.now());
-            statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
-        }
-
-        statementRepo.saveAndFlush(statement);
-
-        StatusHistory.TriggerKind kind = triggerRef != null && triggerRef.startsWith("W")
-            ? StatusHistory.TriggerKind.W
-            : triggerRef != null && triggerRef.startsWith("E")
-                ? StatusHistory.TriggerKind.E : StatusHistory.TriggerKind.U;
-        recordHistory(statement, oldStatus, status, kind, triggerRef);
-
-        // On APPROVED→SIGNING: write esign.session_requested to outbox (D10, registry §6 third use)
-        if (oldStatus == PaymentStatement.StatementStatus.APPROVED
-            && status == PaymentStatement.StatementStatus.SIGNING) {
-            UUID esignKey = UUID.randomUUID();
-            OutboxEvent esignEvent = OutboxEvent.event(
-                "esign.session_requested",
-                "PAYMENT_STATEMENT",
-                statement.getId(),
-                String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
-                    + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\"}",
-                    esignKey, statement.getId(), statement.getStatementNo(),
-                    statement.getCustomerName() != null ? statement.getCustomerName() : "")
-            );
-            outboxRepo.save(esignEvent);
-        }
-
-        auditOutbox(statement, "statement.status_changed");
+        auditOutbox(statement, "statement.submitted",
+            PaymentStatement.StatementStatus.RECONCILED.name());
         return toResponse(statement);
     }
 
@@ -458,7 +408,7 @@ public class StatementService {
         }
 
         statementRepo.saveAndFlush(statement);
-        auditOutbox(statement, "statement.line_edited");
+        auditOutbox(statement, "statement.line_edited", status.name());
         return toResponse(statement);
     }
 
@@ -503,7 +453,7 @@ public class StatementService {
         }
 
         statementRepo.saveAndFlush(statement);
-        auditOutbox(statement, "statement.line_added");
+        auditOutbox(statement, "statement.line_added", status.name());
         return toResponse(statement);
     }
 
@@ -610,7 +560,8 @@ public class StatementService {
 
         recordHistory(statement, PaymentStatement.StatementStatus.DRAFT,
             PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
-        auditOutbox(statement, "statement.recalculated");
+        auditOutbox(statement, "statement.recalculated",
+            PaymentStatement.StatementStatus.DRAFT.name());
         return toResponse(statement);
     }
 
@@ -626,7 +577,7 @@ public class StatementService {
         statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
         statementRepo.saveAndFlush(statement);
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
-        auditOutbox(statement, "statement.revised");
+        auditOutbox(statement, "statement.revised", oldStatus.name());
         return toResponse(statement);
     }
 
@@ -653,7 +604,8 @@ public class StatementService {
                 escape(statement.getCustomerName() != null ? statement.getCustomerName() : ""))
         );
         outboxRepo.save(esignEvent);
-        auditOutbox(statement, "statement.send_for_signing");
+        auditOutbox(statement, "statement.send_for_signing",
+            PaymentStatement.StatementStatus.APPROVED.name());
         return toResponse(statement);
     }
 
@@ -670,7 +622,8 @@ public class StatementService {
         statementRepo.saveAndFlush(statement);
         recordHistory(statement, PaymentStatement.StatementStatus.SIGNED,
             PaymentStatement.StatementStatus.ISSUED, StatusHistory.TriggerKind.U, null);
-        auditOutbox(statement, "statement.published");
+        auditOutbox(statement, "statement.published",
+            PaymentStatement.StatementStatus.SIGNED.name());
         return toResponse(statement);
     }
 
@@ -740,7 +693,7 @@ public class StatementService {
         statementRepo.saveAndFlush(adjustment);
 
         recordHistory(adjustment, null, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
-        auditOutbox(adjustment, "statement.adjustment_created");
+        auditOutbox(adjustment, "statement.adjustment_created", null);
         return toResponse(adjustment);
     }
 
@@ -763,7 +716,7 @@ public class StatementService {
         statementRepo.saveAndFlush(statement);
 
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
-        auditOutbox(statement, "statement.cancelled");
+        auditOutbox(statement, "statement.cancelled", oldStatus.name());
         return toResponse(statement);
     }
 
@@ -783,9 +736,15 @@ public class StatementService {
             }
             return new WorkflowProgressResponse(statementNo, instance);
         } catch (io.grpc.StatusRuntimeException e) {
-            if (e.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
+            if (e.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND
+                && statement.getStatus() == PaymentStatement.StatementStatus.SUBMITTED) {
                 // D4 dispatch window: SUBMITTED with no instance yet — render, don't retry (§5.1).
+                // Any other state simply has no workflow to show; never fake "pending".
                 return new WorkflowProgressResponse(statementNo, Map.of("status", "INITIALIZATION_PENDING"));
+            }
+            if (e.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
+                return new WorkflowProgressResponse(statementNo,
+                    Map.of("status", statement.getStatus().name()));
             }
             throw e;
         }
@@ -805,6 +764,8 @@ public class StatementService {
         history.setActorId(SecurityUtils.currentUserId());
         history.setActorName(SecurityUtils.currentUserName());
         history.setOccurredAt(Instant.now());
+        // Explicit save (listeners do the same): never rely on commit-flush cascading alone.
+        historyRepo.save(history);
         statement.getStatusHistory().add(history);
     }
 
@@ -857,10 +818,10 @@ public class StatementService {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private void auditOutbox(PaymentStatement statement, String action) {
+    private void auditOutbox(PaymentStatement statement, String action, String beforeStatus) {
         // Serialized by AuditRecorder: no hand-built JSON, no "null"-string actor ids (finding 8).
         auditRecorder.record("PAYMENT_STATEMENT", statement.getId(), statement.getStatementNo(), action,
-            null, statement.getStatus().name(), null, Map.of());
+            beforeStatus, statement.getStatus().name(), null, Map.of());
     }
 
 

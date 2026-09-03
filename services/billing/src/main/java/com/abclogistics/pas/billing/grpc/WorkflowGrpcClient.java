@@ -57,7 +57,7 @@ public class WorkflowGrpcClient {
 
     public void validateStartable(String documentType) {
         log.debug("Calling WorkflowInternal.ValidateStartable(docType={})", documentType);
-        stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+        stub.withDeadlineAfter(2, TimeUnit.SECONDS)
             .validateStartable(ValidateStartableRequest.newBuilder()
                 .setDocumentType(documentType)
                 .build());
@@ -65,7 +65,7 @@ public class WorkflowGrpcClient {
 
     public GetInstanceByDocumentResponse getInstanceByDocument(String documentType, String documentId) {
         log.debug("Calling WorkflowInternal.GetInstanceByDocument(docType={}, docId={})", documentType, documentId);
-        return stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+        return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
             .getInstanceByDocument(GetInstanceByDocumentRequest.newBuilder()
                 .setDocumentType(documentType)
                 .setDocumentId(documentId)

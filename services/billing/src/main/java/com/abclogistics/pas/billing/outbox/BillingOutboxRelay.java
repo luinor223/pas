@@ -39,6 +39,9 @@ public class BillingOutboxRelay extends OutboxRelay {
      * (D4's dispatch window, §5.1); UNAUTHENTICATED / PERMISSION_DENIED / UNIMPLEMENTED describe
      * the deployment and recover on redeploy (§M2).
      */
+    // ALREADY_EXISTS is listed but unreachable: both dispatchers swallow it as idempotent
+    // success before it can surface here. Kept so a future dispatch branch that lets it
+    // through still parks instead of retrying forever.
     private static final Set<Status.Code> PERMANENT_STATUSES = EnumSet.of(
             Status.Code.FAILED_PRECONDITION, Status.Code.INVALID_ARGUMENT,
             Status.Code.OUT_OF_RANGE, Status.Code.ALREADY_EXISTS);
@@ -82,17 +85,19 @@ public class BillingOutboxRelay extends OutboxRelay {
         // JacksonException payload failure from isPermanentFailure (poison row retried forever).
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
-            UUID idempotencyKey = UUID.fromString(p.get("idempotency_key").asString());
+            UUID idempotencyKey = UUID.fromString(required(p, "idempotency_key", event));
             UUID requestedById = uuidOrNull(text(p, "requested_by_id"));
+            String documentId = required(p, "document_id", event);
+            String documentNo = required(p, "document_no", event);
             workflow.startInstance(
                 idempotencyKey,
-                p.get("document_type").asString(),
-                UUID.fromString(p.get("document_id").asString()),
-                p.get("document_no").asString(),
+                required(p, "document_type", event),
+                UUID.fromString(documentId),
+                documentNo,
                 text(p, "customer_name"),
                 "NORMAL",
                 requestedById, text(p, "requested_by_name"));
-            log.debug("StartInstance dispatched for statement {}", p.get("document_id").asString());
+            log.debug("StartInstance dispatched for statement {}", documentId);
         } catch (StatusRuntimeException e) {
             if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {
                 return;
@@ -104,21 +109,36 @@ public class BillingOutboxRelay extends OutboxRelay {
     private void dispatchCreateSigningSession(OutboxEvent event) throws Exception {
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
-            String idempotencyKey = p.get("idempotency_key").asString();
+            String idempotencyKey = required(p, "idempotency_key", event);
+            String documentId = required(p, "document_id", event);
             esign.createSigningSession(
-                p.get("document_type").asString(),
-                p.get("document_id").asString(),
-                p.get("document_no").asString(),
+                required(p, "document_type", event),
+                documentId,
+                required(p, "document_no", event),
                 text(p, "signer_name"),
                 "",
                 idempotencyKey);
-            log.debug("CreateSigningSession dispatched for statement {}", p.get("document_id").asString());
+            log.debug("CreateSigningSession dispatched for statement {}", documentId);
         } catch (StatusRuntimeException e) {
             if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {
                 return;
             }
             throw e;
         }
+    }
+
+    /**
+     * A parseable-but-incomplete payload is deployment corruption, not an outage: park it loudly
+     * instead of NPE-looping forever (NPE matches no permanent status).
+     */
+    private static String required(JsonNode node, String field, OutboxEvent event) {
+        String value = text(node, field);
+        if (value == null) {
+            throw new UnroutableEventException(
+                "Outbox row %s (%s) is missing required payload field '%s'"
+                    .formatted(event.getId(), event.getEventType(), field));
+        }
+        return value;
     }
 
     @Override
