@@ -19,6 +19,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
+import { Link } from "@tanstack/react-router";
 
 const CHANGE_TYPES = ["UNIT_PRICE_CHANGE", "TERM_EXTENSION", "ADDED_SERVICE", "PAYMENT_TERMS"];
 
@@ -50,7 +51,10 @@ export function AddendumList() {
   const qc = useQueryClient();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
-  const [contractId, setContractId] = useState(() => new URLSearchParams(window.location.search).get("contractId") ?? "");
+  // Deep-link default for the create form (e.g. contract detail's Create addendum).
+  // There is intentionally no contract filter: Figma has none, and contract-scoped
+  // addenda live on the contract detail page.
+  const [defaultContractId] = useState(() => new URLSearchParams(window.location.search).get("contractId") ?? "");
   const [status, setStatus] = useState("");
   const [changeType, setChangeType] = useState(() => new URLSearchParams(window.location.search).get("changeType") ?? "");
   const [q, setQ] = useState("");
@@ -58,7 +62,7 @@ export function AddendumList() {
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
-  const listQ = useQuery(addendaQuery({ contractId: contractId || undefined, status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: 25 }));
+  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: 25 }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
   const items = listQ.data?.content ?? [];
 
@@ -104,7 +108,10 @@ export function AddendumList() {
 
   const columns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
     { accessorKey: "addendumNo", header: "NO" },
-    { accessorKey: "contractNo", header: "CONTRACT" },
+    {
+      accessorKey: "contractNo", header: "CONTRACT",
+      cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.contractId } as never} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
+    },
     { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
@@ -131,22 +138,19 @@ export function AddendumList() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Addenda ({listQ.data?.totalElements ?? 0})</CardTitle>
-          {canWrite && <Button onClick={() => { reset({ contractId: contractsQ.data?.content?.[0]?.id ?? "", changeType: CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
+          {canWrite && <Button onClick={() => { reset({ contractId: defaultContractId || (contractsQ.data?.content?.[0]?.id ?? ""), changeType: changeType || CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 lg:grid-cols-6 gap-2">
-            <Select value={contractId} onChange={(e) => { setContractId(e.target.value); setPage(0); }}>
-              <option value="">Contract: All</option>{(contractsQ.data?.content ?? []).map((c) => <option key={c.id} value={c.id}>{c.contractNo} · {c.customerName}</option>)}
-            </Select>
-            <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-2 items-end">
+            <div><Label>Search</Label><Input placeholder="Search no/description..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} /></div>
+            <div><Label>Status</Label><Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
               <option value="">Status: All</option>{["DRAFT","SUBMITTED","UNDER_REVIEW","APPROVED","ACTIVE","REJECTED","REVISION_REQUESTED","CANCELLED"].map((s) => <option key={s} value={s}>{s}</option>)}
-            </Select>
-            <Select value={changeType} onChange={(e) => { setChangeType(e.target.value); setPage(0); }}>
+            </Select></div>
+            <div><Label>Change type</Label><Select value={changeType} onChange={(e) => { setChangeType(e.target.value); setPage(0); }}>
               <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </Select>
-            <Input placeholder="Search no/description..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} />
+            </Select></div>
             <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={() => { setContractId(""); setStatus(""); setChangeType(""); setQ(""); setPage(0); }}>Clear</Button>
+              <Button variant="outline" size="sm" onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }}>Clear</Button>
             </div>
           </div>
           {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={25} />}

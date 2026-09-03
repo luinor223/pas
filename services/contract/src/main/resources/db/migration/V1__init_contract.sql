@@ -372,7 +372,30 @@ insert into contract.addendum
 values
     ('e1111111-1111-4111-8111-111111111111', 'ADD-2026-0001',
      'd1111111-1111-4111-8111-111111111111', 'TERM_EXTENSION', 'Gia han den 28/02/2027',
-     '2026-06-01', '2027-02-28', null, 'ACTIVE', 'Le Ngoc Vi', '2026-05-10 09:00:00+00');
+     '2026-06-01', '2027-02-28', null, 'ACTIVE', 'Le Ngoc Vi', '2026-05-10 09:00:00+00'),
+-- DRAFT ADDED_SERVICE on an ACTIVE contract (submittable after attachment upload)
+    ('e2222222-2222-4222-8222-222222222222', 'ADD-2026-0002',
+     'd3333333-3333-4333-8333-333333333333', 'ADDED_SERVICE', 'Bo sung dich vu tang ca va trucking',
+     '2026-09-10', null, null, 'DRAFT', 'Nguyen Minh', '2026-09-03 09:00:00+00'),
+-- APPROVED PAYMENT_TERMS with future effective_from (D14d sweep leaves it until 15/10)
+    ('e3333333-3333-4333-8333-333333333333', 'ADD-2026-0003',
+     'd5555555-5555-4555-8555-555555555555', 'PAYMENT_TERMS', 'Doi dieu khoan thanh toan NET45',
+     '2026-10-15', null, 'NET45', 'APPROVED', 'Le Ngoc Vi', '2026-08-20 09:00:00+00'),
+-- ACTIVE UNIT_PRICE_CHANGE (record-only per D8, no parent effect)
+    ('e4444444-4444-4444-8444-444444444444', 'ADD-2026-0004',
+     'd7777777-7777-4777-8777-777777777777', 'UNIT_PRICE_CHANGE', 'Dieu chinh don gia theo mua cao diem',
+     '2026-02-01', null, null, 'ACTIVE', 'Tran Thu Ha', '2026-01-12 09:00:00+00');
+
+-- service lines for the ADDED_SERVICE draft
+insert into contract.addendum_service
+    (id, addendum_id, service_code, service_name, unit, scope_note)
+values
+    ('f2222222-2222-4222-8222-222222222221',
+     'e2222222-2222-4222-8222-222222222222', 'STV-004',
+     'Stevedoring - overtime gang', 'TEU', 'Night shift only'),
+    ('f2222222-2222-4222-8222-222222222222',
+     'e2222222-2222-4222-8222-222222222222', 'TRP-011',
+     'Last-mile trucking', 'trip', 'Cat Lai - ICD Trang Bom');
 
 -- status_history chains (registry §9 edges; abbreviated chains carry an explicit note)
 -- CTR-2026-0001: full lifecycle to ACTIVE
@@ -489,7 +512,30 @@ values
     ('ADDENDUM', 'e1111111-1111-4111-8111-111111111111', 'UNDER_REVIEW', 'APPROVED', 'W', gen_random_uuid(),
      'Tran Thu Ha', 'Seeded demo data', '2026-05-20 09:00:00+00'),
     ('ADDENDUM', 'e1111111-1111-4111-8111-111111111111', 'APPROVED', 'ACTIVE', 'S', null,
-     'system', 'Seeded demo data', '2026-06-01 09:00:00+00');
+     'system', 'Seeded demo data', '2026-06-01 09:00:00+00'),
+-- ADD-2026-0002: DRAFT creation row only
+    ('ADDENDUM', 'e2222222-2222-4222-8222-222222222222', null, 'DRAFT', 'U', null,
+     'Nguyen Minh', 'Seeded demo data', '2026-09-03 09:00:00+00'),
+-- ADD-2026-0003: chain stops at APPROVED (future effective_from)
+    ('ADDENDUM', 'e3333333-3333-4333-8333-333333333333', null, 'DRAFT', 'U', null,
+     'Le Ngoc Vi', 'Seeded demo data', '2026-08-20 09:00:00+00'),
+    ('ADDENDUM', 'e3333333-3333-4333-8333-333333333333', 'DRAFT', 'SUBMITTED', 'U', null,
+     'Le Ngoc Vi', 'Seeded demo data', '2026-08-22 09:00:00+00'),
+    ('ADDENDUM', 'e3333333-3333-4333-8333-333333333333', 'SUBMITTED', 'UNDER_REVIEW', 'W', gen_random_uuid(),
+     'Le Ngoc Vi', 'Seeded demo data', '2026-08-23 09:00:00+00'),
+    ('ADDENDUM', 'e3333333-3333-4333-8333-333333333333', 'UNDER_REVIEW', 'APPROVED', 'W', gen_random_uuid(),
+     'Tran Thu Ha', 'Seeded demo data', '2026-08-28 09:00:00+00'),
+-- ADD-2026-0004: full chain to ACTIVE
+    ('ADDENDUM', 'e4444444-4444-4444-8444-444444444444', null, 'DRAFT', 'U', null,
+     'Tran Thu Ha', 'Seeded demo data', '2026-01-12 09:00:00+00'),
+    ('ADDENDUM', 'e4444444-4444-4444-8444-444444444444', 'DRAFT', 'SUBMITTED', 'U', null,
+     'Tran Thu Ha', 'Seeded demo data', '2026-01-15 09:00:00+00'),
+    ('ADDENDUM', 'e4444444-4444-4444-8444-444444444444', 'SUBMITTED', 'UNDER_REVIEW', 'W', gen_random_uuid(),
+     'Tran Thu Ha', 'Seeded demo data', '2026-01-16 09:00:00+00'),
+    ('ADDENDUM', 'e4444444-4444-4444-8444-444444444444', 'UNDER_REVIEW', 'APPROVED', 'W', gen_random_uuid(),
+     'Tran Thu Ha', 'Seeded demo data', '2026-01-22 09:00:00+00'),
+    ('ADDENDUM', 'e4444444-4444-4444-8444-444444444444', 'APPROVED', 'ACTIVE', 'S', null,
+     'system', 'Seeded demo data', '2026-02-01 09:00:00+00');
 
 -- counters past the seeds
 update contract.customer_counter set next_seq = 9 where id = true;
@@ -497,4 +543,4 @@ insert into contract.document_counter (doc_type, year, next_seq) values
     ('CONTRACT', 2026, 9),
     ('CONTRACT', 2025, 4),
     ('CONTRACT', 2024, 2),
-    ('ADDENDUM', 2026, 2);
+    ('ADDENDUM', 2026, 5);
