@@ -52,7 +52,7 @@ public class ContractController {
                                        @RequestParam(required = false) String validToFrom,
                                        @RequestParam(required = false) String validToTo,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CONTRACT_SORTS, PageableGuard.MAX_SIZE);
+        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CONTRACT_SORTS);
         return contracts.search(customerId, status, serviceGroup, q,
                         validFromFrom, validFromTo, validToFrom, validToTo, safe)
                 .map(ContractResponse::of);

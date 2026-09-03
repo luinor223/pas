@@ -24,6 +24,12 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
     Optional<Contract> findByContractNo(String contractNo);
 
+    long countByCustomerId(UUID customerId);
+
+    /** Per-customer contract counts in one aggregate query (no N+1, exact at any scale). */
+    @Query("select c.customer.id, count(c) from Contract c where c.customer.id in :ids group by c.customer.id")
+    List<Object[]> countByCustomerIds(@Param("ids") List<UUID> ids);
+
     @EntityGraph(attributePaths = {"customer"})
     @Query("""
             select c from Contract c

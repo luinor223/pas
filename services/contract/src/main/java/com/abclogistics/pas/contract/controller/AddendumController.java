@@ -50,7 +50,7 @@ public class AddendumController {
                                        @RequestParam(required = false) String effectiveFromFrom,
                                        @RequestParam(required = false) String effectiveFromTo,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.ADDENDUM_SORTS, PageableGuard.MAX_SIZE);
+        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.ADDENDUM_SORTS);
         return addenda.search(contractId, status, changeType, q, effectiveFromFrom, effectiveFromTo, safe)
                 .map(AddendumResponse::of);
     }
