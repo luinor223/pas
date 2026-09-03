@@ -2,6 +2,9 @@
 
 plugins {
     `java-library`
+    // the wire-shape fixture every consumer test builds its records with, so a consumer
+    // spec cannot drift from what OutboxRelay actually publishes
+    `java-test-fixtures`
 }
 
 dependencies {
@@ -12,6 +15,8 @@ dependencies {
     api(libs.spring.boot.starter.json)
     api(libs.spring.kafka)
     compileOnly(libs.springdoc.openapi)
+
+    testFixturesApi(libs.spring.kafka)
 
     testImplementation(libs.spring.boot.starter.test)
     // Hibernate picks its JSON FormatMapper by classpath detection and looks for Jackson 2, not

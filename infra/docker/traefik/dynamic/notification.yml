@@ -1,0 +1,29 @@
+# Routing lives here, not in the compose labels — see contract.yml for why. The labels are kept
+# for hosts where the docker provider does work and produce an identical router.
+http:
+  routers:
+    notification:
+      rule: PathPrefix(`/api/v1/notifications`)
+      entryPoints: [web]
+      middlewares: [notification-ratelimit, jwt-auth@file, api-v1-strip]
+      service: notification
+    notification-docs:
+      rule: PathPrefix(`/docs/notification`)
+      entryPoints: [web]
+      middlewares: [notification-docs-strip]
+      service: notification
+
+  middlewares:
+    notification-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+    notification-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/notification]
+
+  services:
+    notification:
+      loadBalancer:
+        servers:
+          - url: http://notification-service:8008

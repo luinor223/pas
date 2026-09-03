@@ -17,20 +17,21 @@ import java.util.UUID;
 
 public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
-    // Controller maps to DTO outside the tx (open-in-view=false), so single-get must
-    // fetch customer eagerly like search does — otherwise LazyInitializationException.
-    @EntityGraph(attributePaths = {"customer"})
+    // Response mapping happens after the service transaction closes.
+    @Override
+    @EntityGraph(attributePaths = "customer")
     Optional<Contract> findById(UUID id);
 
+    @EntityGraph(attributePaths = "customer")
     Optional<Contract> findByContractNo(String contractNo);
 
     long countByCustomerId(UUID customerId);
 
-    /** Per-customer contract counts in one aggregate query (no N+1, exact at any scale). */
+    /** Per-customer contract counts in one aggregate query (no N+1). */
     @Query("select c.customer.id, count(c) from Contract c where c.customer.id in :ids group by c.customer.id")
     List<Object[]> countByCustomerIds(@Param("ids") List<UUID> ids);
 
-    @EntityGraph(attributePaths = {"customer"})
+    @EntityGraph(attributePaths = "customer")
     @Query("""
             select c from Contract c
             where (:customerId is null or c.customer.id = :customerId)

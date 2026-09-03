@@ -22,6 +22,7 @@ public class EsignGrpcClient {
     private final ManagedChannel channel;
     private final EsignInternalGrpc.EsignInternalBlockingStub stub;
 
+    // Select this constructor instead of the protected test constructor.
     @Autowired
     public EsignGrpcClient(@Value("${esign.grpc.host:localhost}") String host,
                            @Value("${esign.grpc.port:50057}") int port) {
