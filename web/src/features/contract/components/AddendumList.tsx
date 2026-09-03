@@ -50,15 +50,15 @@ export function AddendumList() {
   const qc = useQueryClient();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
-  const [contractId, setContractId] = useState("");
+  const [contractId, setContractId] = useState(() => new URLSearchParams(window.location.search).get("contractId") ?? "");
   const [status, setStatus] = useState("");
-  const [changeType, setChangeType] = useState("");
+  const [changeType, setChangeType] = useState(() => new URLSearchParams(window.location.search).get("changeType") ?? "");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
-  const listQ = useQuery(addendaQuery({ contractId: contractId || undefined, status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: 20 }));
+  const listQ = useQuery(addendaQuery({ contractId: contractId || undefined, status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: 25 }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
   const items = listQ.data?.content ?? [];
 
@@ -149,11 +149,14 @@ export function AddendumList() {
               <Button variant="outline" size="sm" onClick={() => { setContractId(""); setStatus(""); setChangeType(""); setQ(""); setPage(0); }}>Clear</Button>
             </div>
           </div>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" />}
-          <div className="flex gap-2 text-sm">
-            <Button size="sm" variant="outline" disabled={page===0} onClick={() => setPage((p)=>Math.max(0,p-1))}>Previous</Button>
-            <span className="py-1 text-xs text-muted-foreground">Page {page+1} · {listQ.data?.totalPages ?? 1}</span>
-            <Button size="sm" variant="outline" disabled={!listQ.data || page+1 >= (listQ.data.totalPages ?? 1)} onClick={() => setPage((p)=>p+1)}>Next</Button>
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={25} />}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-xs text-muted-foreground">Rows per page: 25</span>
+            <div className="flex gap-2 items-center">
+              <Button size="sm" variant="outline" disabled={page===0} onClick={() => setPage((p)=>Math.max(0,p-1))}>Previous</Button>
+              <span className="py-1 text-xs text-muted-foreground">Page {page+1} · {listQ.data?.totalPages ?? 1}</span>
+              <Button size="sm" variant="outline" disabled={!listQ.data || page+1 >= (listQ.data.totalPages ?? 1)} onClick={() => setPage((p)=>p+1)}>Next</Button>
+            </div>
           </div>
         </CardContent>
       </Card>

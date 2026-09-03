@@ -12,7 +12,6 @@ import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
-import { Badge } from "@/shared/components/badge";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -49,7 +48,7 @@ export function ContractList() {
   const canWrite = useHasPermission("contract:write");
   const canEsign = useHasPermission("esign:send");
   const [q, setQ] = useState("");
-  const [customerId, setCustomerId] = useState("");
+  const [customerId, setCustomerId] = useState(() => new URLSearchParams(window.location.search).get("customerId") ?? "");
   const [status, setStatus] = useState("");
   const [serviceGroup, setServiceGroup] = useState("");
   const [validFromFrom, setValidFromFrom] = useState("");
@@ -59,7 +58,7 @@ export function ContractList() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editVersion, setEditVersion] = useState<number | null>(null);
 
-  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: 20 };
+  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: 25 };
   const listQ = useQuery(contractsQuery(listParams));
   const customersQ = useQuery(customersQuery({ size: 100 }));
 
@@ -102,33 +101,53 @@ export function ContractList() {
     });
   };
 
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  const fmtDate = (iso: string) => {
+    const [y, m, d] = iso.split("-");
+    return y && m && d ? `${d}/${m}/${y}` : iso;
+  };
+  const fmtMoney = (v: number | null, cur: string) =>
+    v == null ? "—" : `${v.toLocaleString("vi-VN")} ${cur === "VND" ? "" : cur}`.trim();
+
   const columns = useMemo<ColumnDef<ContractResponse>[]>(() => [
     {
-      accessorKey: "contractNo", header: "NO",
+      accessorKey: "contractNo", header: "CONTRACT NO.",
       cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.id } as never} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
     },
-    { accessorKey: "customerName", header: "CUSTOMER" },
-    { accessorKey: "serviceGroup", header: "GROUP", cell: ({ row }) => <Badge variant="secondary">{row.original.serviceGroup}</Badge> },
-    { accessorKey: "validFrom", header: "PERIOD", cell: ({ row }) => <span className="text-xs">{row.original.validFrom} → {row.original.validTo}</span> },
+    { accessorKey: "customerName", header: "CUSTOMER", cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span> },
+    { accessorKey: "serviceGroup", header: "SERVICE GROUP", cell: ({ row }) => <span className="text-sm capitalize">{row.original.serviceGroup.toLowerCase().replace(/_/g, " ")}</span> },
+    { accessorKey: "value", header: "VALUE (VND)", cell: ({ row }) => <span className="tabular-nums">{fmtMoney(row.original.value, row.original.currency)}</span> },
+    { accessorKey: "validFrom", header: "EFFECTIVE", cell: ({ row }) => <span className="text-xs">{fmtDate(row.original.validFrom)}</span> },
+    { accessorKey: "validTo", header: "EXPIRY", cell: ({ row }) => <span className="text-xs">{fmtDate(row.original.validTo)}</span> },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
-      id: "actions", header: "ACTIONS", enableSorting: false,
+      id: "actions", header: "", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
         const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
+        const open = openMenuId === c.id;
         return (
-          <div className="flex flex-wrap gap-1">
-            <Button size="sm" variant="outline" onClick={() => window.location.href = `/contracts?id=${c.id}`}>View</Button>
-            {canWrite && <Button size="sm" variant="outline" disabled={!editable} title={!editable ? "Only DRAFT/REVISION_REQUESTED editable (CTR-01)" : undefined} onClick={() => onEdit(c)}>Edit</Button>}
-            {canWrite && c.status === "DRAFT" && <Button size="sm" onClick={() => submitMut.mutate(c.id)}>Submit</Button>}
-            {canWrite && c.status === "REJECTED" && <Button size="sm" onClick={() => reviseMut.mutate(c.id)}>Revise</Button>}
-            {canWrite && <Button size="sm" variant="destructive" onClick={() => cancelMut.mutate(c.id)}>Cancel</Button>}
-            {canEsign && c.status === "APPROVED" && <Button size="sm" variant="secondary" onClick={() => sendMut.mutate(c.id)}>Send for signing</Button>}
+          <div className="relative text-right">
+            <Button size="sm" variant="ghost" onClick={() => setOpenMenuId(open ? null : c.id)} title="Row actions">...</Button>
+            {open && (
+              <div className="absolute right-0 z-10 w-44 rounded-md border bg-white shadow-lg text-left text-sm" onMouseLeave={() => setOpenMenuId(null)}>
+                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/contracts?id=${c.id}`; }}>View details</button>
+                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/contracts?id=${c.id}&tab=attachments`; }}>Download</button>
+                {canWrite && editable && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); onEdit(c); }}>Edit</button>}
+                {canWrite && c.status === "DRAFT" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); submitMut.mutate(c.id); }}>Submit for approval</button>}
+                {canWrite && c.status === "REJECTED" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); reviseMut.mutate(c.id); }}>Revise</button>}
+                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/addenda?contractId=${c.id}`; }}>Create addendum</button>}
+                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/addenda?contractId=${c.id}&changeType=TERM_EXTENSION`; }}>Renew contract</button>}
+                {canEsign && c.status === "APPROVED" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); sendMut.mutate(c.id); }}>Send for signing</button>}
+                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left text-destructive" onClick={() => { setOpenMenuId(null); cancelMut.mutate(c.id); }}>Cancel contract</button>}
+              </div>
+            )}
           </div>
         );
       },
     },
-  ], [canWrite, canEsign]);
+  ], [canWrite, canEsign, openMenuId]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">Need <code>contract:read</code></CardContent></Card>;
 
@@ -156,11 +175,14 @@ export function ContractList() {
             <Input type="date" value={validToTo} onChange={(e) => { setValidToTo(e.target.value); setPage(0); }} placeholder="Valid to ≤" />
             <Button variant="outline" onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); setPage(0); }}>Clear</Button>
           </div>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" />}
-          <div className="flex gap-2 text-sm">
-            <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</Button>
-            <span className="py-1 text-xs text-muted-foreground">Page {page + 1} · {listQ.data?.totalPages ?? 1}</span>
-            <Button size="sm" variant="outline" disabled={!listQ.data || page + 1 >= (listQ.data.totalPages ?? 1)} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={25} />}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-xs text-muted-foreground">Rows per page: 25</span>
+            <div className="flex gap-2 items-center">
+              <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</Button>
+              <span className="py-1 text-xs text-muted-foreground">Page {page + 1} · {listQ.data?.totalPages ?? 1}</span>
+              <Button size="sm" variant="outline" disabled={!listQ.data || page + 1 >= (listQ.data.totalPages ?? 1)} onClick={() => setPage((p) => p + 1)}>Next</Button>
+            </div>
           </div>
           {(submitMut.isError || cancelMut.isError || reviseMut.isError || sendMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? cancelMut.error ?? reviseMut.error ?? sendMut.error) as unknown as Error, "Action failed")}</div>}
         </CardContent>
