@@ -123,6 +123,20 @@ class AuditRecordSearchIT {
     }
 
     @Test
+    void searchMatchesPartialRecordNumbersCaseInsensitively() {
+        Page<AuditRecord> page = audit.search(null, "hd-2026-00", null, null, null, null, null, first());
+
+        assertThat(page.getTotalElements()).isEqualTo(3);
+    }
+
+    @Test
+    void searchAlsoMatchesPartialActorNames() {
+        Page<AuditRecord> page = audit.search(null, "thi l", null, null, null, null, null, first());
+
+        assertThat(page.getTotalElements()).isEqualTo(4);
+    }
+
+    @Test
     void aFilterMatchingNothingReturnsAnEmptyPageNotEverything() {
         // the `:x is null or ...` idiom fails open if a parameter is bound wrong
         Page<AuditRecord> page = audit.search(null, null, UUID.randomUUID(), null, null, null, null, first());
