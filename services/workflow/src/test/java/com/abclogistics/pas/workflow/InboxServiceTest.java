@@ -6,7 +6,8 @@ import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.repository.StepAssigneeRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowActionRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowInstanceRepository;
-import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import com.abclogistics.pas.workflow.service.InboxService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,7 +25,6 @@ import static org.mockito.Mockito.when;
 class InboxServiceTest {
 
     @Mock WorkflowInstanceRepository instances;
-    @Mock WorkflowStepInstanceRepository steps;
     @Mock StepAssigneeRepository assignees;
     @Mock WorkflowActionRepository actions;
 
@@ -41,10 +41,11 @@ class InboxServiceTest {
                 instance, 1, "Legal review", "LEGAL_REVIEWER", 48, "ACTIVE");
         ReflectionTestUtils.setField(step, "id", stepId);
         StepAssignee assignee = new StepAssignee(step, userId, "Reviewer");
-        when(assignees.findActiveWithFetchByUserId(userId)).thenReturn(List.of(assignee));
+        when(assignees.findInboxPage(userId, null, null, null, PageRequest.of(0, 15)))
+                .thenReturn(new PageImpl<>(List.of(assignee), PageRequest.of(0, 15), 1));
 
-        var item = new InboxService(instances, steps, assignees, actions)
-                .assignedToMe(userId).items().getFirst();
+        var item = new InboxService(instances, assignees, actions)
+                .assignedToMe(userId, 0, 15, null, null, null).items().getFirst();
 
         assertThat(item.instanceId()).isEqualTo(instanceId);
         assertThat(item.stepInstanceId()).isEqualTo(stepId);

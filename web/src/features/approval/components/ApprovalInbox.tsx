@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Download, RefreshCw, RotateCcw, X } from "lucide-react";
@@ -44,20 +44,29 @@ export function ApprovalInbox() {
   const canAct = useHasPermission("approval:act");
   const [tab, setTab] = useState<ApprovalTab>("ASSIGNED");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [documentType, setDocumentType] = useState("");
   const [priority, setPriority] = useState("");
   const [page, setPage] = useState(0);
   const [reasonDialog, setReasonDialog] = useState<ReasonDialogState>(null);
+  const [approveTarget, setApproveTarget] = useState<ApprovalInboxItem | null>(null);
 
-  const assignedQuery = useQuery({
-    ...approvalInboxQuery("ASSIGNED"),
-    refetchInterval: 30_000,
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const activeQuery = useQuery({
+    ...approvalInboxQuery(tab, {
+      page,
+      size: DEFAULT_PAGE_SIZE,
+      q: debouncedSearch || undefined,
+      documentType: documentType || undefined,
+      priority: priority || undefined,
+    }),
+    refetchInterval: tab === "ASSIGNED" ? 30_000 : false,
     refetchIntervalInBackground: false,
   });
-  const submittedQuery = useQuery(approvalInboxQuery("SUBMITTED"));
-  const completedQuery = useQuery(approvalInboxQuery("COMPLETED"));
-  const queries = { ASSIGNED: assignedQuery, SUBMITTED: submittedQuery, COMPLETED: completedQuery };
-  const activeQuery = queries[tab];
   const items = activeQuery.data?.items ?? [];
 
   const actionMutation = useMutation({
@@ -67,22 +76,13 @@ export function ApprovalInbox() {
     },
     onSuccess: () => {
       setReasonDialog(null);
+      setApproveTarget(null);
       queryClient.invalidateQueries({ queryKey: ["approval-inbox"] });
     },
   });
 
-  const needle = search.trim().toLowerCase();
-  const filtered = items.filter((item) => {
-    const matchesSearch = !needle || [item.documentNo, item.customerName, item.currentStepName, item.requestedByName]
-      .some((value) => value?.toLowerCase().includes(needle));
-    return matchesSearch
-      && (!documentType || item.documentTypeCode === documentType)
-      && (!priority || item.priority === priority);
-  });
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / DEFAULT_PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages - 1);
-  const visible = filtered.slice(currentPage * DEFAULT_PAGE_SIZE, (currentPage + 1) * DEFAULT_PAGE_SIZE);
+  const totalPages = Math.max(1, activeQuery.data?.totalPages ?? 1);
+  const totalItems = activeQuery.data?.totalItems ?? 0;
 
   function changeTab(next: ApprovalTab) {
     setTab(next);
@@ -109,7 +109,7 @@ export function ApprovalInbox() {
 
   function exportVisibleItems() {
     const header = ["Document", "Customer", "Type", "Workflow step", "Priority", "Status", "Submitted by", "Created at"];
-    const rows = filtered.map((item) => [
+    const rows = items.map((item) => [
       item.documentNo, item.customerName ?? "", documentTypeLabel(item.documentTypeCode), item.currentStepName ?? "",
       humanize(item.priority), humanize(item.status), item.requestedByName ?? "", item.createdAt,
     ]);
@@ -128,7 +128,7 @@ export function ApprovalInbox() {
     <div className="space-y-4">
       <div className="flex border-b border-border">
         {TABS.map(({ value, label }) => {
-          const count = queries[value].data?.items.length;
+          const count = tab === value ? activeQuery.data?.totalItems : undefined;
           return (
             <button
               key={value}
@@ -174,17 +174,17 @@ export function ApprovalInbox() {
         </Select>
         {hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
         <span className="ml-auto text-xs text-muted-foreground">
-          {tab === "ASSIGNED" ? `${filtered.length} awaiting action` : `${filtered.length} records`}
+          {tab === "ASSIGNED" ? `${totalItems} awaiting action` : `${totalItems} records`}
         </span>
-        <Button variant="outline" size="sm" onClick={exportVisibleItems} disabled={filtered.length === 0}>
-          <Download size={14} className="mr-1.5" /> Export
+        <Button variant="outline" size="sm" onClick={exportVisibleItems} disabled={items.length === 0}>
+          <Download size={14} className="mr-1.5" /> Export page
         </Button>
         <Button variant="outline" size="sm" onClick={() => activeQuery.refetch()} disabled={activeQuery.isFetching}>
           <RefreshCw size={14} className={cn("mr-1.5", activeQuery.isFetching && "animate-spin")} /> Refresh
         </Button>
       </div>
 
-      {actionMutation.isError && !reasonDialog && (
+      {actionMutation.isError && !reasonDialog && !approveTarget && (
         <div role="alert" className="text-sm text-destructive">
           {getApiErrorMessage(actionMutation.error, "Could not update this approval. Refresh and try again.")}
         </div>
@@ -196,7 +196,7 @@ export function ApprovalInbox() {
             <p className="p-6 text-sm text-muted-foreground">Loading approvals...</p>
           ) : activeQuery.isError ? (
             <p className="p-6 text-sm text-destructive">{getApiErrorMessage(activeQuery.error, "Could not load approvals")}</p>
-          ) : visible.length === 0 ? (
+          ) : items.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-sm font-medium">{hasFilters ? "No approvals match your filters" : emptyMessage(tab)}</p>
               <p className="mt-1 text-xs text-muted-foreground">{hasFilters ? "Try changing or clearing the filters." : emptyHelp(tab)}</p>
@@ -216,7 +216,7 @@ export function ApprovalInbox() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map((item) => (
+                {items.map((item) => (
                   <TableRow key={`${item.instanceId}-${item.stepInstanceId ?? item.currentStepOrder}`}>
                     <TableCell className="font-medium">{documentLink(item)}</TableCell>
                     <TableCell className="font-medium">{item.customerName || "—"}</TableCell>
@@ -237,7 +237,7 @@ export function ApprovalInbox() {
                             size="sm"
                             className="bg-emerald-600 hover:bg-emerald-700"
                             disabled={!canAct || !item.stepInstanceId || actionMutation.isPending}
-                            onClick={() => actionMutation.mutate({ item, action: "APPROVE" })}
+                            onClick={() => { actionMutation.reset(); setApproveTarget(item); }}
                           >
                             <Check size={14} className="mr-1" /> Approve
                           </Button>
@@ -270,12 +270,12 @@ export function ApprovalInbox() {
         </CardContent>
       </Card>
 
-      {!activeQuery.isLoading && !activeQuery.isError && filtered.length > 0 && (
+      {!activeQuery.isLoading && !activeQuery.isError && items.length > 0 && (
         <PaginationControls
-          page={currentPage}
+          page={page}
           totalPages={totalPages}
           pageSize={DEFAULT_PAGE_SIZE}
-          totalItems={filtered.length}
+          totalItems={totalItems}
           onPageChange={setPage}
         />
       )}
@@ -290,7 +290,47 @@ export function ApprovalInbox() {
           if (reasonDialog) actionMutation.mutate({ item: reasonDialog.item, action: reasonDialog.action, comment });
         }}
       />
+      <ApproveDialog
+        item={approveTarget}
+        pending={actionMutation.isPending}
+        error={approveTarget && actionMutation.isError ? actionMutation.error : undefined}
+        onClose={() => { if (!actionMutation.isPending) { actionMutation.reset(); setApproveTarget(null); } }}
+        onConfirm={() => { if (approveTarget) actionMutation.mutate({ item: approveTarget, action: "APPROVE" }); }}
+      />
     </div>
+  );
+}
+
+function ApproveDialog({
+  item, pending, error, onClose, onConfirm,
+}: {
+  item: ApprovalInboxItem | null;
+  pending: boolean;
+  error?: unknown;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!item) return null;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Approve {item.documentNo}?</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            {item.customerName || documentTypeLabel(item.documentTypeCode)}
+            {item.currentStepName ? ` · ${item.currentStepName}` : ""}
+          </p>
+        </DialogHeader>
+        <p className="text-sm">This records your approval and moves the document to its next workflow step. This action cannot be undone here.</p>
+        {error != null && <p role="alert" className="text-sm text-destructive">{getApiErrorMessage(error, "Could not approve this request")}</p>}
+        <DialogFooter>
+          <Button variant="outline" disabled={pending} onClick={onClose}>Keep reviewing</Button>
+          <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={pending} onClick={onConfirm}>
+            {pending ? "Approving..." : "Approve request"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

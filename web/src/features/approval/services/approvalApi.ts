@@ -3,9 +3,8 @@ import { toParams } from "@/shared/api/paging";
 import type { ApprovalAction, ApprovalInboxResponse, ApprovalTab } from "../types/approvalTypes";
 
 export const approvalApi = {
-  inbox: (tab: ApprovalTab) =>
-    api.get<ApprovalInboxResponse>(`/inbox${toParams({ tab })}`).then((response) => response.data),
+  inbox: (tab: ApprovalTab, params: { page: number; size: number; q?: string; documentType?: string; priority?: string }) =>
+    api.get<ApprovalInboxResponse>(`/inbox${toParams({ tab, ...params })}`).then((response) => response.data),
   act: (stepInstanceId: string, action: ApprovalAction, comment?: string) =>
     api.post(`/workflow-steps/${stepInstanceId}/actions`, { action, comment: comment || null }).then(() => undefined),
 };
-

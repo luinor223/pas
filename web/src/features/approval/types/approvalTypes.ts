@@ -19,5 +19,6 @@ export type ApprovalInboxItem = {
   requestedByName: string | null;
 };
 
-export type ApprovalInboxResponse = { items: ApprovalInboxItem[] };
+import type { PagedResult } from "@/shared/api/paging";
 
+export type ApprovalInboxResponse = PagedResult<ApprovalInboxItem>;

@@ -6,70 +6,77 @@ import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.repository.StepAssigneeRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowActionRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowInstanceRepository;
-import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Locale;
 
 @Service
 public class InboxService {
 
     private final WorkflowInstanceRepository instanceRepo;
-    private final WorkflowStepInstanceRepository stepInstanceRepo;
     private final StepAssigneeRepository assigneeRepo;
     private final WorkflowActionRepository actionRepo;
 
     public InboxService(WorkflowInstanceRepository instanceRepo,
-                        WorkflowStepInstanceRepository stepInstanceRepo,
                         StepAssigneeRepository assigneeRepo,
                         WorkflowActionRepository actionRepo) {
         this.instanceRepo = instanceRepo;
-        this.stepInstanceRepo = stepInstanceRepo;
         this.assigneeRepo = assigneeRepo;
         this.actionRepo = actionRepo;
     }
 
     @Transactional(readOnly = true)
-    public InboxResponse assignedToMe(UUID userId) {
-        // JOIN FETCH avoids N+1 (P2#10)
-        List<com.abclogistics.pas.workflow.domain.StepAssignee> assignees = assigneeRepo.findActiveWithFetchByUserId(userId);
+    public InboxResponse assignedToMe(UUID userId, int page, int size, String q, String documentType, String priority) {
+        var assignees = assigneeRepo.findInboxPage(userId, searchTerm(q), filter(documentType), filter(priority), PageRequest.of(page, size));
         List<InboxResponse.InboxItem> items = new ArrayList<>();
-        for (var sa : assignees) {
+        for (var sa : assignees.getContent()) {
             WorkflowStepInstance step = sa.getStepInstance();
             WorkflowInstance inst = step.getInstance();
             items.add(toItem(inst, step));
         }
-        return new InboxResponse(items);
+        return response(items, assignees);
     }
 
     @Transactional(readOnly = true)
-    public InboxResponse submittedByMe(UUID userId) {
-        List<WorkflowInstance> instances = instanceRepo.findByRequestedBy(userId);
-        List<InboxResponse.InboxItem> items = instances.stream().map(inst -> {
-            // find current active step if any
-            WorkflowStepInstance current = null;
-            if (inst.getCurrentStepOrder() != null) {
-                current = stepInstanceRepo.findByInstance_IdAndStepOrder(inst.getId(), inst.getCurrentStepOrder()).orElse(null);
-            }
-            return toItem(inst, current);
-        }).toList();
-        return new InboxResponse(items);
+    public InboxResponse submittedByMe(UUID userId, int page, int size, String q, String documentType, String priority) {
+        var rows = instanceRepo.findSubmittedInboxPage(
+                userId, searchTerm(q), filter(documentType), filter(priority), PageRequest.of(page, size));
+        List<InboxResponse.InboxItem> items = rows.getContent().stream()
+                .map(row -> toItem(row.getInstance(), row.getStep()))
+                .toList();
+        return response(items, rows);
     }
 
     @Transactional(readOnly = true)
-    public InboxResponse completed(UUID userId) {
-        // JOIN FETCH avoids N+1 (each action would lazy-load step+instance) — review P2
-        var actions = actionRepo.findByActorIdWithFetchOrderByCreatedAtDesc(userId);
+    public InboxResponse completed(UUID userId, int page, int size, String q, String documentType, String priority) {
+        var actions = actionRepo.findCompletedInboxPage(
+                userId, searchTerm(q), filter(documentType), filter(priority), PageRequest.of(page, size));
         List<InboxResponse.InboxItem> items = new ArrayList<>();
-        for (var action : actions) {
+        for (var action : actions.getContent()) {
             WorkflowStepInstance step = action.getStepInstance();
             WorkflowInstance inst = step.getInstance();
             items.add(toItem(inst, step));
         }
-        return new InboxResponse(items);
+        return response(items, actions);
+    }
+
+    private InboxResponse response(List<InboxResponse.InboxItem> items, Page<?> result) {
+        return new InboxResponse(items, result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
+    }
+
+    private String searchTerm(String value) {
+        String normalized = filter(value);
+        return normalized == null ? null : "%" + normalized.toLowerCase(Locale.ROOT) + "%";
+    }
+
+    private String filter(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private InboxResponse.InboxItem toItem(WorkflowInstance inst, WorkflowStepInstance step) {

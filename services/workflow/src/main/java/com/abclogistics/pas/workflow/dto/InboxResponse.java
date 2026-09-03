@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-public record InboxResponse(List<InboxItem> items) {
+public record InboxResponse(List<InboxItem> items, int page, int size, long totalItems, int totalPages) {
     public record InboxItem(
             UUID instanceId,
             UUID stepInstanceId,

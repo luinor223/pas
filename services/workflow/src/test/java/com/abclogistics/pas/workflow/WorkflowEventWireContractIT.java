@@ -8,6 +8,7 @@ import com.abclogistics.pas.workflow.domain.WorkflowInstance;
 import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
 import com.abclogistics.pas.workflow.service.WorkflowInstanceService;
+import com.abclogistics.pas.workflow.service.InboxService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,7 @@ class WorkflowEventWireContractIT {
     }
 
     @Autowired WorkflowInstanceService instances;
+    @Autowired InboxService inbox;
     @Autowired WorkflowStepInstanceRepository steps;
     @Autowired OutboxRepository outbox;
     @Autowired StubIdentityGrpcClient identity;
@@ -159,6 +161,21 @@ class WorkflowEventWireContractIT {
 
         assertThat(published()).isNotEmpty();
         assertThat(published()).extracting(OutboxEvent::topic).containsOnly("pas.events");
+    }
+
+    @Test
+    void submittedInboxIsFilteredAndPagedWithItsCurrentStep() {
+        WorkflowInstance instance = startInstance();
+
+        var result = inbox.submittedByMe(
+                requester, 0, 15, "HD-2026", "CONTRACT", "NORMAL");
+
+        assertThat(result.totalItems()).isEqualTo(1);
+        assertThat(result.items()).singleElement().satisfies(item -> {
+            assertThat(item.instanceId()).isEqualTo(instance.getId());
+            assertThat(item.currentStepName()).isNotBlank();
+            assertThat(item.stepInstanceId()).isNotNull();
+        });
     }
 
     private WorkflowInstance startInstance() {
