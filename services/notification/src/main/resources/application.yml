@@ -23,6 +23,10 @@ spring:
     schemas: notification
 
   data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 200
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
