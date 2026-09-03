@@ -290,7 +290,7 @@ export function CustomerList() {
       </Dialog>
 
       <Dialog open={!!viewContactsId} onOpenChange={(o) => !o && setViewContactsId(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
+        <DialogContent className="max-w-3xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>{viewContactsQ.data?.name ?? "Customer"} · Contacts</DialogTitle></DialogHeader>
           {viewContactsQ.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading contacts...</div>

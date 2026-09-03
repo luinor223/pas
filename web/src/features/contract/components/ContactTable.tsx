@@ -1,26 +1,36 @@
-import { useMemo } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
-import { DataTable } from "@/shared/components/data-table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
 import { Badge } from "@/shared/components/badge";
 import type { CustomerContactResponse } from "../types/contractTypes";
 
-// Labeled contacts table — used by the customer detail Contacts tab and the
-// list's View contacts dialog (replaces the compact unlabeled rows).
+// Labeled contacts table — plain (no sorting/pagination needed for a handful
+// of contacts) so headers never wrap and columns breathe. Used by the customer
+// detail Contacts tab and the list's View contacts dialog.
 export function ContactTable({ contacts }: { contacts: CustomerContactResponse[] }) {
-  const columns = useMemo<ColumnDef<CustomerContactResponse>[]>(() => [
-    {
-      accessorKey: "fullName", header: "FULL NAME",
-      cell: ({ row }) => (
-        <span className="font-medium">
-          {row.original.fullName}{" "}
-          {row.original.primary && <Badge variant="secondary" className="ml-1">primary</Badge>}
-        </span>
-      ),
-    },
-    { accessorKey: "title", header: "TITLE", cell: ({ row }) => <span>{row.original.title ?? "—"}</span> },
-    { accessorKey: "email", header: "EMAIL", cell: ({ row }) => <span>{row.original.email ?? "—"}</span> },
-    { accessorKey: "phone", header: "PHONE", cell: ({ row }) => <span>{row.original.phone ?? "—"}</span> },
-  ], []);
-
-  return <DataTable columns={columns} data={contacts} emptyMessage="No contacts" pageSize={25} />;
+  if (contacts.length === 0) {
+    return <div className="py-6 text-center text-sm text-muted-foreground">No contacts.</div>;
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="whitespace-nowrap">FULL NAME</TableHead>
+          <TableHead className="whitespace-nowrap">TITLE</TableHead>
+          <TableHead className="whitespace-nowrap">EMAIL</TableHead>
+          <TableHead className="whitespace-nowrap">PHONE</TableHead>
+          <TableHead className="whitespace-nowrap">ROLE</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {contacts.map((c) => (
+          <TableRow key={c.id}>
+            <TableCell className="font-medium whitespace-nowrap">{c.fullName}</TableCell>
+            <TableCell>{c.title ?? "—"}</TableCell>
+            <TableCell>{c.email ?? "—"}</TableCell>
+            <TableCell className="whitespace-nowrap">{c.phone ?? "—"}</TableCell>
+            <TableCell>{c.primary ? <Badge variant="secondary">primary</Badge> : <span className="text-xs text-muted-foreground">secondary</span>}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 }
