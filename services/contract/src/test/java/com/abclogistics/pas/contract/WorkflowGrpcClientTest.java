@@ -158,17 +158,24 @@ class WorkflowGrpcClientTest {
     }
 
     @Test
-    void aSystemActorSendsEmptyStringsNotNulls() {
-        // proto3 has no null; setting one throws. A scheduler-driven start has no actor.
+    void theOptionalFieldsSendEmptyStringsNotNulls() {
+        // proto3 has no null; setting one throws.
         workflow.instanceId = UUID.randomUUID();
 
         client.startInstance(UUID.randomUUID(), "CONTRACT", UUID.randomUUID(), "CTR-2026-0002",
-                null, null, null, null);
+                null, null, UUID.randomUUID(), null);
 
         StartInstanceRequest sent = workflow.lastStart.get();
         assertThat(sent.getCustomerName()).isEmpty();
-        assertThat(sent.getRequestedById()).isEmpty();
         assertThat(sent.getRequestedByName()).isEmpty();
+    }
+
+    @Test
+    void aStartWithNoSubmitterIsRejectedBeforeItLeavesTheClient() {
+        assertThatThrownBy(() -> client.startInstance(UUID.randomUUID(), "CONTRACT",
+                UUID.randomUUID(), "CTR-2026-0003", null, null, null, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("requestedById");
     }
 
     @Test

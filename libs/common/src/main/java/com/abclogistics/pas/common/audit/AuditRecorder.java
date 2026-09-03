@@ -16,10 +16,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Writes an {@code audit.recorded} row to the outbox in the caller's transaction.
- * Actor is taken from the security context, or null for system/scheduler actions.
- */
+/** Writes {@code audit.recorded} to the caller's outbox transaction. */
 @Component
 public class AuditRecorder {
 

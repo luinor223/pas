@@ -71,8 +71,9 @@ public class WorkflowInstanceService {
     }
 
     /**
-     * Read-only pre-submit check: OK when every step of active definition resolves to >=1 ACTIVE assignee.
-     * Used by owner services before local SUBMITTED commit (ValidateStartable gRPC).
+     * Read-only pre-submit check: OK when every step of active definition resolves to >=1
+     * ACTIVE assignee. Used by owner services before local SUBMITTED commit (ValidateStartable
+     * gRPC).
      */
     @Transactional(readOnly = true)
     public void validateStartable(String documentTypeCode) {
@@ -282,7 +283,8 @@ public class WorkflowInstanceService {
                         "instance_id", instance.getId().toString(),
                         "outcome", "APPROVED",
                         "document_no", instance.getDocumentNo(),
-                        "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
+                        "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
+                        "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
                 ));
                 emit(instance.getDocumentId(), "workflow.step_actioned", instance.getDocumentTypeCode(), Map.of(
                         "instance_id", instance.getId().toString(),
@@ -290,7 +292,8 @@ public class WorkflowInstanceService {
                         "action", action,
                         "comment", comment != null ? comment : "",
                         "document_no", instance.getDocumentNo(),
-                        "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
+                        "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
+                        "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
                 ));
             } else {
                 // activate next step
@@ -308,7 +311,8 @@ public class WorkflowInstanceService {
                         "action", action,
                         "comment", comment != null ? comment : "",
                         "document_no", instance.getDocumentNo(),
-                        "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
+                        "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
+                        "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
                 ));
                 // step_assigned for next
                 List<StepAssignee> nextAssignees = assigneeRepo.findByStepInstance_Id(next.getId());
@@ -348,7 +352,8 @@ public class WorkflowInstanceService {
                     "instance_id", instance.getId().toString(),
                     "outcome", newStatus,
                     "document_no", instance.getDocumentNo(),
-                    "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
+                    "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
+                    "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
             ));
             emit(instance.getDocumentId(), "workflow.step_actioned", instance.getDocumentTypeCode(), Map.of(
                     "instance_id", instance.getId().toString(),
@@ -356,7 +361,8 @@ public class WorkflowInstanceService {
                     "action", action,
                     "comment", comment,
                     "document_no", instance.getDocumentNo(),
-                    "requested_by", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
+                    "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
+                    "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
             ));
             audit.record("WORKFLOW_STEP", step.getId(), auditName,
                     null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));

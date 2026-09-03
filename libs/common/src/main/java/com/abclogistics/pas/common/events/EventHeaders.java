@@ -9,10 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * The consumer side of registry §4's wire contract, shared because both consumers read it the
- * same way and a second copy is a second chance to drift.
- */
+/** Reads the shared Kafka wire contract from headers and payload. */
 public final class EventHeaders {
 
     public static final String EVENT_ID = "event_id";
@@ -36,6 +33,7 @@ public final class EventHeaders {
         return value;
     }
 
+    /** Reads the required UUID deduplication key. */
     public static UUID eventId(ConsumerRecord<?, ?> record) {
         String value = required(record, EVENT_ID);
         try {
@@ -45,6 +43,7 @@ public final class EventHeaders {
         }
     }
 
+    /** Reads the record value as a JSON object. */
     public static Map<String, Object> payload(ConsumerRecord<?, String> record, ObjectMapper mapper) {
         Object parsed;
         try {
