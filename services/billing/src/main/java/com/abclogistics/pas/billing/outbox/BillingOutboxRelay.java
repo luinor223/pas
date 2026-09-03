@@ -89,7 +89,10 @@ public class BillingOutboxRelay extends OutboxRelay {
                 p.get("document_no").asString(),
                 text(p, "signer_name"),
                 "",
-                idempotencyKey);
+                idempotencyKey,
+                text(p, "customer_name"),
+                text(p, "requested_by"),
+                text(p, "requested_by_name"));
             log.debug("CreateSigningSession dispatched for statement {}", p.get("document_id").asString());
         } catch (StatusRuntimeException e) {
             if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {

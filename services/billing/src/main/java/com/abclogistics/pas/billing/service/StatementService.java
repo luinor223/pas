@@ -332,14 +332,20 @@ public class StatementService {
         if (oldStatus == PaymentStatement.StatementStatus.APPROVED
             && status == PaymentStatement.StatementStatus.SIGNING) {
             UUID esignKey = UUID.randomUUID();
+            String customerName = statement.getCustomerName() != null ? statement.getCustomerName() : "";
+            UUID requestedBy = SecurityUtils.currentUserId();
+            String requestedByName = SecurityUtils.currentUserName();
             OutboxEvent esignEvent = OutboxEvent.event(
                 "esign.session_requested",
                 "PAYMENT_STATEMENT",
                 statement.getId(),
                 String.format("{\"idempotency_key\":\"%s\",\"document_type\":\"PAYMENT_STATEMENT\","
-                    + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\"}",
-                    esignKey, statement.getId(), statement.getStatementNo(),
-                    statement.getCustomerName() != null ? statement.getCustomerName() : "")
+                    + "\"document_id\":\"%s\",\"document_no\":\"%s\",\"signer_name\":\"%s\","
+                    + "\"customer_name\":\"%s\",\"requested_by\":\"%s\",\"requested_by_name\":\"%s\"}",
+                    esignKey, statement.getId(), statement.getStatementNo(), customerName,
+                    customerName,
+                    requestedBy != null ? requestedBy.toString() : "",
+                    requestedByName != null ? requestedByName : "")
             );
             outboxRepo.save(esignEvent);
         }
