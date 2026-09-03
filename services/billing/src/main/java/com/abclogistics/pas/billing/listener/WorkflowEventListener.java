@@ -1,122 +1,150 @@
 package com.abclogistics.pas.billing.listener;
 
 import com.abclogistics.pas.billing.domain.PaymentStatement;
+import com.abclogistics.pas.billing.domain.ProcessedEvent;
 import com.abclogistics.pas.billing.domain.StatusHistory;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
-import com.abclogistics.pas.common.events.EventHeaders;
-import com.abclogistics.pas.common.events.MalformedEventException;
+import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
+import com.abclogistics.pas.billing.repository.StatusHistoryRepository;
+import com.abclogistics.pas.common.audit.AuditRecorder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Consumes {@code workflow.completed} from {@code pas.events} to flip
- * SUBMITTED → APPROVED / REJECTED / REVISION (registry §4, §9).
- * Also handles the order-tolerant case where {@code workflow.completed}
- * arrives while the document is still SUBMITTED (applies the skipped
- * SUBMITTED → UNDER_REVIEW first, then the outcome).
+ * Consumes {@code workflow.completed} to flip SUBMITTED → APPROVED / REJECTED / REVISION
+ * (registry §4, §9). Idempotent via {@code processed_event}; status + history + audit commit
+ * together (D15/D17).
  */
 @Component
 public class WorkflowEventListener {
 
+    static final String COMPLETED = "workflow.completed";
+
     private static final Logger log = LoggerFactory.getLogger(WorkflowEventListener.class);
 
-    private final PaymentStatementRepository statementRepo;
+    private final PaymentStatementRepository statements;
+    private final ProcessedEventRepository processed;
+    private final StatusHistoryRepository history;
+    private final AuditRecorder audit;
+    private final ObjectMapper objectMapper;
 
-    public WorkflowEventListener(PaymentStatementRepository statementRepo) {
-        this.statementRepo = statementRepo;
+    public WorkflowEventListener(PaymentStatementRepository statements,
+                                 ProcessedEventRepository processed,
+                                 StatusHistoryRepository history,
+                                 AuditRecorder audit,
+                                 ObjectMapper objectMapper) {
+        this.statements = statements;
+        this.processed = processed;
+        this.history = history;
+        this.audit = audit;
+        this.objectMapper = objectMapper;
     }
 
-    @KafkaListener(
-        topics = "pas.events",
-        groupId = "billing-service",
-        properties = {
-            "spring.kafka.listener.missing-topics-fatal=false",
-            "spring.json.trusted.packages=*"
-        }
-    )
     @Transactional
-    public void onEvent(ConsumerRecord<?, String> record, Acknowledgment ack) {
-        String eventType = EventHeaders.of(record, EventHeaders.EVENT_TYPE);
-        if (!"workflow.completed".equals(eventType)) {
-            ack.acknowledge();
+    @KafkaListener(topics = "pas.events", groupId = "billing-service")
+    public void onEvent(@Payload String payload,
+                        @Header(name = "event_type", required = false) String eventType,
+                        @Header(name = "document_type", required = false) String documentType,
+                        @Header(name = "event_id", required = false) String eventId,
+                        @Header(KafkaHeaders.RECEIVED_KEY) String key) {
+        if (!COMPLETED.equals(eventType)) {
             return;
         }
-
-        String documentType = EventHeaders.of(record, EventHeaders.DOCUMENT_TYPE);
         if (!"PAYMENT_STATEMENT".equals(documentType)) {
-            ack.acknowledge();
             return;
         }
-
-        UUID eventId = EventHeaders.eventId(record);
-        Map<String, Object> payload = EventHeaders.payload(record,
-            new tools.jackson.databind.ObjectMapper());
-
-        String documentId = (String) payload.get("document_id");
-        String outcome = (String) payload.get("outcome");
-        String instanceId = (String) payload.get("instance_id");
-
-        if (documentId == null || outcome == null) {
-            throw new MalformedEventException("workflow.completed missing document_id or outcome");
+        if (eventId == null) {
+            throw new IllegalStateException("Record on pas.events has no event_id header, key=" + key);
         }
+        UUID id = UUID.fromString(eventId);
+        if (processed.existsById(id)) {
+            log.debug("Event {} already applied, skipping", id);
+            return;
+        }
+        processed.save(ProcessedEvent.of(id));
 
-        Optional<PaymentStatement> opt = statementRepo.findById(UUID.fromString(documentId));
-        if (opt.isEmpty()) {
+        UUID documentId = documentId(key, payload);
+        if (documentId == null) {
+            log.warn("workflow.completed carries no document id (key={}, event={})", key, id);
+            return;
+        }
+        PaymentStatement stmt = statements.findById(documentId).orElse(null);
+        if (stmt == null) {
             log.warn("workflow.completed for unknown statement {}", documentId);
-            ack.acknowledge();
+            return;
+        }
+        if (stmt.getStatus() != PaymentStatement.StatementStatus.SUBMITTED) {
+            log.debug("Ignoring workflow.completed for {} in status {}", stmt.getStatementNo(), stmt.getStatus());
             return;
         }
 
-        PaymentStatement stmt = opt.get();
-        PaymentStatement.StatementStatus oldStatus = stmt.getStatus();
-
-        // Only apply to SUBMITTED statements (idempotent on others)
-        if (oldStatus != PaymentStatement.StatementStatus.SUBMITTED) {
-            log.debug("Ignoring workflow.completed for {} in status {}", stmt.getStatementNo(), oldStatus);
-            ack.acknowledge();
-            return;
-        }
-
-        PaymentStatement.StatementStatus newStatus = switch (outcome) {
+        String outcome = text(payload, "outcome");
+        PaymentStatement.StatementStatus newStatus = switch (outcome == null ? "" : outcome) {
             case "APPROVED" -> PaymentStatement.StatementStatus.APPROVED;
             case "REJECTED" -> PaymentStatement.StatementStatus.REJECTED;
             case "REVISION_REQUESTED" -> PaymentStatement.StatementStatus.REVISION;
-            default -> {
-                log.warn("Unknown workflow outcome: {} for {}", outcome, stmt.getStatementNo());
-                yield null;
-            }
+            default -> null;
         };
-
         if (newStatus == null) {
-            ack.acknowledge();
-            return;
+            throw new IllegalStateException(
+                "workflow.completed carries an outcome this service has no status for: " + outcome);
         }
 
+        PaymentStatement.StatementStatus oldStatus = stmt.getStatus();
         stmt.setStatus(newStatus);
-        statementRepo.save(stmt);
+        statements.save(stmt);
 
-        // Write status_history
-        StatusHistory history = new StatusHistory();
-        history.setStatement(stmt);
-        history.setFromStatus(oldStatus.name());
-        history.setToStatus(newStatus.name());
-        history.setTriggerKind(StatusHistory.TriggerKind.W);
-        history.setTriggerRef(instanceId);
-        history.setOccurredAt(Instant.now());
-        stmt.getStatusHistory().add(history);
-
+        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.W, text(payload, "instance_id")));
+        audit.record("PAYMENT_STATEMENT", stmt.getId(), stmt.getStatementNo(), "WORKFLOW_COMPLETED",
+            oldStatus.name(), newStatus.name(), "Approval " + outcome.toLowerCase(java.util.Locale.ROOT),
+            Map.of("trigger", "W", "event_id", id.toString()));
         log.info("Statement {} status changed {} → {} by workflow.completed",
             stmt.getStatementNo(), oldStatus, newStatus);
-        ack.acknowledge();
+    }
+
+    private UUID documentId(String key, String payload) {
+        try {
+            if (key != null) return UUID.fromString(key);
+        } catch (IllegalArgumentException e) {
+            // fall through to payload
+        }
+        String fromPayload = text(payload, "document_id");
+        try {
+            return fromPayload == null ? null : UUID.fromString(fromPayload);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private StatusHistory transitionOf(PaymentStatement stmt,
+                                       PaymentStatement.StatementStatus from,
+                                       PaymentStatement.StatementStatus to,
+                                       StatusHistory.TriggerKind kind,
+                                       String triggerRef) {
+        StatusHistory h = new StatusHistory();
+        h.setStatement(stmt);
+        h.setFromStatus(from.name());
+        h.setToStatus(to.name());
+        h.setTriggerKind(kind);
+        h.setTriggerRef(triggerRef);
+        h.setOccurredAt(Instant.now());
+        return h;
+    }
+
+    private String text(String payload, String field) {
+        JsonNode node = objectMapper.readTree(payload).get(field);
+        return node == null || node.isNull() || node.asString().isEmpty() ? null : node.asString();
     }
 }
