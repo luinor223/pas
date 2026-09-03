@@ -30,6 +30,7 @@ export type CustomerResponse = {
   status: "ACTIVE" | "SUSPENDED";
   contacts: CustomerContactResponse[];
   primaryContact: CustomerContactResponse | null;
+  contractsCount: number;
   createdAt: string;
   createdByName: string | null;
   updatedAt: string;

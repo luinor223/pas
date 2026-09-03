@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { customersQuery, contractsQuery, customerQuery } from "../hooks/contractQueries";
+import { customersQuery, customerQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { CustomerResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
@@ -58,17 +58,10 @@ export function CustomerList() {
   const [viewContactsId, setViewContactsId] = useState<string | null>(null);
 
   const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: 25 }));
-  const contractsQ = useQuery(contractsQuery({ size: 1000 }));
   const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
 
   const customers = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
-
-  const contractsByCustomer = useMemo(() => {
-    const map = new Map<string, number>();
-    (contractsQ.data?.content ?? []).forEach((c) => map.set(c.customerId, (map.get(c.customerId) ?? 0) + 1));
-    return map;
-  }, [contractsQ.data]);
 
 
 
@@ -153,7 +146,7 @@ export function CustomerList() {
     },
     {
       id: "contracts", header: "CONTRACTS",
-      cell: ({ row }) => <span className="tabular-nums">{contractsByCustomer.get(row.original.id) ?? "—"}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{row.original.contractsCount}</span>,
     },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
@@ -175,7 +168,7 @@ export function CustomerList() {
         );
       },
     },
-  ], [canWrite, contractsByCustomer, navigate]);
+  ], [canWrite, navigate]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You need <code>customer:read</code> to view this page.</CardContent></Card>;
 
