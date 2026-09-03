@@ -17,6 +17,11 @@ import java.util.UUID;
 
 public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
+    // Controller maps to DTO outside the tx (open-in-view=false), so single-get must
+    // fetch customer eagerly like search does — otherwise LazyInitializationException.
+    @EntityGraph(attributePaths = {"customer"})
+    Optional<Contract> findById(UUID id);
+
     Optional<Contract> findByContractNo(String contractNo);
 
     @EntityGraph(attributePaths = {"customer"})

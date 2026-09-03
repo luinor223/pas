@@ -17,6 +17,11 @@ import java.util.UUID;
 
 public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
 
+    // Same reason as ContractRepository.findById: DTO mapping touches
+    // contract + services outside the tx (open-in-view=false).
+    @EntityGraph(attributePaths = {"contract", "services"})
+    Optional<Addendum> findById(UUID id);
+
     Optional<Addendum> findByAddendumNo(String addendumNo);
 
     @EntityGraph(attributePaths = {"contract", "services"})
