@@ -5,6 +5,7 @@ import com.abclogistics.pas.esign.grpc.EsignInternalGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ public class EsignGrpcClient {
     private final ManagedChannel channel;
     private final EsignInternalGrpc.EsignInternalBlockingStub stub;
 
+    @Autowired
     public EsignGrpcClient(@Value("${esign.grpc.host:localhost}") String host,
                            @Value("${esign.grpc.port:50057}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();

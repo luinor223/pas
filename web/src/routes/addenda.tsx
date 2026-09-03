@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Placeholder } from "@/shared/components/Placeholder";
+import { AddendumList } from "@/features/contract/components/AddendumList";
 
 export const Route = createFileRoute("/addenda")({
-  component: () => <Placeholder title="Addenda" note="Contract addenda and their effective dates." />,
+  validateSearch: (search: Record<string, unknown>) => ({
+    contractId: search.contractId as string | undefined,
+    changeType: search.changeType as string | undefined,
+  }),
+  component: AddendumList,
 });

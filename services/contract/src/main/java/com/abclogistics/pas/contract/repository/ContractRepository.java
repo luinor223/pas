@@ -5,6 +5,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,8 +17,20 @@ import java.util.UUID;
 
 public interface ContractRepository extends JpaRepository<Contract, UUID> {
 
+    // Controller maps to DTO outside the tx (open-in-view=false), so single-get must
+    // fetch customer eagerly like search does — otherwise LazyInitializationException.
+    @EntityGraph(attributePaths = {"customer"})
+    Optional<Contract> findById(UUID id);
+
     Optional<Contract> findByContractNo(String contractNo);
 
+    long countByCustomerId(UUID customerId);
+
+    /** Per-customer contract counts in one aggregate query (no N+1, exact at any scale). */
+    @Query("select c.customer.id, count(c) from Contract c where c.customer.id in :ids group by c.customer.id")
+    List<Object[]> countByCustomerIds(@Param("ids") List<UUID> ids);
+
+    @EntityGraph(attributePaths = {"customer"})
     @Query("""
             select c from Contract c
             where (:customerId is null or c.customer.id = :customerId)
@@ -27,11 +40,19 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                    or lower(c.contractNo) like :q
                    or lower(c.description) like :q
                    or lower(c.customer.name) like :q)
+              and (:#{#validFromFrom == null} = true or c.validFrom >= :validFromFrom)
+              and (:#{#validFromTo == null} = true or c.validFrom <= :validFromTo)
+              and (:#{#validToFrom == null} = true or c.validTo >= :validToFrom)
+              and (:#{#validToTo == null} = true or c.validTo <= :validToTo)
             """)
     Page<Contract> search(@Param("customerId") UUID customerId,
                           @Param("status") DocumentStatus status,
                           @Param("serviceGroup") ServiceGroup serviceGroup,
                           @Param("q") String q,
+                          @Param("validFromFrom") LocalDate validFromFrom,
+                          @Param("validFromTo") LocalDate validFromTo,
+                          @Param("validToFrom") LocalDate validToFrom,
+                          @Param("validToTo") LocalDate validToTo,
                           Pageable pageable);
 
     /**
