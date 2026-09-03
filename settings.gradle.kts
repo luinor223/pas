@@ -9,6 +9,8 @@ include("services:operations")
 include("services:contract")
 include("services:pricing")
 include("services:billing")
+include("services:esign")
+include("services:esign-mock-provider")
 
 // services:identity -> identity-service, libs:common -> common
 rootProject.children.forEach { group ->

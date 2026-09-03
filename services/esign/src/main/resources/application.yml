@@ -1,0 +1,80 @@
+server:
+  port: 8007
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: esign-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_esign}
+    username: ${DB_USER:esign}
+    password: ${DB_PASSWORD:esign}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: esign
+
+  flyway:
+    enabled: true
+    schemas: esign
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+  grpc:
+    server:
+      port: 50057
+
+contract:
+  grpc:
+    host: ${CONTRACT_GRPC_HOST:localhost}
+    port: ${CONTRACT_GRPC_PORT:50052}
+
+billing:
+  grpc:
+    host: ${BILLING_GRPC_HOST:localhost}
+    port: ${BILLING_GRPC_PORT:50055}
+
+esign:
+  provider:
+    base-url: ${ESIGN_PROVIDER_URL:http://localhost:9001}
+    max-attempts: 3
+
+outbox:
+  relay:
+    enabled: true
+    claim-lease: PT60S
+    batch-size: 100
+    poll-interval: PT5S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  api-docs:
+    version: openapi_3_1

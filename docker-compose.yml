@@ -337,6 +337,53 @@ services:
       - "traefik.http.routers.billing-docs.service=billing"
       - "traefik.http.routers.billing-docs.middlewares=billing-docs-strip"
 
+  esign-service:
+    build:
+      context: .
+      dockerfile: services/esign/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/pas_esign
+      DB_USER: esign
+      DB_PASSWORD: esign
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CONTRACT_GRPC_HOST: contract-service
+      CONTRACT_GRPC_PORT: 50052
+      BILLING_GRPC_HOST: billing-service
+      BILLING_GRPC_PORT: 50055
+      ESIGN_PROVIDER_URL: http://esign-mock-provider:9001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      contract-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      esign-mock-provider:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.esign.loadbalancer.server.port=8007"
+      - "traefik.http.middlewares.esign-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.esign-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.esign.rule=PathPrefix(`/api/v1/signing-sessions`) || PathPrefix(`/api/v1/callbacks`)"
+      - "traefik.http.routers.esign.entrypoints=web"
+      - "traefik.http.routers.esign.middlewares=esign-ratelimit,jwt-auth@file,api-v1-strip"
+
+  esign-mock-provider:
+    build:
+      context: .
+      dockerfile: services/esign-mock-provider/Dockerfile
+    labels:
+      - "traefik.enable=false"
+
   web:
     build:
       context: ./web
