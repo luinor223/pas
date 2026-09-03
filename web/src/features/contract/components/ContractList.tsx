@@ -18,7 +18,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 const SERVICE_GROUPS = ["STEVEDORING", "WAREHOUSING", "TRANSPORTATION", "CONTAINER_HANDLING"];
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
@@ -44,6 +44,7 @@ type FormData = z.infer<typeof schema>;
 
 export function ContractList() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const canRead = useHasPermission("contract:read");
   const canWrite = useHasPermission("contract:write");
   const canEsign = useHasPermission("esign:send");
@@ -122,7 +123,7 @@ export function ContractList() {
     { accessorKey: "validTo", header: "EXPIRY", cell: ({ row }) => <span className="text-xs">{fmtDate(row.original.validTo)}</span> },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
-      id: "actions", header: "", enableSorting: false,
+      id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
         const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
@@ -132,13 +133,13 @@ export function ContractList() {
             <Button size="sm" variant="ghost" onClick={() => setOpenMenuId(open ? null : c.id)} title="Row actions">...</Button>
             {open && (
               <div className="absolute right-0 z-10 w-44 rounded-md border bg-white shadow-lg text-left text-sm" onMouseLeave={() => setOpenMenuId(null)}>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/contracts?id=${c.id}`; }}>View details</button>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/contracts?id=${c.id}&tab=attachments`; }}>Download</button>
+                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/contracts", search: { id: c.id } as never }); }}>View details</button>
+                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/contracts", search: { id: c.id, tab: "attachments" } as never }); }}>Download</button>
                 {canWrite && editable && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); onEdit(c); }}>Edit</button>}
                 {canWrite && c.status === "DRAFT" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); submitMut.mutate(c.id); }}>Submit for approval</button>}
                 {canWrite && c.status === "REJECTED" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); reviseMut.mutate(c.id); }}>Revise</button>}
-                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/addenda?contractId=${c.id}`; }}>Create addendum</button>}
-                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/addenda?contractId=${c.id}&changeType=TERM_EXTENSION`; }}>Renew contract</button>}
+                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/addenda", search: { contractId: c.id } as never }); }}>Create addendum</button>}
+                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }); }}>Renew contract</button>}
                 {canEsign && c.status === "APPROVED" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); sendMut.mutate(c.id); }}>Send for signing</button>}
                 {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left text-destructive" onClick={() => { setOpenMenuId(null); cancelMut.mutate(c.id); }}>Cancel contract</button>}
               </div>

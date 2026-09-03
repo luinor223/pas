@@ -8,9 +8,10 @@ import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ContractResponse } from "../types/contractTypes";
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
+  const navigate = useNavigate();
   const q = useQuery(customerQuery(id));
   const contractsQ = useQuery(contractsQuery({ customerId: id, size: 25 }));
   const [tab, setTab] = useState<"overview" | "contracts" | "contacts">("overview");
@@ -52,7 +53,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         </div>
         <div className="flex gap-2">
           {onEdit && <Button variant="outline" onClick={onEdit}>Edit</Button>}
-          <Button onClick={() => (window.location.href = `/contracts?customerId=${c.id}`)}>New Contract</Button>
+          <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>Contracts</Button>
         </div>
       </div>
 

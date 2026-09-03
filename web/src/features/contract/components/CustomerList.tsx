@@ -19,6 +19,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 const contactSchema = z.object({
   fullName: z.string().min(1, "Required"),
@@ -43,6 +44,7 @@ type FormData = z.infer<typeof schema>;
 
 export function CustomerList() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const canRead = useHasPermission("customer:read");
   const canWrite = useHasPermission("customer:write");
   const [q, setQ] = useState("");
@@ -114,7 +116,7 @@ export function CustomerList() {
   const columns = useMemo<ColumnDef<CustomerResponse>[]>(() => [
     {
       accessorKey: "code", header: "CODE",
-      cell: ({ row }) => <a href={`/customers?id=${row.original.id}`} className="font-medium text-blue-600 hover:underline">{row.original.code}</a>,
+      cell: ({ row }) => <Link to="/customers" search={{ id: row.original.id } as never} className="font-medium text-blue-600 hover:underline">{row.original.code}</Link>,
     },
     { accessorKey: "name", header: "CUSTOMER NAME", cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { accessorKey: "taxCode", header: "TAX ID", cell: ({ row }) => <span className="text-sm">{row.original.taxCode ?? "—"}</span> },
@@ -129,7 +131,7 @@ export function CustomerList() {
     },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
-      id: "actions", header: "", enableSorting: false,
+      id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
         const open = openMenuId === c.id;
@@ -138,12 +140,12 @@ export function CustomerList() {
             <Button size="sm" variant="ghost" onClick={() => setOpenMenuId(open ? null : c.id)} title="Row actions">...</Button>
             {open && (
               <div className="absolute right-0 z-10 w-44 rounded-md border bg-white shadow-lg text-left text-sm" onMouseLeave={() => setOpenMenuId(null)}>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/customers?id=${c.id}`; }}>View details</button>
+                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/customers", search: { id: c.id } as never }); }}>View details</button>
                 <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); setViewContacts(c); }}>View contacts</button>
                 {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); onEdit(c); }}>Edit</button>}
                 {canWrite && c.status === "ACTIVE" && <button className="block w-full px-3 py-2 hover:bg-muted text-left text-destructive" onClick={() => { setOpenMenuId(null); suspendMut.mutate(c.id); }}>Suspend</button>}
                 {canWrite && c.status !== "ACTIVE" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); activateMut.mutate(c.id); }}>Activate</button>}
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); window.location.href = `/contracts?customerId=${c.id}`; }}>View contracts</button>
+                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/contracts", search: { customerId: c.id } as never }); }}>View contracts</button>
               </div>
             )}
           </div>
@@ -193,13 +195,20 @@ export function CustomerList() {
               <Label>Contacts</Label>
               <div className="space-y-2 border rounded p-2">
                 {fields.map((f, i) => (
-                  <div key={f.id} className="grid grid-cols-12 gap-1 items-end border-b pb-2">
-                    <div className="col-span-3"><Label className="text-xs">Full name *</Label><Input {...register(`contacts.${i}.fullName` as const)} /></div>
-                    <div className="col-span-2"><Label className="text-xs">Title</Label><Input {...register(`contacts.${i}.title` as const)} /></div>
-                    <div className="col-span-3"><Label className="text-xs">Email</Label><Input {...register(`contacts.${i}.email` as const)} /></div>
-                    <div className="col-span-2"><Label className="text-xs">Phone</Label><Input {...register(`contacts.${i}.phone` as const)} /></div>
-                    <label className="col-span-1 flex items-center gap-1 text-xs"><input type="checkbox" {...register(`contacts.${i}.primary` as const)} /> primary</label>
-                    <Button type="button" variant="ghost" size="sm" className="col-span-1" onClick={() => remove(i)}>×</Button>
+                  <div key={f.id} className="rounded border p-2 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      <div><Label className="text-xs">Full name *</Label><Input placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} /></div>
+                      <div><Label className="text-xs">Title</Label><Input placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
+                      <div><Label className="text-xs">Email</Label><Input placeholder="Email" {...register(`contacts.${i}.email` as const)} /></div>
+                      <div><Label className="text-xs">Phone</Label><Input placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                        <input type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
+                        primary
+                      </label>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
+                    </div>
                   </div>
                 ))}
                 <Button type="button" variant="outline" size="sm" onClick={() => append({ fullName: "", title: "", email: "", phone: "", primary: false })}>+ Add contact</Button>
@@ -225,13 +234,20 @@ export function CustomerList() {
               <Label>Contacts</Label>
               <div className="space-y-2 border rounded p-2">
                 {fields.map((f, i) => (
-                  <div key={f.id} className="grid grid-cols-12 gap-1 items-end border-b pb-2">
-                    <div className="col-span-3"><Input {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" /></div>
-                    <div className="col-span-2"><Input {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
-                    <div className="col-span-3"><Input {...register(`contacts.${i}.email` as const)} placeholder="Email" /></div>
-                    <div className="col-span-2"><Input {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
-                    <label className="col-span-1 flex items-center gap-1 text-xs"><input type="checkbox" {...register(`contacts.${i}.primary` as const)} /> primary</label>
-                    <Button type="button" variant="ghost" size="sm" className="col-span-1" onClick={() => remove(i)}>×</Button>
+                  <div key={f.id} className="rounded border p-2 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      <div><Label className="text-xs">Full name *</Label><Input {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" /></div>
+                      <div><Label className="text-xs">Title</Label><Input {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
+                      <div><Label className="text-xs">Email</Label><Input {...register(`contacts.${i}.email` as const)} placeholder="Email" /></div>
+                      <div><Label className="text-xs">Phone</Label><Input {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                        <input type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
+                        primary
+                      </label>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
+                    </div>
                   </div>
                 ))}
                 <Button type="button" variant="outline" size="sm" onClick={() => append({ fullName: "", title: "", email: "", phone: "", primary: false })}>+ Add</Button>

@@ -13,8 +13,8 @@ export const Route = createFileRoute("/contracts")({
     if (id) {
       return (
         <div className="space-y-3">
-          <a href="/contracts" className="text-sm text-blue-600 hover:underline">← Back to contracts</a>
-          <ContractDetail id={id} initialTab={tab} />
+          <a href="/contracts" className="text-sm text-blue-600 hover:underline" onClick={(e) => { e.preventDefault(); window.history.back(); }}>← Back to contracts</a>
+          <ContractDetail key={id} id={id} initialTab={tab} />
         </div>
       );
     }
