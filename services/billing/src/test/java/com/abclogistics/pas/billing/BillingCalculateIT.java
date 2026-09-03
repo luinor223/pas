@@ -86,6 +86,7 @@ class BillingCalculateIT {
     @Autowired OutboxRepository outbox;
     @Autowired ProcessedEventRepository processedEvents;
     @Autowired EsignEventListener esignListener;
+    @Autowired com.abclogistics.pas.billing.listener.WorkflowEventListener workflowListener;
 
     private final UUID contractId = UUID.randomUUID();
     private final UUID customerId = UUID.randomUUID();
@@ -204,7 +205,7 @@ class BillingCalculateIT {
         assertThat(rows).anyMatch(e -> "workflow.start_requested".equals(e.getEventType())
                 && e.getPayload().contains("idempotency_key"));
 
-        service.updateStatus(no, "APPROVED", "W-instance-1");
+        approveViaWorkflow(no, "W-instance-1");
         service.sendForSigning(no);
         assertThat(outbox.findAll()).anyMatch(e -> "esign.session_requested".equals(e.getEventType()));
 
@@ -240,7 +241,7 @@ class BillingCalculateIT {
         String no = created.statementNo();
         service.reconcile(no);
         service.submit(no);
-        service.updateStatus(no, "APPROVED", "W-i");
+        approveViaWorkflow(no, "W-i");
         service.sendForSigning(no);
         var stmtId = statements.findByStatementNo(no).orElseThrow().getId();
         UUID eventId = UUID.randomUUID();
@@ -261,6 +262,15 @@ class BillingCalculateIT {
         var submitted = service.submit(service.reconcile(adjustment.statementNo()).statementNo());
         assertThat(submitted.status()).isEqualTo("SUBMITTED");
         assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
+    }
+
+    /** Drives SUBMITTED → APPROVED through the real consumer (M1: no gate-skipping shortcut). */
+    private void approveViaWorkflow(String statementNo, String instanceId) {
+        var stmtId = statements.findByStatementNo(statementNo).orElseThrow().getId();
+        workflowListener.onEvent(
+                "{\"document_id\":\"" + stmtId + "\",\"outcome\":\"APPROVED\",\"instance_id\":\"" + instanceId + "\"}",
+                "workflow.completed", "PAYMENT_STATEMENT", UUID.randomUUID().toString(), stmtId.toString());
+        assertThat(statements.findByStatementNo(statementNo).orElseThrow().getStatus().name()).isEqualTo("APPROVED");
     }
 
     private static ListVolumesResponse lockedVolumes(String periodCode) {

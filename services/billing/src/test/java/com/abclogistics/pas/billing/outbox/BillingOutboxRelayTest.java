@@ -99,6 +99,19 @@ class BillingOutboxRelayTest {
     }
 
     @Test
+    void missingPayloadFieldParksLoudlyInsteadOfNpeLoop() {
+        // parseable JSON but no idempotency_key: must park, never NPE-retry forever
+        OutboxEvent row = OutboxEvent.event("workflow.start_requested",
+                "PAYMENT_STATEMENT", UUID.randomUUID(),
+                "{\"document_type\":\"PAYMENT_STATEMENT\",\"document_id\":\"" + UUID.randomUUID()
+                        + "\",\"document_no\":\"PMT-2026-0001\"}");
+
+        assertThatThrownBy(() -> relay.dispatch(row))
+                .isInstanceOf(BillingOutboxRelay.UnroutableEventException.class)
+                .hasMessageContaining("idempotency_key");
+    }
+
+    @Test
     void unroutableTypeParksLoudly() {
         assertThatThrownBy(() -> relay.dispatch(
                 OutboxEvent.event("billing.something_new", "PAYMENT_STATEMENT", UUID.randomUUID(), "{}")))

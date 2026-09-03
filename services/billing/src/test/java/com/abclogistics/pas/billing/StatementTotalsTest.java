@@ -46,7 +46,8 @@ class StatementTotalsTest {
         service = new StatementService(statements, lines, links, outbox,
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
-                mock(EsignGrpcClient.class), mock(com.abclogistics.pas.common.audit.AuditRecorder.class));
+                mock(EsignGrpcClient.class), mock(com.abclogistics.pas.common.audit.AuditRecorder.class),
+                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class));
     }
 
     @Test

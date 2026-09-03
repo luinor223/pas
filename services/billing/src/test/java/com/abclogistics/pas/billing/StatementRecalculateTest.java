@@ -63,7 +63,8 @@ class StatementRecalculateTest {
         service = new StatementService(statements, mock(StatementLineRepository.class),
                 mock(StatementLineVolumeRepository.class), mock(OutboxRepository.class),
                 contractClient, pricingClient, operationsClient, workflowClient,
-                mock(EsignGrpcClient.class), mock(AuditRecorder.class));
+                mock(EsignGrpcClient.class), mock(AuditRecorder.class),
+                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class));
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -125,6 +126,37 @@ class StatementRecalculateTest {
         assertThatThrownBy(() -> service.reconcile("PMT-x"))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("drifted");
+    }
+
+    @Test
+    void reconcileIgnoresManualLinkDrift() {
+        // a MANUAL correction keeps its original link; only CALCULATED links gate reconciliation
+        PaymentStatement stmt = calculatedStatement();
+        StatementLine manual = manualLine(stmt, 2);
+        StatementLineVolume stale = new StatementLineVolume();
+        stale.setLine(manual);
+        stale.setVolumeRecordId("VOL-9");
+        stale.setRecordNo("VOL-9");
+        stale.setQuantity(new BigDecimal("99"));
+        manual.getVolumeLinks().add(stale);
+        stmt.getLines().add(manual);
+        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        stubPulls("10");
+
+        assertThat(service.reconcile("PMT-x").status()).isEqualTo("RECONCILED");
+    }
+
+    @Test
+    void progressOnNeverSubmittedRendersLocalStatus() {
+        PaymentStatement stmt = draftStatement(); // DRAFT, never submitted
+        setId(stmt, UUID.randomUUID());
+        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        when(workflowClient.getInstanceByDocument(any(), any())).thenThrow(
+                new io.grpc.StatusRuntimeException(io.grpc.Status.NOT_FOUND));
+
+        var progress = service.getWorkflowProgress("PMT-x");
+
+        assertThat(progress.workflowInstance()).isEqualTo(Map.of("status", "DRAFT"));
     }
 
     @Test

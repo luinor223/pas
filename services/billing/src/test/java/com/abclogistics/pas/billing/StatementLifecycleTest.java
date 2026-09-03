@@ -29,6 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,7 +55,8 @@ class StatementLifecycleTest {
         service = new StatementService(statements, lines, links, outbox,
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
-                mock(EsignGrpcClient.class), audit);
+                mock(EsignGrpcClient.class), audit,
+                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class));
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -95,6 +97,9 @@ class StatementLifecycleTest {
         assertThat(captor.getAllValues())
                 .anyMatch(e -> "esign.session_requested".equals(e.getEventType()));
         verify(audit).record(any(), any(), any(), any(), any(), any(), any(), any());
+        // M5: the centralized trail keeps before AND after
+        verify(audit).record(eq("PAYMENT_STATEMENT"), any(), any(), eq("statement.send_for_signing"),
+                eq("APPROVED"), eq("SIGNING"), any(), any());
     }
 
     @Test
