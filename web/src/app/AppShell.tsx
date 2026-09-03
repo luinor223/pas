@@ -8,6 +8,8 @@ import { Logo } from "@/shared/components/Logo";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { usePermissions } from "@/features/auth/hooks/usePermissions";
 import { authApi } from "@/features/auth/services/authApi";
+import { useQuery } from "@tanstack/react-query";
+import { unreadCountQuery } from "@/features/notification/hooks/notificationQueries";
 
 type Item = { to: string; label: string; icon: React.ReactNode; permission?: string };
 type Group = { heading: string; items: Item[] };
@@ -30,7 +32,7 @@ const NAV: Group[] = [
     { to: "/notifications", label: "Notifications", icon: <Bell size={17} /> },
   ]},
   { heading: "System", items: [
-    { to: "/audit-log", label: "Audit Log", icon: <ScrollText size={17} /> },
+    { to: "/audit-log", label: "Audit Log", icon: <ScrollText size={17} />, permission: "audit:view_all" },
     { to: "/admin/users", label: "Administration", icon: <Settings size={17} />, permission: "user:manage" },
   ]},
 ];
@@ -45,6 +47,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const perms = usePermissions();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // Counters are computed unfiltered, so a one-row page is enough for the badge.
+  const unread = useQuery({ ...unreadCountQuery(), enabled: perms.includes("notification:read") }).data ?? 0;
 
   const crumb = CRUMB[pathname] ?? matchCrumb(pathname);
   const initials = (user?.fullName ?? "?").split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
@@ -127,10 +131,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="h-9 w-64 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>
-            <button className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted" title="Notifications">
+            <Link
+              to="/notifications"
+              className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted"
+              title={unread > 0 ? `${unread} unread notifications` : "Notifications"}
+            >
               <Bell size={18} />
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
-            </button>
+              {unread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold tabular-nums text-white">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
+            </Link>
             <button className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               <Plus size={16} /> New Contract
             </button>
