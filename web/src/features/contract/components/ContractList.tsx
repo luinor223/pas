@@ -20,6 +20,7 @@ import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CustomerPicker } from "./CustomerPicker";
+import { RowMenu } from "@/shared/components/row-menu";
 
 const SERVICE_GROUPS = ["STEVEDORING", "WAREHOUSING", "TRANSPORTATION", "CONTAINER_HANDLING"];
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
@@ -103,8 +104,6 @@ export function ContractList() {
     });
   };
 
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-
   const fmtDate = (iso: string) => {
     const [y, m, d] = iso.split("-");
     return y && m && d ? `${d}/${m}/${y}` : iso;
@@ -128,28 +127,25 @@ export function ContractList() {
       cell: ({ row }) => {
         const c = row.original;
         const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
-        const open = openMenuId === c.id;
+        const items: { label: string; onClick: () => void; danger?: boolean }[] = [
+          { label: "View details", onClick: () => navigate({ to: "/contracts", search: { id: c.id } as never }) },
+          { label: "Download", onClick: () => navigate({ to: "/contracts", search: { id: c.id, tab: "attachments" } as never }) },
+        ];
+        if (canWrite && editable) items.push({ label: "Edit", onClick: () => onEdit(c) });
+        if (canWrite && c.status === "DRAFT") items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
+        if (canWrite && c.status === "REJECTED") items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
+        if (canWrite) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
+        if (canWrite) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
+        if (canEsign && c.status === "APPROVED") items.push({ label: "Send for signing", onClick: () => sendMut.mutate(c.id) });
+        if (canWrite) items.push({ label: "Cancel contract", onClick: () => cancelMut.mutate(c.id), danger: true });
         return (
-          <div className="relative text-right">
-            <Button size="sm" variant="ghost" onClick={() => setOpenMenuId(open ? null : c.id)} title="Row actions">...</Button>
-            {open && (
-              <div className="absolute right-0 z-10 w-44 rounded-md border bg-white shadow-lg text-left text-sm" onMouseLeave={() => setOpenMenuId(null)}>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/contracts", search: { id: c.id } as never }); }}>View details</button>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/contracts", search: { id: c.id, tab: "attachments" } as never }); }}>Download</button>
-                {canWrite && editable && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); onEdit(c); }}>Edit</button>}
-                {canWrite && c.status === "DRAFT" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); submitMut.mutate(c.id); }}>Submit for approval</button>}
-                {canWrite && c.status === "REJECTED" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); reviseMut.mutate(c.id); }}>Revise</button>}
-                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/addenda", search: { contractId: c.id } as never }); }}>Create addendum</button>}
-                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }); }}>Renew contract</button>}
-                {canEsign && c.status === "APPROVED" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); sendMut.mutate(c.id); }}>Send for signing</button>}
-                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left text-destructive" onClick={() => { setOpenMenuId(null); cancelMut.mutate(c.id); }}>Cancel contract</button>}
-              </div>
-            )}
+          <div className="text-right">
+            <RowMenu items={items} />
           </div>
         );
       },
     },
-  ], [canWrite, canEsign, openMenuId]);
+  ], [canWrite, canEsign, navigate]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">Need <code>contract:read</code></CardContent></Card>;
 

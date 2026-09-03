@@ -20,6 +20,7 @@ import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { RowMenu } from "@/shared/components/row-menu";
 
 const contactSchema = z.object({
   fullName: z.string().min(1, "Required"),
@@ -66,7 +67,7 @@ export function CustomerList() {
     return map;
   }, [contractsQ.data]);
 
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
 
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -104,13 +105,35 @@ export function CustomerList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["customers"] }),
   });
 
-  const onEdit = (c: CustomerResponse) => {
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const toContactForm = (x: { fullName: string; title?: string | null; email?: string | null; phone?: string | null; primary: boolean }) =>
+    ({ fullName: x.fullName, title: x.title ?? "", email: x.email ?? "", phone: x.phone ?? "", primary: x.primary });
+
+  // List rows carry contacts: [] (primaryContact only) — always load the full
+  // customer before editing, or saving would silently wipe existing contacts.
+  const onEdit = async (c: CustomerResponse) => {
     setEditId(c.id);
-    reset({
-      name: c.name, shortName: c.shortName ?? "", taxCode: c.taxCode ?? "", address: c.address ?? "",
-      representativeName: c.representativeName ?? "", representativePosition: c.representativePosition ?? "", segment: c.segment ?? "",
-      contacts: c.contacts.length ? c.contacts.map((x) => ({ fullName: x.fullName, title: x.title ?? "", email: x.email ?? "", phone: x.phone ?? "", primary: x.primary })) : [{ fullName: "", title: "", email: "", phone: "", primary: true }],
-    });
+    setEditError(null);
+    setEditLoading(true);
+    try {
+      const full = await contractApi.getCustomer(c.id);
+      reset({
+        name: full.name, shortName: full.shortName ?? "", taxCode: full.taxCode ?? "", address: full.address ?? "",
+        representativeName: full.representativeName ?? "", representativePosition: full.representativePosition ?? "", segment: full.segment ?? "",
+        contacts: full.contacts.length ? full.contacts.map(toContactForm) : [{ fullName: "", title: "", email: "", phone: "", primary: true }],
+      });
+    } catch (e: unknown) {
+      setEditError(getApiErrorMessage(e, "Failed to load customer details"));
+      reset({
+        name: c.name, shortName: c.shortName ?? "", taxCode: c.taxCode ?? "", address: c.address ?? "",
+        representativeName: c.representativeName ?? "", representativePosition: c.representativePosition ?? "", segment: c.segment ?? "",
+        contacts: [{ fullName: "", title: "", email: "", phone: "", primary: true }],
+      });
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const columns = useMemo<ColumnDef<CustomerResponse>[]>(() => [
@@ -134,25 +157,22 @@ export function CustomerList() {
       id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
-        const open = openMenuId === c.id;
+        const items: { label: string; onClick: () => void; danger?: boolean }[] = [
+          { label: "View details", onClick: () => navigate({ to: "/customers", search: { id: c.id } as never }) },
+          { label: "View contacts", onClick: () => setViewContacts(c) },
+        ];
+        if (canWrite) items.push({ label: "Edit", onClick: () => onEdit(c) });
+        if (canWrite && c.status === "ACTIVE") items.push({ label: "Suspend", onClick: () => suspendMut.mutate(c.id), danger: true });
+        if (canWrite && c.status !== "ACTIVE") items.push({ label: "Activate", onClick: () => activateMut.mutate(c.id) });
+        items.push({ label: "View contracts", onClick: () => navigate({ to: "/contracts", search: { customerId: c.id } as never }) });
         return (
-          <div className="relative text-right">
-            <Button size="sm" variant="ghost" onClick={() => setOpenMenuId(open ? null : c.id)} title="Row actions">...</Button>
-            {open && (
-              <div className="absolute right-0 z-10 w-44 rounded-md border bg-white shadow-lg text-left text-sm" onMouseLeave={() => setOpenMenuId(null)}>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/customers", search: { id: c.id } as never }); }}>View details</button>
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); setViewContacts(c); }}>View contacts</button>
-                {canWrite && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); onEdit(c); }}>Edit</button>}
-                {canWrite && c.status === "ACTIVE" && <button className="block w-full px-3 py-2 hover:bg-muted text-left text-destructive" onClick={() => { setOpenMenuId(null); suspendMut.mutate(c.id); }}>Suspend</button>}
-                {canWrite && c.status !== "ACTIVE" && <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); activateMut.mutate(c.id); }}>Activate</button>}
-                <button className="block w-full px-3 py-2 hover:bg-muted text-left" onClick={() => { setOpenMenuId(null); navigate({ to: "/contracts", search: { customerId: c.id } as never }); }}>View contracts</button>
-              </div>
-            )}
+          <div className="text-right">
+            <RowMenu items={items} />
           </div>
         );
       },
     },
-  ], [canWrite, contractsByCustomer, openMenuId]);
+  ], [canWrite, contractsByCustomer, navigate]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You need <code>customer:read</code> to view this page.</CardContent></Card>;
 
@@ -194,12 +214,14 @@ export function CustomerList() {
             <div>
               <Label>Contacts</Label>
               <div className="space-y-2 border rounded p-2">
-                {fields.map((f, i) => (
+                {fields.map((f, i) => {
+                  const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
+                  return (
                   <div key={f.id} className="rounded border p-2 space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label className="text-xs">Full name *</Label><Input placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} /></div>
+                      <div><Label className="text-xs">Full name *</Label><Input placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
                       <div><Label className="text-xs">Title</Label><Input placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
-                      <div><Label className="text-xs">Email</Label><Input placeholder="Email" {...register(`contacts.${i}.email` as const)} /></div>
+                      <div><Label className="text-xs">Email</Label><Input placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
                       <div><Label className="text-xs">Phone</Label><Input placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
                     </div>
                     <div className="flex items-center justify-between">
@@ -210,7 +232,8 @@ export function CustomerList() {
                       <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 <Button type="button" variant="outline" size="sm" onClick={() => append({ fullName: "", title: "", email: "", phone: "", primary: false })}>+ Add contact</Button>
                 {errors.contacts && <p className="text-xs text-destructive">{String(errors.contacts.message)}</p>}
               </div>
@@ -233,12 +256,14 @@ export function CustomerList() {
             <div>
               <Label>Contacts</Label>
               <div className="space-y-2 border rounded p-2">
-                {fields.map((f, i) => (
+                {editLoading ? <div className="text-sm text-muted-foreground">Loading contacts...</div> : fields.map((f, i) => {
+                  const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
+                  return (
                   <div key={f.id} className="rounded border p-2 space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label className="text-xs">Full name *</Label><Input {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" /></div>
+                      <div><Label className="text-xs">Full name *</Label><Input {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
                       <div><Label className="text-xs">Title</Label><Input {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
-                      <div><Label className="text-xs">Email</Label><Input {...register(`contacts.${i}.email` as const)} placeholder="Email" /></div>
+                      <div><Label className="text-xs">Email</Label><Input {...register(`contacts.${i}.email` as const)} placeholder="Email" />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
                       <div><Label className="text-xs">Phone</Label><Input {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
                     </div>
                     <div className="flex items-center justify-between">
@@ -249,7 +274,9 @@ export function CustomerList() {
                       <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
+                {editError && <div className="text-sm text-destructive">{editError}</div>}
                 <Button type="button" variant="outline" size="sm" onClick={() => append({ fullName: "", title: "", email: "", phone: "", primary: false })}>+ Add</Button>
               </div>
             </div>
