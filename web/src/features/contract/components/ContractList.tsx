@@ -19,6 +19,7 @@ import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { CustomerPicker } from "./CustomerPicker";
 
 const SERVICE_GROUPS = ["STEVEDORING", "WAREHOUSING", "TRANSPORTATION", "CONTAINER_HANDLING"];
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
@@ -160,22 +161,20 @@ export function ContractList() {
           {canWrite && <Button onClick={() => { reset({ customerId: customersQ.data?.content?.[0]?.id ?? "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 lg:grid-cols-7 gap-2">
-            <Input placeholder="Search no/description/customer..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} />
-            <Select value={customerId} onChange={(e) => { setCustomerId(e.target.value); setPage(0); }}>
-              <option value="">Customer: All</option>
-              {(customersQ.data?.content ?? []).map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}
-            </Select>
-            <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+          <div className="grid grid-cols-1 lg:grid-cols-7 gap-2 items-end">
+            <div><Label>Search</Label><Input placeholder="Search no/description/customer..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} /></div>
+            <CustomerPicker value={customerId} onChange={(id) => { setCustomerId(id); setPage(0); }} />
+            <div><Label>Status</Label><Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
               <option value="">Status: All</option>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </Select>
-            <Select value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); setPage(0); }}>
+            </Select></div>
+            <div><Label>Service group</Label><Select value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); setPage(0); }}>
               <option value="">Group: All</option>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
-            </Select>
-            <Input type="date" value={validFromFrom} onChange={(e) => { setValidFromFrom(e.target.value); setPage(0); }} placeholder="Valid from ≥" />
-            <Input type="date" value={validToTo} onChange={(e) => { setValidToTo(e.target.value); setPage(0); }} placeholder="Valid to ≤" />
+            </Select></div>
+            <div><Label>Effective from ≥</Label><Input type="date" value={validFromFrom} onChange={(e) => { setValidFromFrom(e.target.value); setPage(0); }} title="Contract valid-from on or after this date (inclusive)" /></div>
+            <div><Label>Expiry ≤</Label><Input type="date" value={validToTo} onChange={(e) => { setValidToTo(e.target.value); setPage(0); }} title="Contract valid-to on or before this date (inclusive)" /></div>
             <Button variant="outline" onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); setPage(0); }}>Clear</Button>
           </div>
+          <div className="text-xs text-muted-foreground">Date filter: contract fully inside range — valid-from ≥ Effective from AND valid-to ≤ Expiry (both inclusive).</div>
           {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={25} />}
           <div className="flex items-center justify-between text-sm">
             <span className="text-xs text-muted-foreground">Rows per page: 25</span>

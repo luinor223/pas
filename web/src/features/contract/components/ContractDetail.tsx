@@ -97,7 +97,6 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
                 <div><div className="text-xs text-muted-foreground">CURRENCY</div><div>{c.currency}</div></div>
                 <div><div className="text-xs text-muted-foreground">EFFECTIVE FROM</div><div>{c.validFrom}</div></div>
                 <div><div className="text-xs text-muted-foreground">EXPIRY DATE</div><div>{c.validTo}</div></div>
-                <div><div className="text-xs text-muted-foreground">AUTO RENEWAL</div><div className="text-muted-foreground">— (no auto-renewal field in contract-service)</div></div>
               </CardContent>
             </Card>
             <Card>
