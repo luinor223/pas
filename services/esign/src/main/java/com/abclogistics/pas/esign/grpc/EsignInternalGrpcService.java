@@ -30,16 +30,13 @@ public class EsignInternalGrpcService extends EsignInternalGrpc.EsignInternalImp
             UUID idempotencyKey = UUID.fromString(request.getIdempotencyKey());
             UUID documentId = UUID.fromString(request.getDocumentId());
 
-            String signerName = request.getSignerName().isEmpty() ? "" : request.getSignerName();
-            String signerEmail = request.getSignerEmail().isEmpty() ? "" : request.getSignerEmail();
-
             SigningSession session = sessionService.createSession(
                 request.getDocumentType(),
                 documentId,
-                request.getDocumentNo(),
+                request.getDocumentNo().isEmpty() ? null : request.getDocumentNo(),
                 null,
-                signerName,
-                signerEmail,
+                request.getSignerName().isEmpty() ? "" : request.getSignerName(),
+                request.getSignerEmail().isEmpty() ? "" : request.getSignerEmail(),
                 idempotencyKey,
                 UUID.randomUUID(),
                 null

@@ -2,6 +2,9 @@
 
 CREATE SCHEMA IF NOT EXISTS esign;
 
+-- Sequence for session numbering (SIG-seq)
+CREATE SEQUENCE esign.signing_session_no_seq START 1;
+
 -- Signing session: generic over (document_type_code, document_id)
 CREATE TABLE esign.signing_session (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

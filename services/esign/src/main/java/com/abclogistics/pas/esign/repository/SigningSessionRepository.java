@@ -14,6 +14,9 @@ import java.util.UUID;
 
 public interface SigningSessionRepository extends JpaRepository<SigningSession, UUID>, JpaSpecificationExecutor<SigningSession> {
 
+    @Query(value = "SELECT nextval('esign.signing_session_no_seq')", nativeQuery = true)
+    long nextSessionNoSeq();
+
     Optional<SigningSession> findBySessionNo(String sessionNo);
 
     Optional<SigningSession> findByIdempotencyKey(UUID idempotencyKey);

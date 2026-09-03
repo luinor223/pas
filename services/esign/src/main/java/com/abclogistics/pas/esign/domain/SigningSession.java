@@ -89,7 +89,6 @@ public class SigningSession {
                                          UUID idempotencyKey, UUID requestedBy, String requestedByName) {
         SigningSession s = new SigningSession();
         s.id = UUID.randomUUID();
-        s.sessionNo = generateSessionNo();
         s.documentTypeCode = documentTypeCode;
         s.documentId = documentId;
         s.documentNo = documentNo;
@@ -105,8 +104,9 @@ public class SigningSession {
         return s;
     }
 
-    private static String generateSessionNo() {
-        return "SIG-" + (1000 + (int) (Math.random() * 9000));
+    /** Called after persist to set the DB-generated session_no. */
+    public void setSessionNo(String sessionNo) {
+        this.sessionNo = sessionNo;
     }
 
     public void markSent(String providerRef) {

@@ -3,6 +3,8 @@ package com.abclogistics.pas.esign.controller;
 import com.abclogistics.pas.common.api.ApiResponse;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.esign.domain.SigningSession;
+import com.abclogistics.pas.esign.dto.CreateSigningSessionRequest;
 import com.abclogistics.pas.esign.dto.SigningSessionResponse;
 import com.abclogistics.pas.esign.service.SigningSessionService;
 import org.springframework.data.domain.Page;
@@ -23,6 +25,21 @@ public class SigningSessionController {
 
     public SigningSessionController(SigningSessionService sessionService) {
         this.sessionService = sessionService;
+    }
+
+    @PostMapping
+    @PreAuthorize("hasAuthority('esign:send')")
+    public ResponseEntity<ApiResponse<SigningSessionResponse>> createSession(
+            @RequestBody CreateSigningSessionRequest request) {
+        AuthenticatedUser user = SecurityUtils.currentUser()
+            .orElseThrow(() -> new IllegalStateException("No authenticated user"));
+        UUID idempotencyKey = UUID.randomUUID();
+        SigningSession session = sessionService.createSession(
+            request.documentType(), request.documentId(), request.documentNo(),
+            request.customerName(), request.signerName(), request.signerEmail(),
+            idempotencyKey, user.userId(), user.fullName());
+        SigningSessionResponse response = toResponse(session);
+        return ResponseEntity.ok(ApiResponse.of(response));
     }
 
     @GetMapping
@@ -68,5 +85,14 @@ public class SigningSessionController {
         sessionService.cancelSession(id, user.userId(), user.fullName(), reason);
         SigningSessionResponse session = sessionService.getSession(id);
         return ResponseEntity.ok(ApiResponse.of(session));
+    }
+
+    private SigningSessionResponse toResponse(SigningSession s) {
+        return new SigningSessionResponse(
+            s.getId(), s.getSessionNo(), s.getDocumentTypeCode(), s.getDocumentId(),
+            s.getDocumentNo(), s.getCustomerName(), s.getSignerName(), s.getSignerEmail(),
+            s.getProvider(), s.getProviderRef(), s.getStatus().name(), s.getAttempts(),
+            s.getLastError(), s.getRequestedByName(), s.getSentAt(), s.getCompletedAt(), s.getCreatedAt()
+        );
     }
 }

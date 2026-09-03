@@ -79,28 +79,40 @@ public class SigningSessionService {
                 "An active signing session already exists for " + documentTypeCode + " " + documentId);
         }
 
+        // Fetch DB-generated session_no BEFORE creating entity to avoid auto-flush with null session_no
+        long seq = sessionRepo.nextSessionNoSeq();
+        String sessionNo = "SIG-" + seq;
+
         SigningSession session = SigningSession.create(
             documentTypeCode, documentId, documentNo, customerName,
             signerName, signerEmail, idempotencyKey, requestedBy, requestedByName
         );
+        session.setSessionNo(sessionNo);
+
         session = sessionRepo.save(session);
 
-        // Status history
+        // Status history (D17)
         StatusHistory history = StatusHistory.create(
             session, null, "PENDING_SEND",
             StatusHistory.TriggerKind.U, null,
             requestedBy, requestedByName, "Session created"
         );
         session.addStatusHistory(history);
-        statusHistoryRepo.save(history);
+        sessionRepo.save(session);
 
         log.info("Created signing session {} for {} {}", session.getSessionNo(), documentTypeCode, documentId);
         return session;
     }
 
+    /**
+     * Send session to the mock provider. Called by the scheduler for PENDING_SEND sessions.
+     * Handles provider unavailability gracefully (APR-07: provider outage never touches document data).
+     */
     @Transactional
     public void sendToProvider(SigningSession session) {
         String callbackUrl = "http://esign-service:8007/callbacks/esign/" + session.getSessionNo();
+        String fromStatus = session.getStatus().name();
+
         try {
             String providerRef = providerClient.sendForSigning(
                 session.getSessionNo(),
@@ -110,19 +122,14 @@ public class SigningSessionService {
                 callbackUrl
             );
 
-            StatusHistory.TriggerKind triggerKind = session.getStatus() == SigningSession.SessionStatus.PENDING_SEND
-                ? StatusHistory.TriggerKind.U : StatusHistory.TriggerKind.S;
-            String fromStatus = session.getStatus().name();
-
             session.markSent(providerRef);
 
             StatusHistory history = StatusHistory.create(
                 session, fromStatus, "SIGNING",
-                triggerKind, null,
+                StatusHistory.TriggerKind.U, null,
                 session.getRequestedBy(), session.getRequestedByName(), "Sent to provider"
             );
             session.addStatusHistory(history);
-            statusHistoryRepo.save(history);
 
             sessionRepo.save(session);
             log.info("Session {} sent to provider, provider_ref={}", session.getSessionNo(), providerRef);
@@ -131,25 +138,32 @@ public class SigningSessionService {
             sessionRepo.save(session);
             log.error("Failed to send session {} to provider: {}", session.getSessionNo(), e.getMessage());
 
-            // If max attempts exceeded, mark as FAILED
+            // If max attempts exceeded, mark as FAILED (APR-07: retries exhaust at 3)
             if (session.getAttempts() >= providerClient.getMaxAttempts()) {
                 failSession(session, "Max attempts (" + providerClient.getMaxAttempts() + ") exhausted: " + e.getMessage());
             }
-            throw e;
         }
     }
 
+    /**
+     * Handle callback from the esign provider (APR-06).
+     * Callback guard accepts PENDING_SEND and SIGNING (not just SIGNING) — a provider that
+     * calls back faster than our 202-handling transaction commits would otherwise be discarded.
+     */
     @Transactional
     public void handleCallback(String sessionNo, String providerRef, String result, String error) {
-        SigningSession session = sessionRepo.findBySessionNo(sessionNo)
-            .orElseGet(() -> {
-                // Try to find by provider_ref (fallback for session_no lookup failure)
-                return callbackLogRepo.findByProviderRef(providerRef)
-                    .flatMap(cbLog -> sessionRepo.findById(cbLog.getSession().getId()))
-                    .orElse(null);
-            });
+        // Find session by session_no (primary) or provider_ref (fallback)
+        SigningSession session = sessionRepo.findBySessionNo(sessionNo).orElse(null);
 
-        // Log the callback regardless
+        if (session == null && providerRef != null && !providerRef.isBlank()) {
+            // Fallback: try to find by provider_ref
+            Optional<SigningCallbackLog> existingLog = callbackLogRepo.findByProviderRef(providerRef);
+            if (existingLog.isPresent() && existingLog.get().getSession() != null) {
+                session = sessionRepo.findById(existingLog.get().getSession().getId()).orElse(null);
+            }
+        }
+
+        // Log the callback regardless (APR-06: every raw webhook stored)
         SigningCallbackLog callbackLog = SigningCallbackLog.create(session, providerRef, result, null);
         callbackLogRepo.save(callbackLog);
 
@@ -158,7 +172,8 @@ public class SigningSessionService {
             return;
         }
 
-        // Version guard: check status allows callback
+        // Version guard: optimistic lock on status (APR-06)
+        // Accept PENDING_SEND and SIGNING — provider may callback faster than our tx commits
         String fromStatus = session.getStatus().name();
         if (session.getStatus() != SigningSession.SessionStatus.PENDING_SEND
             && session.getStatus() != SigningSession.SessionStatus.SIGNING) {
@@ -179,7 +194,6 @@ public class SigningSessionService {
 
         session.setStatus(newStatus);
         session.setCompletedAt(Instant.now());
-        sessionRepo.save(session);
 
         StatusHistory history = StatusHistory.create(
             session, fromStatus, newStatus.name(),
@@ -188,7 +202,7 @@ public class SigningSessionService {
             error != null ? error : "Provider callback: " + result
         );
         session.addStatusHistory(history);
-        statusHistoryRepo.save(history);
+        sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
         emitSessionCompleted(session, newStatus, error);
@@ -196,6 +210,10 @@ public class SigningSessionService {
         log.info("Session {} callback applied: {} -> {}", session.getSessionNo(), fromStatus, newStatus);
     }
 
+    /**
+     * Cancel a signing session (user action only, CANCELLED is never provider-reported).
+     * Gated by esign:cancel permission, valid from PENDING_SEND or SIGNING.
+     */
     @Transactional
     public void cancelSession(UUID sessionId, UUID actorId, String actorName, String reason) {
         SigningSession session = sessionRepo.findById(sessionId)
@@ -208,7 +226,6 @@ public class SigningSessionService {
         String fromStatus = session.getStatus().name();
         session.setStatus(SigningSession.SessionStatus.CANCELLED);
         session.setCompletedAt(Instant.now());
-        sessionRepo.save(session);
 
         StatusHistory history = StatusHistory.create(
             session, fromStatus, "CANCELLED",
@@ -216,14 +233,14 @@ public class SigningSessionService {
             actorId, actorName, reason
         );
         session.addStatusHistory(history);
-        statusHistoryRepo.save(history);
+        sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
         emitSessionCompleted(session, SigningSession.SessionStatus.CANCELLED, null);
 
-        // Audit
+        // Audit (D15: centralized audit via outbox)
         auditRecorder.record("signing_session", session.getId(), session.getSessionNo(),
-            "cancel_signing", fromStatus, "CANCELLED", reason, Map.of());
+            "esign:cancel_signing", fromStatus, "CANCELLED", reason, Map.of());
 
         log.info("Session {} cancelled by {}", session.getSessionNo(), actorName);
     }
@@ -261,11 +278,15 @@ public class SigningSessionService {
             .toList();
     }
 
+    /**
+     * Find and send all PENDING_SEND sessions that have failed at least once (retry).
+     * Called by the retry scheduler.
+     */
     @Transactional
     public void retryPendingSessions() {
         List<SigningSession> pending = sessionRepo.findAllPendingOrSigning();
         for (SigningSession session : pending) {
-            if (session.getStatus() == SigningSession.SessionStatus.PENDING_SEND && session.getAttempts() > 0) {
+            if (session.getStatus() == SigningSession.SessionStatus.PENDING_SEND) {
                 try {
                     sendToProvider(session);
                 } catch (Exception e) {
@@ -275,12 +296,21 @@ public class SigningSessionService {
         }
     }
 
+    /**
+     * Find all PENDING_SEND sessions for the dispatch scheduler.
+     */
+    @Transactional(readOnly = true)
+    public List<SigningSession> findPendingSendSessions() {
+        return sessionRepo.findAllPendingOrSigning().stream()
+            .filter(s -> s.getStatus() == SigningSession.SessionStatus.PENDING_SEND)
+            .toList();
+    }
+
     private void failSession(SigningSession session, String error) {
         String fromStatus = session.getStatus().name();
         session.setStatus(SigningSession.SessionStatus.FAILED);
         session.setCompletedAt(Instant.now());
         session.setLastError(error);
-        sessionRepo.save(session);
 
         StatusHistory history = StatusHistory.create(
             session, fromStatus, "FAILED",
@@ -288,7 +318,7 @@ public class SigningSessionService {
             null, "System", error
         );
         session.addStatusHistory(history);
-        statusHistoryRepo.save(history);
+        sessionRepo.save(session);
 
         emitSessionCompleted(session, SigningSession.SessionStatus.FAILED, error);
 
@@ -304,7 +334,7 @@ public class SigningSessionService {
                 "document_type", session.getDocumentTypeCode(),
                 "document_id", session.getDocumentId().toString(),
                 "document_no", session.getDocumentNo() != null ? session.getDocumentNo() : "",
-                "requested_by", session.getRequestedBy().toString(),
+                "requested_by", session.getRequestedBy() != null ? session.getRequestedBy().toString() : "",
                 "signer_name", session.getSignerName() != null ? session.getSignerName() : ""
             ));
 
