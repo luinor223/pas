@@ -1,5 +1,6 @@
 import type { StatusHistoryResponse } from "../types/contractTypes";
 import { Badge } from "@/shared/components/badge";
+import { formatDateTime } from "@/shared/lib/format";
 
 export function HistoryTimeline({ history, isLoading }: { history?: StatusHistoryResponse[]; isLoading?: boolean }) {
   if (isLoading) return <div className="text-sm text-muted-foreground">Loading history...</div>;
@@ -14,7 +15,7 @@ export function HistoryTimeline({ history, isLoading }: { history?: StatusHistor
               <span className="text-xs text-muted-foreground">{h.trigger}{h.triggerRef ? ` · ${h.triggerRef.slice(0, 8)}` : ""}</span>
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {h.actorName ?? "system"} · {new Date(h.occurredAt).toLocaleString()} {h.note ? `· ${h.note}` : ""}
+              {h.actorName ?? "system"} · {formatDateTime(h.occurredAt)} {h.note ? `· ${h.note}` : ""}
             </div>
           </div>
         </div>

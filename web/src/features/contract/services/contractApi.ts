@@ -1,4 +1,5 @@
-import { api, toPage, toParams, type PageMeta } from "@/shared/api/client";
+import { api } from "@/shared/api/client";
+import { toPage, toParams, type PageMeta } from "@/shared/api/paging";
 import type {
   AddendumResponse,
   AttachmentResponse,

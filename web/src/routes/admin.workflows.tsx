@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ca
 export const Route = createFileRoute("/admin/workflows")({
   component: () => (
     <Card>
-      <CardHeader><CardTitle>Workflows (stub)</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Workflows</CardTitle></CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        Read-only placeholder for <code>workflow-service</code> definitions. Will call <code>GET /workflow-definitions</code> after Session 2.
+        Workflow configuration is not available yet.
       </CardContent>
     </Card>
   ),

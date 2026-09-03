@@ -1,4 +1,5 @@
-import { api, toParams } from "@/shared/api/client";
+import { api } from "@/shared/api/client";
+import { toParams } from "@/shared/api/paging";
 import type { InboxResponse, NotificationCategory } from "../types/notificationTypes";
 
 export type InboxParams = {

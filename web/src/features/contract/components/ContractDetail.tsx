@@ -11,6 +11,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { AddendumResponse } from "../types/contractTypes";
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -45,7 +46,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
   const waiting = progress?.currentStep
     ? `Waiting on ${progress.currentStep.name} — Assignee: ${progress.currentStep.assigneeNames.join(", ") || "—"}`
     : progress?.workflowState === "INITIALIZATION_PENDING"
-      ? "Submitted — workflow initialization pending (D4 outbox dispatch)"
+      ? "Your submission is being prepared for approval"
       : null;
 
   const steps = progress?.steps ?? [];
@@ -65,7 +66,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
             size="sm"
             variant="outline"
             disabled={!pdf}
-            title={pdf ? `Download ${pdf.fileName}` : "No PDF yet — upload an attachment first (CTR-02)"}
+            title={pdf ? `Download ${pdf.fileName}` : "Upload an attachment before downloading a PDF"}
             onClick={() => pdf && window.open(`/api/v1/attachments/${pdf.id}`, "_blank")}
           >
             Download PDF
@@ -80,7 +81,6 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
             {t === "overview" ? "Overview" : t === "addenda" ? "Addenda" : t === "approval-history" ? "Approval History" : "Attachments"}
           </Button>
         ))}
-        <span className="ml-2 text-xs text-muted-foreground self-center whitespace-nowrap">Price List / Volumes / Statements → pending pricing / operations / billing services</span>
       </div>
 
       {tab === "overview" && (
@@ -93,10 +93,10 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
                 <div><div className="text-xs text-muted-foreground">CUSTOMER</div><div><Link to="/customers" search={{ id: c.customerId } as never} className="text-blue-600 hover:underline">{c.customerName}</Link></div></div>
                 <div><div className="text-xs text-muted-foreground">TAX ID</div><div>{customer?.taxCode ?? (custQ.isLoading ? "…" : "—")}</div></div>
                 <div><div className="text-xs text-muted-foreground">SERVICE GROUP</div><div className="capitalize">{c.serviceGroup.toLowerCase().replace(/_/g, " ")}</div></div>
-                <div><div className="text-xs text-muted-foreground">CONTRACT VALUE</div><div className="tabular-nums">{c.value?.toLocaleString("vi-VN") ?? "—"} {c.currency}</div></div>
+                <div><div className="text-xs text-muted-foreground">CONTRACT VALUE</div><div className="tabular-nums">{formatMoney(c.value, c.currency)}</div></div>
                 <div><div className="text-xs text-muted-foreground">CURRENCY</div><div>{c.currency}</div></div>
-                <div><div className="text-xs text-muted-foreground">EFFECTIVE FROM</div><div>{c.validFrom}</div></div>
-                <div><div className="text-xs text-muted-foreground">EXPIRY DATE</div><div>{c.validTo}</div></div>
+                <div><div className="text-xs text-muted-foreground">EFFECTIVE FROM</div><div>{formatDate(c.validFrom)}</div></div>
+                <div><div className="text-xs text-muted-foreground">EXPIRY DATE</div><div>{formatDate(c.validTo)}</div></div>
               </CardContent>
             </Card>
             <Card>
@@ -123,8 +123,8 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
                 {steps.length === 0 ? (
                   <div className="text-xs text-muted-foreground">
                     {progress?.workflowState === "INITIALIZATION_PENDING"
-                      ? "Submitted but workflow not yet started (D4 outbox dispatch). Will auto-resolve."
-                      : "No workflow instance yet. Submit the document to start approval."}
+                      ? "Your submission is being prepared for approval. This usually takes a moment."
+                      : "Submit the document to begin approval."}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -143,16 +143,14 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
                     ))}
                   </div>
                 )}
-                <div className="rounded bg-muted p-2 text-xs text-muted-foreground">E-signature: signing service not configured (esign-service pending). Document stays APPROVED until signing lands.</div>
               </CardContent>
             </Card>
             <Card>
               <CardHeader><CardTitle className="text-base">Record metadata</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-2 gap-2 text-sm">
                 <div><div className="text-xs text-muted-foreground">CREATED BY</div><div>{c.createdByName ?? "—"}</div></div>
-                <div><div className="text-xs text-muted-foreground">CREATED AT</div><div className="text-xs">{new Date(c.createdAt).toLocaleString()}</div></div>
-                <div><div className="text-xs text-muted-foreground">LAST MODIFIED</div><div className="text-xs">{new Date(c.updatedAt).toLocaleString()}</div></div>
-                <div><div className="text-xs text-muted-foreground">VERSION</div><div>v{c.version}</div></div>
+                <div><div className="text-xs text-muted-foreground">CREATED AT</div><div className="text-xs">{formatDateTime(c.createdAt)}</div></div>
+                <div><div className="text-xs text-muted-foreground">LAST MODIFIED</div><div className="text-xs">{formatDateTime(c.updatedAt)}</div></div>
                 <div><div className="text-xs text-muted-foreground">LINKED RECORDS</div><div>{addQ.data?.totalElements ?? "…"} addenda</div></div>
               </CardContent>
             </Card>
@@ -165,7 +163,6 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
           <CardHeader><CardTitle className="text-base">Addenda for {c.contractNo}</CardTitle></CardHeader>
           <CardContent>
             {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={25} />}
-            <div className="text-xs text-muted-foreground mt-2">Full addendum CRUD lives under Addenda — filtered by this contract.</div>
           </CardContent>
         </Card>
       )}

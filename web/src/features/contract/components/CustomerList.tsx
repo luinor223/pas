@@ -20,6 +20,7 @@ import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { RowMenu } from "@/shared/components/row-menu";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ContactTable } from "./ContactTable";
 
 const contactSchema = z.object({
@@ -56,6 +57,7 @@ export function CustomerList() {
   // Customer id whose contacts are shown — the full record is fetched because
   // list rows only carry primaryContact (contacts: []).
   const [viewContactsId, setViewContactsId] = useState<string | null>(null);
+  const [confirmSuspend, setConfirmSuspend] = useState<CustomerResponse | null>(null);
 
   const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: 25 }));
   const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
@@ -93,8 +95,8 @@ export function CustomerList() {
   });
 
   const suspendMut = useMutation({
-    mutationFn: (id: string) => contractApi.suspendCustomer(id, "Suspended via UI"),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["customers"] }),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => contractApi.suspendCustomer(id, reason),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["customers"] }); setConfirmSuspend(null); },
   });
   const activateMut = useMutation({
     mutationFn: (id: string) => contractApi.activateCustomer(id),
@@ -158,7 +160,7 @@ export function CustomerList() {
           { label: "View contacts", onClick: () => setViewContactsId(c.id) },
         ];
         if (canWrite) items.push({ label: "Edit", onClick: () => onEdit(c) });
-        if (canWrite && c.status === "ACTIVE") items.push({ label: "Suspend", onClick: () => suspendMut.mutate(c.id), danger: true });
+        if (canWrite && c.status === "ACTIVE") items.push({ label: "Suspend", onClick: () => setConfirmSuspend(c), danger: true });
         if (canWrite && c.status !== "ACTIVE") items.push({ label: "Activate", onClick: () => activateMut.mutate(c.id) });
         items.push({ label: "View contracts", onClick: () => navigate({ to: "/contracts", search: { customerId: c.id } as never }) });
         return (
@@ -170,7 +172,7 @@ export function CustomerList() {
     },
   ], [canWrite, navigate]);
 
-  if (!canRead) return <Card><CardContent className="p-6 text-sm">You need <code>customer:read</code> to view this page.</CardContent></Card>;
+  if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to customers.</CardContent></Card>;
 
   return (
     <div className="space-y-4">
@@ -197,6 +199,30 @@ export function CustomerList() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!confirmSuspend}
+        title="Suspend this customer?"
+        body={
+          <>
+            <p>
+              <span className="font-medium">{confirmSuspend?.name}</span>{" "}
+              ({confirmSuspend?.code}) will be suspended.
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              New contracts cannot be created for a suspended customer. Existing contracts are not
+              affected, and you can reactivate them later.
+            </p>
+          </>
+        }
+        confirmLabel="Suspend customer"
+        pendingLabel="Suspending..."
+        pending={suspendMut.isPending}
+        error={suspendMut.isError ? suspendMut.error : undefined}
+        reason={{ label: "Reason", placeholder: "Why is this customer being suspended?", required: true }}
+        onConfirm={(reason) => confirmSuspend && suspendMut.mutate({ id: confirmSuspend.id, reason })}
+        onCancel={() => setConfirmSuspend(null)}
+      />
 
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">

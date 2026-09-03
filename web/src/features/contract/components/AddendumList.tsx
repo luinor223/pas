@@ -20,8 +20,9 @@ import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link } from "@tanstack/react-router";
-
-const CHANGE_TYPES = ["UNIT_PRICE_CHANGE", "TERM_EXTENSION", "ADDED_SERVICE", "PAYMENT_TERMS"];
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
+import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
+import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES } from "../contractOptions";
 
 const lineSchema = z.object({
   serviceCode: z.string().min(1),
@@ -61,6 +62,8 @@ export function AddendumList() {
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<AddendumResponse | null>(null);
+  const hasFilters = !!(status || changeType || q);
 
   const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: 25 }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
@@ -95,7 +98,10 @@ export function AddendumList() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setEditId(null); },
   });
   const submitMut = useMutation({ mutationFn: (id: string) => contractApi.submitAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
-  const cancelMut = useMutation({ mutationFn: (id: string) => contractApi.cancelAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
+  const cancelMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => contractApi.cancelAddendum(id, reason),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setConfirmCancel(null); },
+  });
   const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
 
   const onEdit = (a: AddendumResponse) => {
@@ -124,14 +130,14 @@ export function AddendumList() {
             {canWrite && (a.status === "DRAFT" || a.status === "REVISION_REQUESTED") && <Button size="sm" variant="outline" onClick={() => onEdit(a)}>Edit</Button>}
             {canWrite && a.status === "DRAFT" && <Button size="sm" onClick={() => submitMut.mutate(a.id)}>Submit</Button>}
             {canWrite && a.status === "REJECTED" && <Button size="sm" onClick={() => reviseMut.mutate(a.id)}>Revise</Button>}
-            {canWrite && <Button size="sm" variant="destructive" onClick={() => cancelMut.mutate(a.id)}>Cancel</Button>}
+            {canWrite && <Button size="sm" variant="destructive" onClick={() => setConfirmCancel(a)}>Cancel</Button>}
           </div>
         );
       },
     },
   ], [canWrite]);
 
-  if (!canRead) return <Card><CardContent className="p-6 text-sm">Need <code>addendum:read</code></CardContent></Card>;
+  if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to addenda.</CardContent></Card>;
 
   return (
     <div className="space-y-4">
@@ -150,7 +156,7 @@ export function AddendumList() {
               <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </Select></div>
             <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }}>Clear</Button>
+              <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }} />
             </div>
           </div>
           {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={25} />}
@@ -164,6 +170,30 @@ export function AddendumList() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!confirmCancel}
+        title="Cancel this addendum?"
+        body={
+          <>
+            <p>
+              Addendum <span className="font-medium">{confirmCancel?.addendumNo}</span> on contract{" "}
+              <span className="font-medium">{confirmCancel?.contractNo}</span> will be cancelled.
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              Any approval already in progress stops, and the cancellation stays on the addendum's
+              history. This cannot be undone here.
+            </p>
+          </>
+        }
+        confirmLabel="Cancel addendum"
+        pendingLabel="Cancelling..."
+        pending={cancelMut.isPending}
+        error={cancelMut.isError ? cancelMut.error : undefined}
+        reason={{ label: "Reason", placeholder: "Why is this addendum being cancelled?" }}
+        onConfirm={(reason) => confirmCancel && cancelMut.mutate({ id: confirmCancel.id, reason })}
+        onCancel={() => setConfirmCancel(null)}
+      />
 
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">

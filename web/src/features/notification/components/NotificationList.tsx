@@ -4,19 +4,21 @@ import { Link } from "@tanstack/react-router";
 import { BellOff, CheckCheck } from "lucide-react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
+import { Forbidden } from "@/shared/components/Forbidden";
 import { Badge } from "@/shared/components/badge";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { cn } from "@/shared/lib/cn";
+import { formatDateTime, formatRelative } from "@/shared/lib/format";
+import { PaginationControls } from "@/shared/components/pagination-controls";
 import { inboxQuery } from "../hooks/notificationQueries";
 import { notificationApi } from "../services/notificationApi";
 import type { NotificationCategory, NotificationResponse } from "../types/notificationTypes";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 15;
 
 // Tabs and their counters come from InboxResponse.counts, which is computed
 // unfiltered - so a tab shows its total even while another tab is displayed.
-// SYSTEM has a counter but no tab in the design; it surfaces under All.
 type Tab = { key: string; label: string; countKey: string; unread?: boolean; category?: NotificationCategory };
 
 const TABS: Tab[] = [
@@ -25,6 +27,7 @@ const TABS: Tab[] = [
   { key: "APPROVAL", label: "Approvals", countKey: "APPROVAL", category: "APPROVAL" },
   { key: "ESIGN", label: "E-signature", countKey: "ESIGN", category: "ESIGN" },
   { key: "EXPIRY", label: "Expiring", countKey: "EXPIRY", category: "EXPIRY" },
+  { key: "SYSTEM", label: "System", countKey: "SYSTEM", category: "SYSTEM" },
 ];
 
 const CATEGORY_LABEL: Record<NotificationCategory, string> = {
@@ -58,13 +61,18 @@ export function NotificationList() {
   const items = inbox?.items ?? [];
   const totalPages = Math.max(1, Math.ceil((inbox?.total ?? 0) / PAGE_SIZE));
 
+
   const markRead = useMutation({
     mutationFn: (id: string) => notificationApi.markRead(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inbox"] }),
   });
   const markAllRead = useMutation({
     mutationFn: () => notificationApi.markAllRead(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["inbox"] }),
+    onSuccess: () => {
+      // The unread tab empties, so any page past the first no longer exists.
+      setPage(0);
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+    },
   });
 
   function selectTab(key: string) {
@@ -73,13 +81,7 @@ export function NotificationList() {
   }
 
   if (!canRead) {
-    return (
-      <Card>
-        <CardContent className="p-6 text-sm">
-          Need <code>notification:read</code>
-        </CardContent>
-      </Card>
-    );
+    return <Forbidden message="You do not have access to notifications. An administrator can grant it." />;
   }
 
   return (
@@ -127,9 +129,12 @@ export function NotificationList() {
           })}
         </div>
 
-        {markAllRead.isError && (
+        {(markAllRead.isError || markRead.isError) && (
           <div className="text-sm text-destructive">
-            {getApiErrorMessage(markAllRead.error, "Could not mark all read")}
+            {getApiErrorMessage(
+              markAllRead.error ?? markRead.error,
+              "Could not update the notification"
+            )}
           </div>
         )}
 
@@ -140,50 +145,52 @@ export function NotificationList() {
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
             <BellOff size={22} />
-            <span className="text-sm">Nothing here</span>
+            <span className="text-sm">
+              {tab.unread ? "You are all caught up" : `No ${tab.label.toLowerCase()} notifications`}
+            </span>
           </div>
         ) : (
           <div className="divide-y divide-border">
             {items.map((n) => (
-              <NotificationRow key={n.id} n={n} onRead={() => markRead.mutate(n.id)} />
+              <NotificationRow key={n.id} n={n} onOpen={() => markRead.mutate(n.id)} />
             ))}
           </div>
         )}
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-xs text-muted-foreground">Rows per page: {PAGE_SIZE}</span>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
-                Previous
-              </Button>
-              <span className="py-1 text-xs text-muted-foreground">
-                Page {page + 1} · {totalPages}
-              </span>
-              <Button size="sm" variant="outline" disabled={page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                Next
-              </Button>
-            </div>
-          </div>
+        {inbox && (
+          <PaginationControls
+            page={page}
+            totalPages={totalPages}
+            pageSize={PAGE_SIZE}
+            totalItems={inbox.total}
+            onPageChange={setPage}
+          />
         )}
       </CardContent>
     </Card>
   );
 }
 
-function NotificationRow({ n, onRead }: { n: NotificationResponse; onRead: () => void }) {
+// Routes that accept a document id today. Price lists, statements and volume
+// records are still placeholders, so those notifications stay unlinked.
+const DOCUMENT_ROUTES: Record<string, string> = {
+  CONTRACT: "/contracts",
+};
+
+function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () => void }) {
   const unread = n.readAt === null;
-  return (
-    <div
-      className={cn("flex gap-3 px-1 py-3", unread && "bg-primary/[0.03]")}
-      onClick={unread ? onRead : undefined}
-      role={unread ? "button" : undefined}
-      tabIndex={unread ? 0 : undefined}
-      onKeyDown={unread ? (e) => { if (e.key === "Enter" || e.key === " ") onRead(); } : undefined}
-    >
+  const route = n.documentType ? DOCUMENT_ROUTES[n.documentType] : undefined;
+  const linked = !!route && !!n.documentId;
+
+  // Opening marks it read; a read row stays actionable so its document is
+  // always one click away.
+  const handleOpen = () => { if (unread) onOpen(); };
+
+  const body = (
+    <>
       <span
         className={cn("mt-2 h-2 w-2 shrink-0 rounded-full", unread ? "bg-primary" : "bg-transparent")}
-        aria-label={unread ? "Unread" : undefined}
+        aria-hidden="true"
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -191,45 +198,42 @@ function NotificationRow({ n, onRead }: { n: NotificationResponse; onRead: () =>
             {n.title}
           </span>
           <Badge variant="secondary">{CATEGORY_LABEL[n.category] ?? n.category}</Badge>
-          <DocumentRef n={n} />
+          {n.documentNo && (
+            <span className={cn("text-xs", linked ? "text-primary" : "text-muted-foreground")}>
+              {n.documentNo}
+            </span>
+          )}
         </div>
         <p className="mt-0.5 text-sm text-muted-foreground">{n.body}</p>
       </div>
-      <time className="shrink-0 text-xs text-muted-foreground tabular-nums" dateTime={n.createdAt} title={n.createdAt}>
-        {relativeTime(n.createdAt)}
-      </time>
-    </div>
-  );
-}
-
-// Only CONTRACT has a detail route that accepts an id today; the price-list,
-// statement and volume routes are still placeholders, so those render as text.
-function DocumentRef({ n }: { n: NotificationResponse }) {
-  if (!n.documentNo) return null;
-  if (n.documentType === "CONTRACT" && n.documentId) {
-    return (
-      <Link
-        to="/contracts"
-        search={{ id: n.documentId } as never}
-        className="text-xs text-blue-600 hover:underline"
-        onClick={(e) => e.stopPropagation()}
+      <time
+        className="shrink-0 text-xs text-muted-foreground tabular-nums"
+        dateTime={n.createdAt}
+        title={formatDateTime(n.createdAt)}
       >
-        {n.documentNo}
+        {formatRelative(n.createdAt)}
+      </time>
+      {unread && <span className="sr-only">Unread</span>}
+    </>
+  );
+
+  const className = cn(
+    "flex w-full gap-3 px-1 py-3 text-left transition-colors hover:bg-muted/50",
+    unread && "bg-primary/[0.03]"
+  );
+
+  // One control per row instead of a button wrapping a link: a link when the
+  // document has a screen, a button when opening only marks it read.
+  if (linked) {
+    return (
+      <Link to={route} search={{ id: n.documentId } as never} className={className} onClick={handleOpen}>
+        {body}
       </Link>
     );
   }
-  return <span className="text-xs text-muted-foreground">{n.documentNo}</span>;
-}
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toISOString().slice(0, 10);
+  return (
+    <button type="button" className={className} onClick={handleOpen} disabled={!unread}>
+      {body}
+    </button>
+  );
 }

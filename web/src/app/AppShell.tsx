@@ -1,15 +1,18 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, Building2, FileText, FilePlus2, Tags, BarChart3, ReceiptText,
-  CheckSquare, PenLine, Bell, ScrollText, Settings, LogOut, Search, Plus, ChevronRight,
+  CheckSquare, PenLine, Bell, ScrollText, Settings, LogOut, Search, ChevronRight,
+  PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Logo } from "@/shared/components/Logo";
+import { Logo, LogoMark } from "@/shared/components/Logo";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { usePermissions } from "@/features/auth/hooks/usePermissions";
 import { authApi } from "@/features/auth/services/authApi";
 import { useQuery } from "@tanstack/react-query";
 import { unreadCountQuery } from "@/features/notification/hooks/notificationQueries";
+import { departmentLabel } from "@/shared/lib/labels";
 
 type Item = { to: string; label: string; icon: React.ReactNode; permission?: string };
 type Group = { heading: string; items: Item[] };
@@ -42,6 +45,9 @@ const CRUMB: Record<string, { group: string; label: string }> = Object.fromEntri
 );
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("pas.sidebar-collapsed") === "true"
+  );
   const { data: user } = useCurrentUser();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -65,19 +71,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return pathname === to || pathname.startsWith(to + "/");
   };
 
+  function toggleSidebar() {
+    setSidebarCollapsed((collapsed) => {
+      window.localStorage.setItem("pas.sidebar-collapsed", String(!collapsed));
+      return !collapsed;
+    });
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
-      <aside className="flex w-60 shrink-0 flex-col bg-navy text-navy-foreground">
-        <div className="flex h-16 items-center px-5">
-          <Logo tone="light" />
+      <aside
+        className={`relative flex shrink-0 flex-col bg-navy text-navy-foreground transition-[width] duration-200 ${
+          sidebarCollapsed ? "w-16" : "w-60"
+        }`}
+      >
+        <div className={`flex h-16 items-center ${sidebarCollapsed ? "justify-center px-2" : "px-5"}`}>
+          {sidebarCollapsed ? <LogoMark tone="light" className="h-9 w-9" /> : <Logo tone="light" />}
         </div>
-        <nav className="flex-1 space-y-6 overflow-y-auto scroll-thin px-3 py-4">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="absolute -right-3 top-5 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+        </button>
+        <nav className={`flex-1 overflow-y-auto scroll-thin py-3 ${sidebarCollapsed ? "space-y-2 px-2" : "space-y-3 px-3"}`}>
           {NAV.map((group) => (
             <div key={group.heading}>
-              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
-                {group.heading}
-              </div>
+              {sidebarCollapsed ? (
+                <div className="mx-2 mb-1 border-t border-white/10" />
+              ) : (
+                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+                  {group.heading}
+                </div>
+              )}
               <div className="space-y-0.5">
                 {group.items
                   .filter((i) => !i.permission || perms.includes(i.permission))
@@ -87,13 +117,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <Link
                         key={i.to}
                         to={i.to}
+                        title={sidebarCollapsed ? i.label : undefined}
                         className={
-                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
+                          `flex items-center rounded-lg py-1.5 text-sm font-medium transition-colors ${sidebarCollapsed ? "justify-center px-2" : "gap-3 px-3"} ` +
                           (active ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/8 hover:text-white")
                         }
                       >
-                        <span className={active ? "text-white" : "text-white/60"}>{i.icon}</span>
-                        {i.label}
+                        <span className={`shrink-0 ${active ? "text-white" : "text-white/60"}`}>{i.icon}</span>
+                        {!sidebarCollapsed && i.label}
                       </Link>
                     );
                   })}
@@ -101,13 +132,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="flex items-center gap-3 border-t border-white/10 px-4 py-3">
+        <div className={`flex items-center border-t border-white/10 py-3 ${sidebarCollapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"}`}>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
             {initials}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className={`min-w-0 flex-1 ${sidebarCollapsed ? "hidden" : ""}`}>
             <div className="truncate text-sm font-medium text-white">{user?.fullName ?? "-"}</div>
-            <div className="truncate text-xs text-white/50">{user?.department ?? ""}</div>
+            <div className="truncate text-xs text-white/50">{user?.department ? departmentLabel(user.department) : ""}</div>
           </div>
           <button onClick={onLogout} title="Sign out" className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white">
             <LogOut size={16} />
@@ -143,13 +174,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </Link>
-            <button className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              <Plus size={16} /> New Contract
-            </button>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto scroll-thin">
-          <div className="p-6">{children}</div>
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-thin">
+          <div className="min-w-0 p-4 sm:p-6">{children}</div>
         </main>
       </div>
     </div>

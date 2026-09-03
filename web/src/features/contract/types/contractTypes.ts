@@ -1,6 +1,6 @@
 // Contract domain DTOs mirroring services/contract controllers.
 
-export type { PageResponse } from "@/shared/api/client";
+export type { PageResponse } from "@/shared/api/paging";
 
 export type CustomerContactResponse = {
   id: string;

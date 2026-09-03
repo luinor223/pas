@@ -1,8 +1,10 @@
-import { api, toPage, toParams, type PageMeta } from "@/shared/api/client";
+import { api } from "@/shared/api/client";
+import { toPage, toParams, type PageMeta } from "@/shared/api/paging";
 import type { AuditRecordResponse } from "../types/auditTypes";
 
 export type AuditParams = {
   entityType?: string;
+  query?: string;
   entityNo?: string;
   actorId?: string;
   sourceService?: string;

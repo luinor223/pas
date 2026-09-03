@@ -8,12 +8,12 @@ export function Forbidden({ message = "You do not have permission to view this p
     <Card className="max-w-lg mx-auto mt-12">
       <CardHeader className="flex flex-row items-center gap-3">
         <ShieldAlert className="text-destructive" size={24} />
-        <CardTitle>403 Forbidden</CardTitle>
+        <CardTitle>Access denied</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{message}</p>
         <p className="text-xs text-muted-foreground">
-          Missing permission or authorization service unavailable (fail-closed). Contact your administrator.
+          If you think you should have access, ask your administrator to review your role.
         </p>
         <Link to="/"><Button variant="outline">Back to Dashboard</Button></Link>
       </CardContent>
