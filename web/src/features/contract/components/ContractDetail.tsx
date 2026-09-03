@@ -13,8 +13,17 @@ import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
+import { DetailBackButton } from "@/shared/components/detail-back-link";
+import { TabBar, type TabItem } from "@/shared/components/tab-bar";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
+
+const TABS: readonly TabItem<Tab>[] = [
+  { value: "overview", label: "Overview" },
+  { value: "addenda", label: "Addenda" },
+  { value: "approval-history", label: "Approval History" },
+  { value: "attachments", label: "Attachments" },
+];
 
 export function ContractDetail({ id, initialTab }: { id: string; initialTab?: string }) {
   const q = useQuery(contractQuery(id));
@@ -55,12 +64,15 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold">{c.contractNo}</h2>
-            <StatusBadge status={c.status} />
+        <div className="flex items-center gap-3">
+          <DetailBackButton to="/contracts" label="Back to contracts" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold">{c.contractNo}</h2>
+              <StatusBadge status={c.status} />
+            </div>
+            <div className="text-sm text-muted-foreground">{c.serviceGroup.toLowerCase().replace(/_/g, " ")} services · {c.customerName}</div>
           </div>
-          <div className="text-sm text-muted-foreground">{c.serviceGroup.toLowerCase().replace(/_/g, " ")} services · {c.customerName}</div>
         </div>
         <div className="flex gap-2 items-center">
           <Button
@@ -76,13 +88,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
         </div>
       </div>
 
-      <div className="flex gap-1 border-b pb-2 text-sm overflow-x-auto">
-        {(["overview", "addenda", "approval-history", "attachments"] as const).map((t) => (
-          <Button key={t} size="sm" variant={tab === t ? "default" : "ghost"} onClick={() => setTab(t)}>
-            {t === "overview" ? "Overview" : t === "addenda" ? "Addenda" : t === "approval-history" ? "Approval History" : "Attachments"}
-          </Button>
-        ))}
-      </div>
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -11,12 +11,22 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { formatDate, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
+import { DetailBackButton } from "@/shared/components/detail-back-link";
+import { TabBar, type TabItem } from "@/shared/components/tab-bar";
+
+type Tab = "overview" | "contracts" | "contacts";
+
+const TABS: readonly TabItem<Tab>[] = [
+  { value: "overview", label: "Overview" },
+  { value: "contracts", label: "Contracts" },
+  { value: "contacts", label: "Contacts" },
+];
 
 export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
   const navigate = useNavigate();
   const q = useQuery(customerQuery(id));
   const contractsQ = useQuery(contractsQuery({ customerId: id, size: DEFAULT_PAGE_SIZE }));
-  const [tab, setTab] = useState<"overview" | "contracts" | "contacts">("overview");
+  const [tab, setTab] = useState<Tab>("overview");
 
   const c = q.data;
   if (q.isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -44,6 +54,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <DetailBackButton to="/customers" label="Back to customers" />
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-sm font-bold text-blue-700">{initials}</div>
           <div>
             <div className="flex items-center gap-2">
@@ -59,13 +70,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         </div>
       </div>
 
-      <div className="flex gap-2 border-b pb-2">
-        {(["overview", "contracts", "contacts"] as const).map((t) => (
-          <Button key={t} size="sm" variant={tab === t ? "default" : "ghost"} onClick={() => setTab(t)}>
-            {t === "overview" ? "Overview" : t === "contracts" ? "Contracts" : "Contacts"}
-          </Button>
-        ))}
-      </div>
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === "overview" && (
         <>
