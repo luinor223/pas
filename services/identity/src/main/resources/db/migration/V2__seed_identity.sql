@@ -78,8 +78,8 @@ insert into role_permission (role_id, permission_id)
 select r.id, p.id from role r join permission p on (p.code like '%:read' or p.code = 'approval:act')
 where r.code = 'DIRECTOR';
 
--- Admin is superuser: grant every permission (not just reads + admin perms)
 insert into role_permission (role_id, permission_id)
-select r.id, p.id from role r cross join permission p
-where r.code = 'SYSTEM_ADMIN'
-on conflict do nothing;
+select r.id, p.id from role r join permission p on (
+    p.code like '%:read'
+    or p.code in ('user:manage', 'workflow:configure', 'doctype:configure', 'audit:view_all'))
+where r.code = 'SYSTEM_ADMIN';
