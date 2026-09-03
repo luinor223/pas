@@ -21,6 +21,8 @@ const MAP: Record<string, Tone> = {
   SIGNING: { label: "Signing", cls: "text-st-signing bg-st-signing-bg" },
   EXPIRED: { label: "Expired", cls: "text-st-expired bg-st-expired-bg" },
   SUPERSEDED: { label: "Superseded", cls: "text-st-expired bg-st-expired-bg" },
+  OPEN: { label: "Open", cls: "text-st-effective bg-st-effective-bg" },
+  LOCKED: { label: "Locked", cls: "text-st-expired bg-st-expired-bg" },
   SUSPENDED: { label: "Suspended", cls: "text-st-review bg-st-review-bg" },
   DISABLED: { label: "Disabled", cls: "text-st-expired bg-st-expired-bg" },
 };

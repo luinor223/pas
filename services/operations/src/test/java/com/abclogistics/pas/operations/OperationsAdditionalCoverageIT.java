@@ -6,6 +6,9 @@ import com.abclogistics.pas.operations.grpc.ListVolumesRequest;
 import com.abclogistics.pas.operations.grpc.ListVolumesResponse;
 import com.abclogistics.pas.operations.service.PeriodService;
 import com.abclogistics.pas.operations.service.VolumeService;
+import com.abclogistics.pas.operations.dto.CreateVolumeRequest;
+import com.abclogistics.pas.operations.dto.UpdateVolumeRequest;
+import jakarta.validation.Validation;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.BeforeEach;
@@ -262,5 +265,22 @@ class OperationsAdditionalCoverageIT {
         // service direct: VolumeService.create with 2026-13 should be 400
         assertThatThrownBy(() -> volumeService.create(UUID.randomUUID(), "2026-13", "CONT_LIFT", new BigDecimal("1"), null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void volumeQuantityRejectsMoreThanThreeDecimalPlaces() {
+        try (var factory = Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            var create = new CreateVolumeRequest(
+                    UUID.randomUUID(), "2026-09", "STORAGE", new BigDecimal("1.0001"), null);
+            var update = new UpdateVolumeRequest(new BigDecimal("1.0001"), null);
+
+            assertThat(validator.validate(create))
+                    .extracting(violation -> violation.getPropertyPath().toString())
+                    .contains("quantity");
+            assertThat(validator.validate(update))
+                    .extracting(violation -> violation.getPropertyPath().toString())
+                    .contains("quantity");
+        }
     }
 }

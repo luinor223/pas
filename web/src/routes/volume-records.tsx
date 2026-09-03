@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Placeholder } from "@/shared/components/Placeholder";
+import { VolumeRecordsRoute } from "@/features/operations/components/VolumeRecordsRoute";
 
 export const Route = createFileRoute("/volume-records")({
-  component: () => <Placeholder title="Volume Records" note="Monthly volume capture with period locking." />,
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: search.tab === "periods" ? "periods" as const : undefined,
+  }),
+  component: VolumeRecordsRoute,
 });

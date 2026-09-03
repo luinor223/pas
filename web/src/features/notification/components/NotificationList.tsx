@@ -194,16 +194,23 @@ export function NotificationList() {
   );
 }
 
-// Routes that accept a document id today. Price lists, statements and volume
-// records are still placeholders, so those notifications stay unlinked.
-const DOCUMENT_ROUTES: Record<string, string> = {
-  CONTRACT: "/contracts",
+type DocumentTarget = {
+  to: "/contracts" | "/price-lists" | "/volume-records";
+  search: Record<string, string>;
 };
+
+function documentTarget(n: NotificationResponse): DocumentTarget | undefined {
+  if (!n.documentId || !n.documentType) return undefined;
+  if (n.documentType === "CONTRACT") return { to: "/contracts", search: { id: n.documentId } };
+  if (n.documentType === "PRICE_LIST") return { to: "/price-lists", search: { versionId: n.documentId } };
+  if (n.documentType === "OPERATION_PERIOD") return { to: "/volume-records", search: { tab: "periods" } };
+  return undefined;
+}
 
 function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () => void }) {
   const unread = n.readAt === null;
-  const route = n.documentType ? DOCUMENT_ROUTES[n.documentType] : undefined;
-  const linked = !!route && !!n.documentId;
+  const target = documentTarget(n);
+  const linked = Boolean(target);
   const handleOpen = () => { if (unread) onOpen(); };
 
   const content = (
@@ -241,9 +248,9 @@ function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () =>
     (linked || unread) && "hover:bg-muted/50",
   );
 
-  if (linked) {
+  if (target) {
     return (
-      <Link to={route} search={{ id: n.documentId } as never} className={rowClassName} onClick={handleOpen}>
+      <Link to={target.to} search={target.search as never} className={rowClassName} onClick={handleOpen}>
         {content}
       </Link>
     );

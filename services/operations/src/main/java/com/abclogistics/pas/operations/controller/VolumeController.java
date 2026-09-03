@@ -3,6 +3,7 @@ package com.abclogistics.pas.operations.controller;
 import com.abclogistics.pas.operations.dto.CreateVolumeRequest;
 import com.abclogistics.pas.operations.dto.UpdateVolumeRequest;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
+import com.abclogistics.pas.operations.dto.VolumePageResponse;
 import com.abclogistics.pas.operations.service.VolumeService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -32,7 +33,7 @@ public class VolumeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('volume:write') or hasAuthority('volume:edit_locked')")
+    @PreAuthorize("hasAuthority('volume:write')")
     public VolumeResponse create(@Valid @RequestBody CreateVolumeRequest request) {
         return volumeService.create(
                 request.contractId(),
@@ -44,10 +45,15 @@ public class VolumeController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('volume:read')")
-    public List<VolumeResponse> list(
+    public VolumePageResponse list(
             @RequestParam(required = false) String periodCode,
-            @RequestParam(required = false) UUID contractId) {
-        return volumeService.list(periodCode, contractId);
+            @RequestParam(required = false) UUID contractId,
+            @RequestParam(required = false) String serviceCode,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size) {
+        if (page < 0) throw new IllegalArgumentException("Page cannot be negative");
+        return volumeService.search(periodCode, contractId, serviceCode, q, page, Math.max(1, Math.min(size, 100)));
     }
 
     @GetMapping("/{id}")
@@ -57,7 +63,7 @@ public class VolumeController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('volume:write') or hasAuthority('volume:edit_locked')")
+    @PreAuthorize("hasAuthority('volume:write')")
     public VolumeResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateVolumeRequest request) {
         return volumeService.update(id, request.quantity(), request.note());
     }

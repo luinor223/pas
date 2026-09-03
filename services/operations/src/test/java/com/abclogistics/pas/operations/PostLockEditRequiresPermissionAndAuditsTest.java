@@ -4,6 +4,10 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
+import com.abclogistics.pas.operations.dto.CreateVolumeRequest;
+import com.abclogistics.pas.operations.dto.UpdateVolumeRequest;
+import com.abclogistics.pas.operations.controller.VolumeController;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.operations.service.PeriodService;
 import com.abclogistics.pas.operations.service.VolumeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +64,8 @@ class PostLockEditRequiresPermissionAndAuditsTest {
     @Autowired PeriodService periodService;
     @Autowired VolumeService volumeService;
     @Autowired OutboxRepository outbox;
+    @Autowired StubContractGrpcClient contractClient;
+    @Autowired VolumeController volumeController;
 
     private final String periodCode = "2026-09";
     private UUID contractId = UUID.randomUUID();
@@ -89,6 +95,15 @@ class PostLockEditRequiresPermissionAndAuditsTest {
                 new SimpleGrantedAuthority("volume:read"),
                 new SimpleGrantedAuthority("volume:write"),
                 new SimpleGrantedAuthority("volume:lock_period"),
+                new SimpleGrantedAuthority("volume:edit_locked")
+        );
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, authorities));
+    }
+
+    private void setAuthWithEditLockedOnly() {
+        var user = new AuthenticatedUser(UUID.randomUUID(), "special", "Special User", "OPERATIONS", List.of("OPS_OFFICER"));
+        var authorities = List.of(
+                new SimpleGrantedAuthority("volume:read"),
                 new SimpleGrantedAuthority("volume:edit_locked")
         );
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, authorities));
@@ -147,5 +162,76 @@ class PostLockEditRequiresPermissionAndAuditsTest {
         // edit while OPEN should be allowed even without edit_locked
         VolumeResponse updated = volumeService.update(vol.id(), new BigDecimal("6"), null);
         assertThat(updated.quantity()).isEqualByComparingTo("6");
+    }
+
+    @Test
+    void listCanFilterByContractWithoutAPeriodFilter() {
+        String pc = "2026-11";
+        setAuthWithoutEditLocked();
+        try { periodService.create(pc); } catch (Exception ignored) {}
+        UUID firstContract = UUID.randomUUID();
+        UUID secondContract = UUID.randomUUID();
+        VolumeResponse matching = volumeService.create(firstContract, pc, "STORAGE", new BigDecimal("5"), null);
+        volumeService.create(secondContract, pc, "STORAGE", new BigDecimal("7"), null);
+
+        assertThat(volumeService.list(null, firstContract))
+                .extracting(VolumeResponse::id)
+                .containsExactly(matching.id());
+    }
+
+    @Test
+    void editLockedPermissionDoesNotGrantOrdinaryWriteAccess() {
+        setAuthWithEditLockedOnly();
+
+        assertThatThrownBy(() -> volumeController.create(new CreateVolumeRequest(
+                UUID.randomUUID(), periodCode, "STORAGE", BigDecimal.ONE, null)))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> volumeController.update(UUID.randomUUID(),
+                new UpdateVolumeRequest(BigDecimal.ONE, null)))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void createRequiresAnActiveContractAndAPeriodWithinItsValidity() {
+        String code = "2026-08";
+        setAuthWithoutEditLocked();
+        try { periodService.create(code); } catch (Exception ignored) {}
+
+        UUID rejectedId = UUID.randomUUID();
+        contractClient.setContract(rejectedId, contractClient.getContract(rejectedId).toBuilder()
+                .setContractNo("CTR-2026-REJECTED")
+                .setStatus("REJECTED")
+                .build());
+        assertThatThrownBy(() -> volumeService.create(
+                rejectedId, code, "STORAGE", BigDecimal.ONE, null))
+                .isInstanceOf(FailedPreconditionException.class)
+                .hasMessageContaining("status is Rejected");
+
+        UUID outsideValidityId = UUID.randomUUID();
+        contractClient.setContract(outsideValidityId, contractClient.getContract(outsideValidityId).toBuilder()
+                .setContractNo("CTR-2026-SHORT")
+                .setStatus("ACTIVE")
+                .setValidFrom("2026-08-10")
+                .setValidTo("2026-08-20")
+                .build());
+        assertThatThrownBy(() -> volumeService.create(
+                outsideValidityId, code, "STORAGE", BigDecimal.ONE, null))
+                .isInstanceOf(FailedPreconditionException.class)
+                .hasMessageContaining("outside contract CTR-2026-SHORT's valid dates");
+    }
+
+    @Test
+    void volumeSearchIsPagedAndPeriodIncludesItsRecordCount() {
+        String code = "2026-07";
+        setAuthWithoutEditLocked();
+        try { periodService.create(code); } catch (Exception ignored) {}
+        UUID id = UUID.randomUUID();
+        VolumeResponse created = volumeService.create(id, code, "STORAGE", new BigDecimal("3.5"), "Night shift");
+
+        var page = volumeService.search(code, id, "STORAGE", "night", 0, 15);
+
+        assertThat(page.items()).extracting(VolumeResponse::id).containsExactly(created.id());
+        assertThat(page.totalItems()).isEqualTo(1);
+        assertThat(periodService.get(code).volumeCount()).isEqualTo(1);
     }
 }

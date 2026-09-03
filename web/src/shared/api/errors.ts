@@ -36,6 +36,21 @@ function userFriendlyMessage(raw: string): string {
   if (/valid_from must be on or before valid_to/i.test(withoutReferences)) {
     return "Valid to must be on or after Valid from.";
   }
+  if (/period is locked; volume:edit_locked required/i.test(withoutReferences)) {
+    return "This period is locked. You need special access to change its volume records.";
+  }
+  if (/invalid period_code, expected yyyy-mm|period_code must be yyyy-mm/i.test(withoutReferences)) {
+    return "Choose a valid month.";
+  }
+  if (/service item not active:/i.test(withoutReferences)) {
+    return "This service is no longer active. Choose another service.";
+  }
+  if (/contract service unavailable/i.test(withoutReferences)) {
+    return "Contract information is temporarily unavailable. Try again shortly.";
+  }
+  if (/pricing service unavailable/i.test(withoutReferences)) {
+    return "Service information is temporarily unavailable. Try again shortly.";
+  }
 
   const missingApprover = withoutReferences.match(/no assignee for role:\s*([A-Z_]+)/i);
   if (missingApprover) {

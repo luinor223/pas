@@ -10,6 +10,7 @@ public record PeriodResponse(
         LocalDate startDate,
         LocalDate endDate,
         String status,
+        long volumeCount,
         UUID lockedBy,
         String lockedByName,
         Instant lockedAt,

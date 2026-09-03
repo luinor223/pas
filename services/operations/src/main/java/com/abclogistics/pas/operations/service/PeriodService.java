@@ -8,6 +8,7 @@ import com.abclogistics.pas.operations.domain.OperationPeriod;
 import com.abclogistics.pas.operations.domain.PeriodCode;
 import com.abclogistics.pas.operations.dto.PeriodResponse;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
+import com.abclogistics.pas.operations.repository.VolumeRecordRepository;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
@@ -35,12 +36,14 @@ public class PeriodService {
     private static final Logger log = LoggerFactory.getLogger(PeriodService.class);
 
     private final OperationPeriodRepository periodRepo;
+    private final VolumeRecordRepository volumeRepo;
     private final AuditRecorder audit;
     private final KafkaTemplate<String, String> kafka;
     private final ObjectMapper objectMapper;
 
-    public PeriodService(OperationPeriodRepository periodRepo, AuditRecorder audit, KafkaTemplate<String, String> kafka, ObjectMapper objectMapper) {
+    public PeriodService(OperationPeriodRepository periodRepo, VolumeRecordRepository volumeRepo, AuditRecorder audit, KafkaTemplate<String, String> kafka, ObjectMapper objectMapper) {
         this.periodRepo = periodRepo;
+        this.volumeRepo = volumeRepo;
         this.audit = audit;
         this.kafka = kafka;
         this.objectMapper = objectMapper;
@@ -63,12 +66,16 @@ public class PeriodService {
         audit.record("OPERATION_PERIOD", period.getId(), periodCode, "period.created",
                 null, "OPEN", null, Map.of("periodCode", periodCode));
 
-        return toResponse(period);
+        return toResponse(period, 0);
     }
 
     @Transactional(readOnly = true)
     public List<PeriodResponse> list() {
-        return periodRepo.findAll().stream().map(this::toResponse).toList();
+        Map<UUID, Long> counts = volumeRepo.countByPeriod().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        VolumeRecordRepository.PeriodVolumeCount::getPeriodId,
+                        VolumeRecordRepository.PeriodVolumeCount::getVolumeCount));
+        return periodRepo.findAll().stream().map(period -> toResponse(period, counts.getOrDefault(period.getId(), 0L))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -76,7 +83,7 @@ public class PeriodService {
         validatePeriodCode(periodCode);
         OperationPeriod p = periodRepo.findByPeriodCode(periodCode)
                 .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
-        return toResponse(p);
+        return toResponse(p, volumeRepo.countByPeriod_Id(p.getId()));
     }
 
     @Transactional
@@ -88,7 +95,7 @@ public class PeriodService {
 
         if ("LOCKED".equals(period.getStatus())) {
             // idempotent — no duplicate audit, no duplicate event (lock held until commit, second waiter sees LOCKED)
-            return toResponse(period);
+            return toResponse(period, volumeRepo.countByPeriod_Id(period.getId()));
         }
 
         UUID actorId = SecurityUtils.currentUserId();
@@ -115,7 +122,7 @@ public class PeriodService {
             doPublishPeriodLocked(periodId, periodCode, actorId, actorName);
         }
 
-        return toResponse(period);
+        return toResponse(period, volumeRepo.countByPeriod_Id(period.getId()));
     }
 
     private void doPublishPeriodLocked(UUID periodId, String periodCode, UUID actorId, String actorName) {
@@ -155,13 +162,14 @@ public class PeriodService {
         }
     }
 
-    private PeriodResponse toResponse(OperationPeriod p) {
+    private PeriodResponse toResponse(OperationPeriod p, long volumeCount) {
         return new PeriodResponse(
                 p.getId(),
                 p.getPeriodCode(),
                 p.getStartDate(),
                 p.getEndDate(),
                 p.getStatus(),
+                volumeCount,
                 p.getLockedBy(),
                 p.getLockedByName(),
                 p.getLockedAt(),

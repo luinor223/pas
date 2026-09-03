@@ -17,6 +17,7 @@ type ConfirmDialogProps = {
   pendingLabel?: string;
   pending?: boolean;
   error?: unknown;
+  cancelLabel?: string;
   /** Captures a reason; it is stored on the record's history, so it is worth asking for. */
   reason?: ReasonField;
   onConfirm: (reason?: string) => void;
@@ -32,7 +33,7 @@ export function ConfirmDialog({ open, ...props }: ConfirmDialogProps) {
 }
 
 function ConfirmDialogBody({
-  title, body, confirmLabel, pendingLabel, pending = false, error, reason, onConfirm, onCancel,
+  title, body, confirmLabel, pendingLabel, pending = false, error, cancelLabel = "Keep", reason, onConfirm, onCancel,
 }: Omit<ConfirmDialogProps, "open">) {
   const [text, setText] = useState("");
   const missingReason = reason?.required && text.trim() === "";
@@ -72,7 +73,7 @@ function ConfirmDialogBody({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onCancel}>Keep</Button>
+          <Button variant="outline" disabled={pending} onClick={onCancel}>{cancelLabel}</Button>
           <Button
             variant="destructive"
             disabled={pending || missingReason}
