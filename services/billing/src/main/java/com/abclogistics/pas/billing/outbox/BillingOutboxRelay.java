@@ -77,7 +77,9 @@ public class BillingOutboxRelay extends OutboxRelay {
         }
     }
 
-    private void dispatchStartInstance(OutboxEvent event) {
+    private void dispatchStartInstance(OutboxEvent event) throws Exception {
+        // No catch-and-wrap: dispatch declares throws Exception, and wrapping would hide a
+        // JacksonException payload failure from isPermanentFailure (poison row retried forever).
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
             UUID idempotencyKey = UUID.fromString(p.get("idempotency_key").asString());
@@ -96,12 +98,10 @@ public class BillingOutboxRelay extends OutboxRelay {
                 return;
             }
             throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 
-    private void dispatchCreateSigningSession(OutboxEvent event) {
+    private void dispatchCreateSigningSession(OutboxEvent event) throws Exception {
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
             String idempotencyKey = p.get("idempotency_key").asString();
@@ -118,8 +118,6 @@ public class BillingOutboxRelay extends OutboxRelay {
                 return;
             }
             throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 

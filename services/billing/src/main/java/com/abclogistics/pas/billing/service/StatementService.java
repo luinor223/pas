@@ -44,6 +44,7 @@ public class StatementService {
     private final OperationsGrpcClient operationsClient;
     private final WorkflowGrpcClient workflowClient;
     private final EsignGrpcClient esignClient;
+    private final com.abclogistics.pas.common.audit.AuditRecorder auditRecorder;
 
     public StatementService(PaymentStatementRepository statementRepo,
                             StatementLineRepository lineRepo,
@@ -53,7 +54,8 @@ public class StatementService {
                             PricingGrpcClient pricingClient,
                             OperationsGrpcClient operationsClient,
                             WorkflowGrpcClient workflowClient,
-                            EsignGrpcClient esignClient) {
+                            EsignGrpcClient esignClient,
+                            com.abclogistics.pas.common.audit.AuditRecorder auditRecorder) {
         this.statementRepo = statementRepo;
         this.lineRepo = lineRepo;
         this.lineVolumeRepo = lineVolumeRepo;
@@ -63,6 +65,7 @@ public class StatementService {
         this.operationsClient = operationsClient;
         this.workflowClient = workflowClient;
         this.esignClient = esignClient;
+        this.auditRecorder = auditRecorder;
     }
 
     @Transactional(readOnly = true)
@@ -154,7 +157,7 @@ public class StatementService {
         statement.setVatRate(BigDecimal.valueOf(contract.getVatRate()));
         statement.setCurrency(contract.getCurrency());
         statement.setStatus(PaymentStatement.StatementStatus.CALCULATED);
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
 
         // 6. Create lines (one per service code)
         Map<String, List<VolumeRecord>> volumesByService = volumes.getVolumesList().stream()
@@ -207,7 +210,7 @@ public class StatementService {
         statement.setSubtotal(subtotal);
         statement.setTaxAmount(taxAmount);
         statement.setTotalAmount(subtotal.add(taxAmount));
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
 
         // 8. Status history (D17)
         recordHistory(statement, null, PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
@@ -227,18 +230,54 @@ public class StatementService {
             throw new FailedPreconditionException("Only CALCULATED statements can be reconciled");
         }
 
-        // PAY-02: Re-fetch volumes and verify (period still LOCKED)
-        ListVolumesResponse volumes = operationsClient.listVolumes(
-            statement.getContractId().toString(), statement.getPeriodCode());
-        if (!"LOCKED".equals(volumes.getPeriodState())) {
-            throw new FailedPreconditionException("Period is no longer LOCKED");
+        if (statement.getAdjustsStatementId() == null) {
+            // seq-06 m24 reconciliation re-checks: period still LOCKED, contract still in force
+            // during the period, the resolved price version still matches the snapshot, and no
+            // post-lock volume edit (volume:edit_locked) drifted the billed quantities.
+            ListVolumesResponse volumes = operationsClient.listVolumes(
+                statement.getContractId().toString(), statement.getPeriodCode());
+            if (!"LOCKED".equals(volumes.getPeriodState())) {
+                throw new FailedPreconditionException("Period is no longer LOCKED");
+            }
+            GetContractResponse liveContract =
+                contractClient.getContract(statement.getContractId().toString());
+            assertContractInForce(liveContract,
+                statement.getPeriodStart(), statement.getPeriodEnd());
+            GetEffectivePriceListResponse current = pricingClient.getEffectivePriceList(
+                statement.getContractId().toString(), liveContract.getCustomerId(),
+                liveContract.getServiceGroup(), volumes.getPeriodEnd());
+            if (!java.util.Objects.equals(current.getPriceListNo(), statement.getPriceListNo())
+                || current.getVersionNo() != java.util.Objects.requireNonNullElse(
+                    statement.getPriceListVersionNo(), -1)) {
+                throw new UnprocessableEntityException(
+                    "Price version drifted since calculation (snapshot "
+                        + statement.getPriceListNo() + " v" + statement.getPriceListVersionNo()
+                        + ", now " + current.getPriceListNo() + " v" + current.getVersionNo()
+                        + "); recalculate before reconciling");
+            }
+            Map<String, BigDecimal> currentQty = volumes.getVolumesList().stream()
+                .collect(Collectors.toMap(VolumeRecord::getRecordNo,
+                    vr -> BigDecimal.valueOf(vr.getQuantity()), (a, b) -> b));
+            List<String> drifted = statement.getLines().stream()
+                .flatMap(l -> l.getVolumeLinks().stream())
+                .filter(link -> !java.util.Objects.equals(
+                    link.getQuantity().stripTrailingZeros(),
+                    java.util.Objects.requireNonNullElse(
+                        currentQty.get(link.getRecordNo()), BigDecimal.valueOf(-1)).stripTrailingZeros()))
+                .map(StatementLineVolume::getRecordNo)
+                .toList();
+            if (!drifted.isEmpty()) {
+                throw new UnprocessableEntityException(
+                    "Volume quantities changed since calculation for records " + drifted
+                        + " (post-lock edit); recalculate before reconciling");
+            }
         }
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         statement.setStatus(PaymentStatement.StatementStatus.RECONCILED);
         statement.setReconciledAt(Instant.now());
         statement.setReconciledBy(SecurityUtils.currentUserId());
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
 
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.RECONCILED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.reconciled");
@@ -262,10 +301,29 @@ public class StatementService {
             throw new FailedPreconditionException("Statement must have at least 1 line (PAY-04)");
         }
 
+        if (statement.getAdjustsStatementId() == null) {
+            // seq-06 m26: every LOCKED volume of (contract, period) must be mapped.
+            // Adjustments are MANUAL-only deltas (PAY-05/nt6), not re-statements, so exempt.
+            java.util.Set<String> linked = statement.getLines().stream()
+                .flatMap(l -> l.getVolumeLinks().stream())
+                .map(StatementLineVolume::getRecordNo)
+                .collect(Collectors.toSet());
+            List<String> unmapped = operationsClient.listVolumes(
+                    statement.getContractId().toString(), statement.getPeriodCode())
+                .getVolumesList().stream()
+                .map(VolumeRecord::getRecordNo)
+                .filter(recordNo -> !linked.contains(recordNo))
+                .toList();
+            if (!unmapped.isEmpty()) {
+                throw new UnprocessableEntityException(
+                    "Unmapped locked volumes for this contract+period: " + unmapped + " (PAY-04/m26)");
+            }
+        }
+
         // ValidateStartable pre-check (registry §5, seq-06 m27)
         workflowClient.validateStartable("PAYMENT_STATEMENT");
         statement.setStatus(PaymentStatement.StatementStatus.SUBMITTED);
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
 
         recordHistory(statement, PaymentStatement.StatementStatus.RECONCILED, PaymentStatement.StatementStatus.SUBMITTED, StatusHistory.TriggerKind.U, null);
 
@@ -327,7 +385,7 @@ public class StatementService {
             statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
         }
 
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
 
         StatusHistory.TriggerKind kind = triggerRef != null && triggerRef.startsWith("W")
             ? StatusHistory.TriggerKind.W
@@ -365,6 +423,12 @@ public class StatementService {
             && status != PaymentStatement.StatementStatus.CALCULATED) {
             throw new FailedPreconditionException("Only DRAFT or CALCULATED statements can be edited");
         }
+        // seq-06 m18 version guard: stale writers lose loudly instead of overwriting
+        if (req.version() == null || req.version() != statement.getVersion()) {
+            throw new UnprocessableEntityException(
+                "Stale statement version (got " + req.version() + ", current " + statement.getVersion()
+                    + "); reload and retry");
+        }
 
         Optional<StatementLine> lineOpt = statement.getLines().stream()
             .filter(l -> l.getLineNo() == req.lineNo())
@@ -393,7 +457,7 @@ public class StatementService {
             recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         }
 
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
         auditOutbox(statement, "statement.line_edited");
         return toResponse(statement);
     }
@@ -407,6 +471,11 @@ public class StatementService {
         if (status != PaymentStatement.StatementStatus.DRAFT
             && status != PaymentStatement.StatementStatus.CALCULATED) {
             throw new FailedPreconditionException("Only DRAFT or CALCULATED statements can be edited");
+        }
+        if (req.version() == null || req.version() != statement.getVersion()) {
+            throw new UnprocessableEntityException(
+                "Stale statement version (got " + req.version() + ", current " + statement.getVersion()
+                    + "); reload and retry");
         }
 
         int nextLineNo = statement.getLines().stream()
@@ -433,20 +502,17 @@ public class StatementService {
             recordHistory(statement, status, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         }
 
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
         auditOutbox(statement, "statement.line_added");
         return toResponse(statement);
     }
 
-    @Transactional
-    public StatementResponse recalculate(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
-
-        if (statement.getStatus() != PaymentStatement.StatementStatus.DRAFT) {
-            throw new FailedPreconditionException("Only DRAFT statements can be recalculated");
-        }
-
+    /**
+     * Refreshes only {@code CALCULATED} lines from fresh upstream pulls; {@code MANUAL} lines are
+     * preserved untouched (seq-06 m20/nt4) and renumbered CALCULATED lines continue after them.
+     * Totals cover both sources.
+     */
+    private void recalculateCalculatedLines(PaymentStatement statement) {
         GetContractResponse contract = contractClient.getContract(statement.getContractId().toString());
         ListVolumesResponse volumes = operationsClient.listVolumes(
             statement.getContractId().toString(), statement.getPeriodCode());
@@ -465,8 +531,11 @@ public class StatementService {
             }
         }
 
-        lineRepo.deleteAll(statement.getLines());
-        statement.getLines().clear();
+        List<StatementLine> calculated = statement.getLines().stream()
+            .filter(l -> l.getSource() == StatementLine.LineSource.CALCULATED)
+            .toList();
+        lineRepo.deleteAll(calculated);
+        statement.getLines().removeAll(calculated);
 
         statement.setContractNo(contract.getContractNo());
         statement.setCustomerId(UUID.fromString(contract.getCustomerId()));
@@ -484,8 +553,8 @@ public class StatementService {
 
         Map<String, List<VolumeRecord>> volumesByService = volumes.getVolumesList().stream()
             .collect(Collectors.groupingBy(VolumeRecord::getServiceCode));
-        int lineNo = 1;
-        BigDecimal subtotal = BigDecimal.ZERO;
+        int lineNo = statement.getLines().stream()
+            .mapToInt(StatementLine::getLineNo).max().orElse(0) + 1;
         for (Map.Entry<String, List<VolumeRecord>> entry : volumesByService.entrySet()) {
             PriceLine priceLine = priceLookup.get(entry.getKey());
             BigDecimal totalQty = entry.getValue().stream()
@@ -514,15 +583,30 @@ public class StatementService {
                 lineVolumeRepo.save(link);
                 line.getVolumeLinks().add(link);
             }
-            subtotal = subtotal.add(amount);
         }
-        BigDecimal taxAmount = subtotal.multiply(statement.getVatRate())
-            .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        statement.setSubtotal(subtotal);
-        statement.setTaxAmount(taxAmount);
-        statement.setTotalAmount(subtotal.add(taxAmount));
+        recomputeTotals(statement);
         statement.setStatus(PaymentStatement.StatementStatus.CALCULATED);
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
+    }
+
+    @Transactional
+    public StatementResponse recalculate(String statementNo) {
+        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+
+        if (statement.getStatus() != PaymentStatement.StatementStatus.DRAFT) {
+            throw new FailedPreconditionException("Only DRAFT statements can be recalculated");
+        }
+
+        if (statement.getAdjustsStatementId() != null) {
+            // Adjustment statements are MANUAL-only deltas (PAY-05, seq-06 m39): there are no
+            // volume pulls to refresh, so recalculation just recomputes totals over kept lines.
+            recomputeTotals(statement);
+            statement.setStatus(PaymentStatement.StatementStatus.CALCULATED);
+            statementRepo.saveAndFlush(statement);
+        } else {
+            recalculateCalculatedLines(statement);
+        }
 
         recordHistory(statement, PaymentStatement.StatementStatus.DRAFT,
             PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
@@ -540,7 +624,7 @@ public class StatementService {
             throw new FailedPreconditionException("Only REJECTED or REVISION statements can be revised");
         }
         statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.revised");
         return toResponse(statement);
@@ -554,7 +638,7 @@ public class StatementService {
             throw new FailedPreconditionException("Only APPROVED statements can be sent for signing (PAY-06)");
         }
         statement.setStatus(PaymentStatement.StatementStatus.SIGNING);
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
         recordHistory(statement, PaymentStatement.StatementStatus.APPROVED,
             PaymentStatement.StatementStatus.SIGNING, StatusHistory.TriggerKind.U, null);
 
@@ -583,7 +667,7 @@ public class StatementService {
         statement.setStatus(PaymentStatement.StatementStatus.ISSUED);
         statement.setIssuedAt(Instant.now());
         statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
         recordHistory(statement, PaymentStatement.StatementStatus.SIGNED,
             PaymentStatement.StatementStatus.ISSUED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.published");
@@ -623,7 +707,7 @@ public class StatementService {
         adjustment.setCurrency(original.getCurrency());
         adjustment.setAdjustsStatementId(original.getId());
         adjustment.setStatus(PaymentStatement.StatementStatus.DRAFT);
-        statementRepo.save(adjustment);
+        statementRepo.saveAndFlush(adjustment);
 
         BigDecimal subtotal = BigDecimal.ZERO;
         int lineNo = 1;
@@ -653,7 +737,7 @@ public class StatementService {
         if (adjustment.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
             throw new UnprocessableEntityException("total_amount must be >= 0 (PAY-04)");
         }
-        statementRepo.save(adjustment);
+        statementRepo.saveAndFlush(adjustment);
 
         recordHistory(adjustment, null, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         auditOutbox(adjustment, "statement.adjustment_created");
@@ -670,9 +754,13 @@ public class StatementService {
             && oldStatus != PaymentStatement.StatementStatus.SIGNED) {
             throw new FailedPreconditionException("Only APPROVED or SIGNED statements can be cancelled");
         }
+        // seq-06 m42: abandoning the document always traces why
+        if (reason == null || reason.isBlank()) {
+            throw new UnprocessableEntityException("Cancel reason is required (PAY-05)");
+        }
 
         statement.setStatus(PaymentStatement.StatementStatus.CANCELLED);
-        statementRepo.save(statement);
+        statementRepo.saveAndFlush(statement);
 
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.cancelled");
@@ -684,8 +772,13 @@ public class StatementService {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
         try {
-            Object instance = workflowClient.getInstanceByDocument("PAYMENT_STATEMENT", statement.getId().toString());
-            if (instance == null) {
+            com.abclogistics.pas.workflow.grpc.GetInstanceByDocumentResponse instance =
+                workflowClient.getInstanceByDocument("PAYMENT_STATEMENT", statement.getId().toString());
+            // seq-03 m57: SUBMITTED plus anything but an IN_PROGRESS instance is the D4 dispatch
+            // window — a stale terminal chain from the previous submission is discarded, not rendered.
+            if (instance == null
+                || (statement.getStatus() == PaymentStatement.StatementStatus.SUBMITTED
+                    && !"IN_PROGRESS".equals(instance.getStatus()))) {
                 return new WorkflowProgressResponse(statementNo, Map.of("status", "INITIALIZATION_PENDING"));
             }
             return new WorkflowProgressResponse(statementNo, instance);
@@ -713,6 +806,23 @@ public class StatementService {
         history.setActorName(SecurityUtils.currentUserName());
         history.setOccurredAt(Instant.now());
         statement.getStatusHistory().add(history);
+    }
+
+    /** PAY-01 window check shared by calculate and reconcile. */
+    private static void assertContractInForce(GetContractResponse contract,
+                                              LocalDate periodStart, LocalDate periodEnd) {
+        if (contract.getValidFrom() != null && !contract.getValidFrom().isEmpty()) {
+            LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
+            if (periodEnd.isBefore(validFrom)) {
+                throw new FailedPreconditionException("Period ends before contract valid_from (PAY-01)");
+            }
+        }
+        if (contract.getValidTo() != null && !contract.getValidTo().isEmpty()) {
+            LocalDate validTo = LocalDate.parse(contract.getValidTo());
+            if (periodStart.isAfter(validTo)) {
+                throw new FailedPreconditionException("Period starts after contract valid_to (PAY-01)");
+            }
+        }
     }
 
     private LocalDate computeDueDate(String paymentTerm, LocalDate baseDate) {
@@ -748,21 +858,9 @@ public class StatementService {
     }
 
     private void auditOutbox(PaymentStatement statement, String action) {
-        UUID actorId = SecurityUtils.currentUserId();
-        String actorName = SecurityUtils.currentUserName();
-        String payload = String.format(
-            "{\"source_service\":\"billing\",\"entity_type\":\"PAYMENT_STATEMENT\","
-            + "\"entity_id\":\"%s\",\"entity_no\":\"%s\",\"action\":\"%s\","
-            + "\"actor_id\":\"%s\",\"actor_name\":\"%s\",\"actor_department\":\"\","
-            + "\"before_status\":null,\"after_status\":\"%s\",\"changes\":{},\"note\":null,"
-            + "\"ip_address\":null,\"occurred_at\":\"%s\"}",
-            statement.getId(), statement.getStatementNo(), action,
-            actorId != null ? actorId.toString() : "null",
-            actorName != null ? actorName : "",
-            statement.getStatus(),
-            Instant.now());
-        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", statement.getId(), payload);
-        outboxRepo.save(event);
+        // Serialized by AuditRecorder: no hand-built JSON, no "null"-string actor ids (finding 8).
+        auditRecorder.record("PAYMENT_STATEMENT", statement.getId(), statement.getStatementNo(), action,
+            null, statement.getStatus().name(), null, Map.of());
     }
 
 

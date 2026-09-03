@@ -11,5 +11,6 @@ public record AddLineRequest(
     String unit,
     @NotNull @DecimalMin(value = "0.0", inclusive = true) BigDecimal unitPrice,
     @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal quantity,
-    String note
+    String note,
+    @NotNull Integer version
 ) {}
