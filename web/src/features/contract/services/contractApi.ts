@@ -1,4 +1,4 @@
-import { api } from "@/shared/api/client";
+import { api, type PageMeta } from "@/shared/api/client";
 import type {
   AddendumResponse,
   AttachmentResponse,
@@ -50,10 +50,24 @@ function toParams(obj: Record<string, unknown>) {
   return p.toString() ? `?${p.toString()}` : "";
 }
 
+function toPage<T>(res: { data: unknown; meta?: PageMeta }): PageResponse<T> {
+  const content = Array.isArray(res.data) ? (res.data as T[]) : [];
+  const meta = res.meta;
+  return {
+    content,
+    totalElements: meta?.totalElements ?? content.length,
+    totalPages: meta?.totalPages ?? 1,
+    size: meta?.size ?? content.length,
+    number: meta?.page ?? 0,
+  };
+}
+
 export const contractApi = {
   // Customers
   listCustomers: (params: CustomerListParams = {}) =>
-    api.get<PageResponse<CustomerResponse>>(`/customers${toParams(params as Record<string, unknown>)}`).then((r) => r.data),
+    api.get<CustomerResponse[]>(`/customers${toParams(params as Record<string, unknown>)}`).then((r) =>
+      toPage<CustomerResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
+    ),
   getCustomer: (id: string) => api.get<CustomerResponse>(`/customers/${id}`).then((r) => r.data),
   getCustomerContacts: (id: string) =>
     api.get<import("../types/contractTypes").CustomerContactResponse[]>(`/customers/${id}/contacts`).then((r) => r.data),
@@ -64,7 +78,9 @@ export const contractApi = {
 
   // Contracts
   listContracts: (params: ContractListParams = {}) =>
-    api.get<PageResponse<ContractResponse>>(`/contracts${toParams(params as Record<string, unknown>)}`).then((r) => r.data),
+    api.get<ContractResponse[]>(`/contracts${toParams(params as Record<string, unknown>)}`).then((r) =>
+      toPage<ContractResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
+    ),
   getContract: (id: string) => api.get<ContractResponse>(`/contracts/${id}`).then((r) => r.data),
   createContract: (data: ContractRequest) => api.post<ContractResponse>("/contracts", data).then((r) => r.data),
   updateContract: (id: string, data: ContractRequest) => api.put<ContractResponse>(`/contracts/${id}`, data).then((r) => r.data),
@@ -78,7 +94,9 @@ export const contractApi = {
 
   // Addenda
   listAddenda: (params: AddendumListParams = {}) =>
-    api.get<PageResponse<AddendumResponse>>(`/addenda${toParams(params as Record<string, unknown>)}`).then((r) => r.data),
+    api.get<AddendumResponse[]>(`/addenda${toParams(params as Record<string, unknown>)}`).then((r) =>
+      toPage<AddendumResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
+    ),
   getAddendum: (id: string) => api.get<AddendumResponse>(`/addenda/${id}`).then((r) => r.data),
   createAddendum: (data: AddendumRequest) => api.post<AddendumResponse>("/addenda", data).then((r) => r.data),
   updateAddendum: (id: string, data: AddendumRequest) => api.put<AddendumResponse>(`/addenda/${id}`, data).then((r) => r.data),

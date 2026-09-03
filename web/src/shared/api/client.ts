@@ -50,9 +50,19 @@ function refresh(): Promise<void> {
   return p;
 }
 
+export type PageMeta = { page: number; size: number; totalElements: number; totalPages: number };
+
+// Backend envelope is {data, meta} (ApiResponseAdvice: Page -> {data: content[], meta: PageMeta}).
+// Unwrap data but preserve meta for paged callers (meta is lost if we only keep data).
 api.interceptors.response.use(
   (r) => {
-    if (r.data && typeof r.data === "object" && "data" in r.data) r.data = r.data.data;
+    if (r.data && typeof r.data === "object" && "data" in r.data) {
+      const meta = (r.data as { meta?: PageMeta }).meta;
+      r.data = (r.data as { data: unknown }).data;
+      if (meta !== undefined && meta !== null) {
+        (r as unknown as { meta: PageMeta }).meta = meta;
+      }
+    }
     return r;
   },
   async (error) => {
