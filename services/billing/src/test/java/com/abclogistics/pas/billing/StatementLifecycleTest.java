@@ -56,7 +56,8 @@ class StatementLifecycleTest {
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
                 mock(EsignGrpcClient.class), audit,
-                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class));
+                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class),
+                mock(tools.jackson.databind.ObjectMapper.class, org.mockito.Mockito.RETURNS_DEEP_STUBS));
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 

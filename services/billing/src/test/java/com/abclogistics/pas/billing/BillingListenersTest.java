@@ -1,8 +1,7 @@
 package com.abclogistics.pas.billing;
 
 import com.abclogistics.pas.billing.domain.PaymentStatement;
-import com.abclogistics.pas.billing.listener.EsignEventListener;
-import com.abclogistics.pas.billing.listener.WorkflowEventListener;
+import com.abclogistics.pas.billing.listener.BillingEventListener;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
 import com.abclogistics.pas.billing.repository.StatusHistoryRepository;
@@ -24,8 +23,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Kafka consumers are at-least-once: every event must first land in {@code processed_event},
- * then flip status + history + audit together. No Spring, no Docker.
+ * Single-consumer Kafka intake (one group per service, registry §4): dedup on the event ID first
+ * (same-ID redelivery skips quietly), then anything anomalous — no document, unknown document,
+ * unknown outcome, illegal state — throws to the DLT loudly instead of acking silently.
+ * No Spring, no Docker.
  */
 class BillingListenersTest {
 
@@ -33,8 +34,7 @@ class BillingListenersTest {
     private ProcessedEventRepository processed;
     private StatusHistoryRepository history;
     private AuditRecorder audit;
-    private WorkflowEventListener workflowListener;
-    private EsignEventListener esignListener;
+    private BillingEventListener listener;
 
     @BeforeEach
     void setUp() {
@@ -42,9 +42,24 @@ class BillingListenersTest {
         processed = mock(ProcessedEventRepository.class);
         history = mock(StatusHistoryRepository.class);
         audit = mock(AuditRecorder.class);
-        ObjectMapper mapper = new ObjectMapper();
-        workflowListener = new WorkflowEventListener(statements, processed, history, audit, mapper);
-        esignListener = new EsignEventListener(statements, processed, history, audit, mapper);
+        listener = new BillingEventListener(statements, processed, history, audit, new ObjectMapper());
+    }
+
+    @Test
+    void unrelatedEventTypesAreIgnored() {
+        listener.onEvent("{}", "workflow.instance_started", "PAYMENT_STATEMENT",
+                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+
+        verify(processed, never()).save(any());
+        verify(statements, never()).findById(any());
+    }
+
+    @Test
+    void foreignDocumentTypesAreIgnored() {
+        listener.onEvent("{}", "workflow.completed", "CONTRACT",
+                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+
+        verify(processed, never()).save(any());
     }
 
     @Test
@@ -55,7 +70,7 @@ class BillingListenersTest {
         when(processed.existsById(eventId)).thenReturn(false);
         when(statements.findById(docId)).thenReturn(Optional.of(stmt));
 
-        workflowListener.onEvent(
+        listener.onEvent(
                 "{\"document_id\":\"" + docId + "\",\"outcome\":\"APPROVED\",\"instance_id\":\"" + UUID.randomUUID() + "\"}",
                 "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString());
 
@@ -73,7 +88,7 @@ class BillingListenersTest {
         when(processed.existsById(eventId)).thenReturn(false);
         when(statements.findById(docId)).thenReturn(Optional.of(stmt));
 
-        workflowListener.onEvent(
+        listener.onEvent(
                 "{\"document_id\":\"" + docId + "\",\"outcome\":\"REVISION_REQUESTED\"}",
                 "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString());
 
@@ -81,11 +96,11 @@ class BillingListenersTest {
     }
 
     @Test
-    void duplicateWorkflowEventIsDeduped() {
+    void duplicateEventIsDedupedBeforeAnyWork() {
         UUID eventId = UUID.randomUUID();
         when(processed.existsById(eventId)).thenReturn(true);
 
-        workflowListener.onEvent("{\"outcome\":\"APPROVED\"}",
+        listener.onEvent("{\"outcome\":\"APPROVED\"}",
                 "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), UUID.randomUUID().toString());
 
         verify(statements, never()).findById(any());
@@ -93,19 +108,35 @@ class BillingListenersTest {
     }
 
     @Test
-    void workflowCompletedIgnoresNonSubmitted() {
+    void completedForNonSubmittedThrowsToDlt() {
         UUID docId = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
         PaymentStatement stmt = statement(PaymentStatement.StatementStatus.APPROVED);
         when(processed.existsById(eventId)).thenReturn(false);
         when(statements.findById(docId)).thenReturn(Optional.of(stmt));
 
-        workflowListener.onEvent(
+        // a NEW event ID in a terminal state is anomalous — loud DLT, never a silent ack
+        assertThatThrownBy(() -> listener.onEvent(
                 "{\"document_id\":\"" + docId + "\",\"outcome\":\"REJECTED\"}",
-                "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString());
-
-        assertThat(stmt.getStatus()).isEqualTo(PaymentStatement.StatementStatus.APPROVED);
+                "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SUBMITTED");
         verify(history, never()).save(any());
+    }
+
+    @Test
+    void completedForUnknownStatementThrowsToDlt() {
+        UUID docId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        when(processed.existsById(eventId)).thenReturn(false);
+        when(statements.findById(docId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> listener.onEvent(
+                "{\"document_id\":\"" + docId + "\",\"outcome\":\"APPROVED\"}",
+                "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unknown statement");
+        verify(processed, never()).save(any());
     }
 
     @Test
@@ -115,7 +146,7 @@ class BillingListenersTest {
         when(processed.existsById(eventId)).thenReturn(false);
         when(statements.findById(docId)).thenReturn(Optional.of(statement(PaymentStatement.StatementStatus.SUBMITTED)));
 
-        assertThatThrownBy(() -> workflowListener.onEvent(
+        assertThatThrownBy(() -> listener.onEvent(
                 "{\"document_id\":\"" + docId + "\",\"outcome\":\"MAYBE\"}",
                 "workflow.completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString()))
                 .isInstanceOf(IllegalStateException.class)
@@ -130,7 +161,7 @@ class BillingListenersTest {
         when(processed.existsById(eventId)).thenReturn(false);
         when(statements.findById(docId)).thenReturn(Optional.of(stmt));
 
-        esignListener.onEvent(
+        listener.onEvent(
                 "{\"document_id\":\"" + docId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
                 "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString());
 
@@ -147,11 +178,25 @@ class BillingListenersTest {
         when(processed.existsById(eventId)).thenReturn(false);
         when(statements.findById(docId)).thenReturn(Optional.of(stmt));
 
-        esignListener.onEvent(
+        listener.onEvent(
                 "{\"document_id\":\"" + docId + "\",\"result\":\"FAILED\"}",
                 "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString());
 
         assertThat(stmt.getStatus()).isEqualTo(PaymentStatement.StatementStatus.REVISION);
+    }
+
+    @Test
+    void esignForNonSigningThrowsToDlt() {
+        UUID docId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        when(processed.existsById(eventId)).thenReturn(false);
+        when(statements.findById(docId)).thenReturn(Optional.of(statement(PaymentStatement.StatementStatus.SIGNED)));
+
+        assertThatThrownBy(() -> listener.onEvent(
+                "{\"document_id\":\"" + docId + "\",\"result\":\"SIGNED\"}",
+                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), docId.toString()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SIGNING");
     }
 
     private static PaymentStatement statement(PaymentStatement.StatementStatus status) {

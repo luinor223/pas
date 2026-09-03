@@ -9,7 +9,7 @@ import com.abclogistics.pas.billing.grpc.ContractGrpcClient;
 import com.abclogistics.pas.billing.grpc.OperationsGrpcClient;
 import com.abclogistics.pas.billing.grpc.PricingGrpcClient;
 import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
-import com.abclogistics.pas.billing.listener.EsignEventListener;
+import com.abclogistics.pas.billing.listener.BillingEventListener;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
 import com.abclogistics.pas.billing.service.StatementService;
@@ -85,8 +85,7 @@ class BillingCalculateIT {
     @Autowired PaymentStatementRepository statements;
     @Autowired OutboxRepository outbox;
     @Autowired ProcessedEventRepository processedEvents;
-    @Autowired EsignEventListener esignListener;
-    @Autowired com.abclogistics.pas.billing.listener.WorkflowEventListener workflowListener;
+    @Autowired com.abclogistics.pas.billing.listener.BillingEventListener eventListener;
 
     private final UUID contractId = UUID.randomUUID();
     private final UUID customerId = UUID.randomUUID();
@@ -212,14 +211,14 @@ class BillingCalculateIT {
         // PAY-07 via the real listener against real rows
         var stmtId = statements.findByStatementNo(no).orElseThrow().getId();
         UUID eventId = UUID.randomUUID();
-        esignListener.onEvent(
+        eventListener.onEvent(
                 "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
                 "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
 
         assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("SIGNED");
         assertThat(processedEvents.existsById(eventId)).isTrue();
         // redelivery is a no-op (at-least-once)
-        esignListener.onEvent(
+        eventListener.onEvent(
                 "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
                 "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
 
@@ -235,6 +234,28 @@ class BillingCalculateIT {
     }
 
     @Test
+    @org.springframework.transaction.annotation.Transactional
+    void recalculateRefreshesLinesWithoutOrphaningLinks() {
+        StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-05"));
+        // controlled edit drops to DRAFT, then recalculate rebuilds CALCULATED lines in place
+        service.editLine(created.statementNo(),
+                new EditLineRequest(1, new BigDecimal("100.00"), new BigDecimal("20"), "confirmed", created.version()));
+        var recalculated = service.recalculate(created.statementNo());
+
+        // the edited line flipped to MANUAL on edit, so recalculate preserves it (m20) and adds
+        // one refreshed CALCULATED line; each keeps exactly its two volume links — no orphans
+        assertThat(recalculated.status()).isEqualTo("CALCULATED");
+        assertThat(recalculated.lines()).hasSize(2);
+        assertThat(recalculated.lines().stream().filter(l -> "MANUAL".equals(l.source()))).hasSize(1);
+        assertThat(recalculated.lines().stream().filter(l -> "CALCULATED".equals(l.source()))).hasSize(1);
+        assertThat(recalculated.lines().stream().mapToInt(l -> l.volumeLinks().size()).sum()).isEqualTo(4);
+        assertThat(recalculated.totalAmount()).isEqualByComparingTo("4320.00");
+        var reloaded = statements.findByStatementNo(recalculated.statementNo()).orElseThrow();
+        assertThat(reloaded.getLines()).hasSize(2);
+        assertThat(reloaded.getLines().stream().mapToInt(l -> l.getVolumeLinks().size()).sum()).isEqualTo(4);
+    }
+
+    @Test
     void adjustmentReentersBuildPathToSubmitted() {
         // build + issue the original first
         StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-12"));
@@ -245,7 +266,7 @@ class BillingCalculateIT {
         service.sendForSigning(no);
         var stmtId = statements.findByStatementNo(no).orElseThrow().getId();
         UUID eventId = UUID.randomUUID();
-        esignListener.onEvent(
+        eventListener.onEvent(
                 "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
                 "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
         service.publish(no);
@@ -267,7 +288,7 @@ class BillingCalculateIT {
     /** Drives SUBMITTED → APPROVED through the real consumer (M1: no gate-skipping shortcut). */
     private void approveViaWorkflow(String statementNo, String instanceId) {
         var stmtId = statements.findByStatementNo(statementNo).orElseThrow().getId();
-        workflowListener.onEvent(
+        eventListener.onEvent(
                 "{\"document_id\":\"" + stmtId + "\",\"outcome\":\"APPROVED\",\"instance_id\":\"" + instanceId + "\"}",
                 "workflow.completed", "PAYMENT_STATEMENT", UUID.randomUUID().toString(), stmtId.toString());
         assertThat(statements.findByStatementNo(statementNo).orElseThrow().getStatus().name()).isEqualTo("APPROVED");
