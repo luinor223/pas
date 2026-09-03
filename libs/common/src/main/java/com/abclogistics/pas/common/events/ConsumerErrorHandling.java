@@ -8,6 +8,7 @@ import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.util.backoff.ExponentialBackOff;
+import org.springframework.util.backoff.FixedBackOff;
 import tools.jackson.core.JacksonException;
 
 import java.time.Duration;
@@ -26,6 +27,17 @@ public final class ConsumerErrorHandling {
         DefaultErrorHandler handler = new DefaultErrorHandler(
                 recoverer(kafkaTemplate, dltSuffix, retryAttempts),
                 backOff(retryAttempts, retryBackoff, maxRetryBackoff));
+        handler.addNotRetryableExceptions(MalformedEventException.class, JacksonException.class);
+        return handler;
+    }
+
+    /** Fixed-delay variant retained for consumers that do not configure a maximum backoff. */
+    public static DefaultErrorHandler errorHandler(KafkaOperations<?, ?> kafkaTemplate,
+                                                   String dltSuffix, int retryAttempts,
+                                                   Duration retryBackoff) {
+        DefaultErrorHandler handler = new DefaultErrorHandler(
+                recoverer(kafkaTemplate, dltSuffix, retryAttempts),
+                new FixedBackOff(retryBackoff.toMillis(), retryAttempts));
         handler.addNotRetryableExceptions(MalformedEventException.class, JacksonException.class);
         return handler;
     }

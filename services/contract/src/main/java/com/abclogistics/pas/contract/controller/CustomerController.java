@@ -1,11 +1,11 @@
 package com.abclogistics.pas.contract.controller;
 
-import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.dto.CustomerContactResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.dto.SuspendRequest;
 import com.abclogistics.pas.contract.service.CustomerService;
+import com.abclogistics.pas.contract.service.PageableGuard;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -40,15 +40,14 @@ public class CustomerController {
     public Page<CustomerResponse> list(@RequestParam(required = false) String q,
                                        @RequestParam(required = false) String status,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        return customers.search(q, status, pageable)
-                .map(c -> CustomerResponse.of(c, List.of()));
+        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CUSTOMER_SORTS);
+        return customers.searchResponses(q, status, safe);
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('customer:read')")
     public CustomerResponse get(@PathVariable UUID id) {
-        Customer customer = customers.get(id);
-        return CustomerResponse.of(customer, customers.contactsOf(id));
+        return customers.toResponse(customers.get(id));
     }
 
     @GetMapping("/{id}/contacts")
@@ -62,15 +61,13 @@ public class CustomerController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('customer:write')")
     public CustomerResponse create(@Valid @RequestBody CustomerRequest request) {
-        Customer customer = customers.create(request);
-        return CustomerResponse.of(customer, customers.contactsOf(customer.getId()));
+        return customers.toResponse(customers.create(request));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('customer:write')")
     public CustomerResponse update(@PathVariable UUID id, @Valid @RequestBody CustomerRequest request) {
-        Customer customer = customers.update(id, request);
-        return CustomerResponse.of(customer, customers.contactsOf(id));
+        return customers.toResponse(customers.update(id, request));
     }
 
     @PostMapping("/{id}/suspend")

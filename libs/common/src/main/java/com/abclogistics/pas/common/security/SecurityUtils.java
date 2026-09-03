@@ -33,4 +33,8 @@ public final class SecurityUtils {
     public static UUID currentUserId() {
         return currentUser().map(AuthenticatedUser::userId).orElse(null);
     }
+
+    public static String currentUserName() {
+        return currentUser().map(AuthenticatedUser::fullName).orElse(null);
+    }
 }

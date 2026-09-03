@@ -8,10 +8,13 @@ import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
+import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
+import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,9 +41,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -86,6 +93,7 @@ class CustomerCrudTest {
             UUID.randomUUID(), "lan.nt", "Nguyen Thi Lan", "SALES", List.of("SALES"));
 
     @Autowired CustomerService customers;
+    @Autowired ContractService contracts;
     @Autowired WebApplicationContext webContext;
     @Autowired FilterChainProxy securityFilterChain;
     @Autowired StringRedisTemplate redisTemplate;
@@ -163,6 +171,35 @@ class CustomerCrudTest {
 
         assertThat(ids(search(null, "SUSPENDED"))).contains(suspended.getId());
         assertThat(ids(search(null, "ACTIVE"))).doesNotContain(suspended.getId());
+    }
+
+    @Test
+    void listCarriesExactContractsCount() {
+        // The CONTRACTS column is server-counted per customer — exact at any scale, unlike
+        // counting a size-capped contract page client-side.
+        UUID withTwo = tx.execute(s -> customers.create(request("Two Contract Co")).getId());
+        UUID withNone = tx.execute(s -> customers.create(request("No Contract Co")).getId());
+        tx.executeWithoutResult(s -> {
+            contracts.create(contractRequest(withTwo));
+            contracts.create(contractRequest(withTwo));
+        });
+
+        Map<UUID, Long> counts = tx.execute(s -> customers
+                .searchResponses(null, null, PageRequest.of(0, 50)).stream()
+                .collect(Collectors.toMap(CustomerResponse::id, CustomerResponse::contractsCount)));
+
+        assertThat(counts.get(withTwo)).isEqualTo(2L);
+        assertThat(counts.get(withNone)).isEqualTo(0L);
+    }
+
+    @Test
+    void detailCarriesContractsCount() {
+        UUID id = tx.execute(s -> customers.create(request("Counted Co")).getId());
+        tx.executeWithoutResult(s -> contracts.create(contractRequest(id)));
+
+        CustomerResponse detail = tx.execute(s -> customers.toResponse(customers.get(id)));
+
+        assertThat(detail.contractsCount()).isEqualTo(1L);
     }
 
     // ---- update --------------------------------------------------------------------------
@@ -490,6 +527,13 @@ class CustomerCrudTest {
 
     private static CustomerRequest request(String name) {
         return request(name, null);
+    }
+
+    private static ContractRequest contractRequest(UUID customerId) {
+        return new ContractRequest(customerId, "counted work", "TRANSPORTATION",
+                new BigDecimal("1000000"), "VND",
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31),
+                "NET30", "MONTHLY", new BigDecimal("10"), null, null, null);
     }
 
     private static CustomerRequest request(String name, String taxCode) {

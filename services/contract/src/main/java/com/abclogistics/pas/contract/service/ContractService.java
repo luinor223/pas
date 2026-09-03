@@ -90,13 +90,26 @@ public class ContractService {
 
     @Transactional(readOnly = true)
     public Page<Contract> search(UUID customerId, String status, String serviceGroup,
-                                 String q, Pageable pageable) {
+                                 String q,
+                                 String validFromFrom, String validFromTo,
+                                 String validToFrom, String validToTo,
+                                 Pageable pageable) {
         return contracts.search(
                 customerId,
                 RequestValues.parseOptional("status", status, DocumentStatus::valueOf, DocumentStatus.values()),
                 RequestValues.parseOptional("serviceGroup", serviceGroup, ServiceGroup::valueOf, ServiceGroup.values()),
                 RequestValues.likePattern(q),
+                RequestValues.parseOptionalDate("validFromFrom", validFromFrom),
+                RequestValues.parseOptionalDate("validFromTo", validFromTo),
+                RequestValues.parseOptionalDate("validToFrom", validToFrom),
+                RequestValues.parseOptionalDate("validToTo", validToTo),
                 pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Contract> search(UUID customerId, String status, String serviceGroup,
+                                 String q, Pageable pageable) {
+        return search(customerId, status, serviceGroup, q, null, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)

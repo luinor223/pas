@@ -25,6 +25,12 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
     @EntityGraph(attributePaths = "customer")
     Optional<Contract> findByContractNo(String contractNo);
 
+    long countByCustomerId(UUID customerId);
+
+    /** Per-customer contract counts in one aggregate query (no N+1). */
+    @Query("select c.customer.id, count(c) from Contract c where c.customer.id in :ids group by c.customer.id")
+    List<Object[]> countByCustomerIds(@Param("ids") List<UUID> ids);
+
     @EntityGraph(attributePaths = "customer")
     @Query("""
             select c from Contract c
@@ -35,11 +41,19 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                    or lower(c.contractNo) like :q
                    or lower(c.description) like :q
                    or lower(c.customer.name) like :q)
+              and (:#{#validFromFrom == null} = true or c.validFrom >= :validFromFrom)
+              and (:#{#validFromTo == null} = true or c.validFrom <= :validFromTo)
+              and (:#{#validToFrom == null} = true or c.validTo >= :validToFrom)
+              and (:#{#validToTo == null} = true or c.validTo <= :validToTo)
             """)
     Page<Contract> search(@Param("customerId") UUID customerId,
                           @Param("status") DocumentStatus status,
                           @Param("serviceGroup") ServiceGroup serviceGroup,
                           @Param("q") String q,
+                          @Param("validFromFrom") LocalDate validFromFrom,
+                          @Param("validFromTo") LocalDate validFromTo,
+                          @Param("validToFrom") LocalDate validToFrom,
+                          @Param("validToTo") LocalDate validToTo,
                           Pageable pageable);
 
     /**
