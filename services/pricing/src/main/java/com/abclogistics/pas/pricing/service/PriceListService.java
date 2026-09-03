@@ -20,6 +20,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Locale;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 /** Price list + version + line editing (DRAFT-only edits, PRC-05). */
 @Service
@@ -42,9 +45,7 @@ public class PriceListService {
 
     @Transactional
     public PriceList create(UUID customerId, UUID contractId, String serviceGroup, String note) {
-        if (customerId == null && contractId == null && serviceGroup == null) {
-            throw new IllegalArgumentException("A price list needs a customer, contract or service group (PRC-01)");
-        }
+        PriceList.validateScope(customerId, contractId, serviceGroup);
         String no = "PRC-%04d".formatted(lists.nextPriceListNo());
         PriceList list = lists.save(new PriceList(no, customerId, contractId, serviceGroup, note));
         audit.record("PRICE_LIST", list.getId(), "CREATE", null, list.getPriceListNo(), null, Map.of());
@@ -54,6 +55,14 @@ public class PriceListService {
     @Transactional(readOnly = true)
     public List<PriceList> search(UUID customerId, UUID contractId, String serviceGroup) {
         return lists.search(customerId, contractId, serviceGroup);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PriceList> searchPage(UUID customerId, UUID contractId, String serviceGroup,
+                                      String q, int page, int size) {
+        String searchTerm = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
+        String group = serviceGroup == null || serviceGroup.isBlank() ? null : serviceGroup;
+        return lists.searchPage(customerId, contractId, group, searchTerm, PageRequest.of(page, size));
     }
 
     @Transactional(readOnly = true)

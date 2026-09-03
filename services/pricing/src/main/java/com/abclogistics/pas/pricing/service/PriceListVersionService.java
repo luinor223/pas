@@ -2,6 +2,7 @@ package com.abclogistics.pas.pricing.service;
 
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
@@ -13,6 +14,7 @@ import com.abclogistics.pas.pricing.domain.PriceListVersionStatus;
 import com.abclogistics.pas.pricing.domain.StatusHistory;
 import com.abclogistics.pas.pricing.domain.TriggerKind;
 import com.abclogistics.pas.pricing.repository.PriceListRepository;
+import com.abclogistics.pas.pricing.repository.PriceLineRepository;
 import com.abclogistics.pas.pricing.repository.PriceListVersionRepository;
 import com.abclogistics.pas.pricing.repository.StatusHistoryRepository;
 import org.slf4j.Logger;
@@ -42,6 +44,7 @@ public class PriceListVersionService {
     private static final Logger log = LoggerFactory.getLogger(PriceListVersionService.class);
 
     private final PriceListVersionRepository versions;
+    private final PriceLineRepository lines;
     private final PriceListRepository lists;
     private final StatusHistoryRepository history;
     private final OutboxRepository outbox;
@@ -50,11 +53,12 @@ public class PriceListVersionService {
     private final WorkflowGrpcClient workflow;
     private final TransactionTemplate tx;
 
-    public PriceListVersionService(PriceListVersionRepository versions, PriceListRepository lists,
+    public PriceListVersionService(PriceListVersionRepository versions, PriceLineRepository lines, PriceListRepository lists,
                                    StatusHistoryRepository history, OutboxRepository outbox,
                                    AuditRecorder audit, ObjectMapper objectMapper,
                                    WorkflowGrpcClient workflow, TransactionTemplate tx) {
         this.versions = versions;
+        this.lines = lines;
         this.lists = lists;
         this.history = history;
         this.outbox = outbox;
@@ -72,6 +76,7 @@ public class PriceListVersionService {
         PriceListVersion peek = versions.findById(versionId)
                 .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
         requireStatus(peek, PriceListVersionStatus.DRAFT, "submit");
+        requirePriceLines(versionId);
 
         workflow.validateStartable(DOCUMENT_TYPE);   // outside the transaction
 
@@ -80,6 +85,7 @@ public class PriceListVersionService {
             PriceListVersion version = versions.findById(versionId)
                     .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
             requireStatus(version, PriceListVersionStatus.DRAFT, "submit");
+            requirePriceLines(versionId);
             PriceList list = lists.findById(version.getPriceListId())
                     .orElseThrow(() -> new NotFoundException("No price list " + version.getPriceListId()));
             assertNoBlockingOverlap(version);
@@ -203,6 +209,12 @@ public class PriceListVersionService {
     private void requireStatus(PriceListVersion version, PriceListVersionStatus expected, String action) {
         if (version.getStatus() != expected) {
             throw new ConflictException("Cannot " + action + " a " + version.getStatus() + " version (needs " + expected + ")");
+        }
+    }
+
+    private void requirePriceLines(UUID versionId) {
+        if (!lines.existsByVersionId(versionId)) {
+            throw new FailedPreconditionException("Add at least one price before submitting this version");
         }
     }
 }

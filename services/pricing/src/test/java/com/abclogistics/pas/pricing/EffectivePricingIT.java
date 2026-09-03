@@ -14,6 +14,7 @@ import com.abclogistics.pas.pricing.service.PriceListService;
 import com.abclogistics.pas.pricing.service.PriceListService.LineInput;
 import com.abclogistics.pas.pricing.service.PriceListVersionService;
 import com.abclogistics.pas.pricing.service.WorkflowGrpcClient;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -146,5 +147,29 @@ class EffectivePricingIT {
         Optional<ResolvedPriceList> resolved =
                 effective.resolve(contractId, customerId, "CONTAINER_HANDLING", LocalDate.of(2026, 6, 1));
         assertThat(resolved).get().extracting(ResolvedPriceList::priceListNo).isEqualTo(contractList.getPriceListNo());
+    }
+
+    @Test
+    void emptyVersionCannotBeSubmitted() {
+        PriceList list = lists.create(null, UUID.randomUUID(), null, null);
+        PriceListVersion empty = lists.addVersion(
+                list.getId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), null);
+
+        assertThatThrownBy(() -> versionService.submit(empty.getId()))
+                .isInstanceOf(FailedPreconditionException.class)
+                .hasMessage("Add at least one price before submitting this version");
+        assertThat(versions.findById(empty.getId()).orElseThrow().getStatus())
+                .isEqualTo(PriceListVersionStatus.DRAFT);
+    }
+
+    @Test
+    void priceListsAreFilteredAndPagedOnTheServer() {
+        PriceList matching = lists.create(null, UUID.randomUUID(), null, "Annual terminal prices");
+        lists.create(null, null, "WAREHOUSING", "Different scope");
+
+        var result = lists.searchPage(null, null, null, "terminal", 0, 15);
+
+        assertThat(result.getContent()).extracting(PriceList::getId).containsExactly(matching.getId());
+        assertThat(result.getTotalElements()).isEqualTo(1);
     }
 }

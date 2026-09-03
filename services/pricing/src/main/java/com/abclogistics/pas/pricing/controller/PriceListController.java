@@ -6,6 +6,7 @@ import com.abclogistics.pas.pricing.dto.PriceListDtos.CreatePriceListRequest;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.CreateVersionRequest;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.LineDto;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.PriceListResponse;
+import com.abclogistics.pas.pricing.dto.PriceListDtos.PriceListPageResponse;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.ReplaceLinesRequest;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.VersionDetailResponse;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.VersionResponse;
@@ -42,10 +43,17 @@ public class PriceListController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('pricelist:read')")
-    public List<PriceListResponse> search(@RequestParam(required = false) UUID customerId,
+    public PriceListPageResponse search(@RequestParam(required = false) UUID customerId,
                                           @RequestParam(required = false) UUID contractId,
-                                          @RequestParam(required = false) String serviceGroup) {
-        return lists.search(customerId, contractId, serviceGroup).stream().map(PriceListResponse::of).toList();
+                                          @RequestParam(required = false) String serviceGroup,
+                                          @RequestParam(required = false) String q,
+                                          @RequestParam(defaultValue = "0") int page,
+                                          @RequestParam(defaultValue = "15") int size) {
+        if (page < 0) throw new IllegalArgumentException("Page cannot be negative");
+        var result = lists.searchPage(customerId, contractId, serviceGroup, q, page, Math.max(1, Math.min(size, 100)));
+        return new PriceListPageResponse(
+                result.getContent().stream().map(PriceListResponse::of).toList(),
+                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
 
     @PostMapping

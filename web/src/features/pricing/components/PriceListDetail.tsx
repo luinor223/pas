@@ -150,6 +150,19 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
 
   const { version, lines } = detailQuery.data;
   const editable = canWrite && version.status === "DRAFT";
+  const activeItems = itemsQuery.data ?? [];
+  const activeCodes = new Set(activeItems.map((item) => item.code));
+  const editableItems = [
+    ...activeItems,
+    ...lines
+      .filter((line) => !activeCodes.has(line.serviceCode))
+      .map((line) => ({
+        code: line.serviceCode,
+        name: line.serviceName,
+        unit: line.unit,
+        active: false,
+      })),
+  ];
 
   function savePrices() {
     const parsed = Object.entries(prices)
@@ -205,10 +218,14 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
               </TableRow>
             </TableHeader>
             <TableBody>
-              {editable ? (itemsQuery.data ?? []).map((item) => (
+              {editable ? editableItems.map((item) => (
                 <TableRow key={item.code}>
                   <TableCell>
-                    <div className="font-medium">{item.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{item.name}</span>
+                      {!item.active && <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Inactive</span>}
+                    </div>
+                    {!item.active && <p className="mt-1 text-xs text-muted-foreground">Clear this price to remove the service from this version.</p>}
                   </TableCell>
                   <TableCell>{item.unit}</TableCell>
                   <TableCell>

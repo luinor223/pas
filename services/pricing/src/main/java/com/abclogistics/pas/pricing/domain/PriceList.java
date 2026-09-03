@@ -43,12 +43,13 @@ public class PriceList extends BaseEntity {
     protected PriceList() {}
 
     public PriceList(String priceListNo, UUID customerId, UUID contractId, String serviceGroup, String note) {
+        String normalizedGroup = serviceGroup == null || serviceGroup.isBlank() ? null : serviceGroup.trim();
         this.priceListNo = priceListNo;
         this.customerId = customerId;
         this.contractId = contractId;
-        this.serviceGroup = serviceGroup;
+        this.serviceGroup = normalizedGroup;
         this.note = note;
-        this.scopeKey = deriveScopeKey(customerId, contractId, serviceGroup);
+        this.scopeKey = deriveScopeKey(customerId, contractId, normalizedGroup);
     }
 
     /** The scope keys a lookup should try, most specific first: CONTRACT &gt; CUSTOMER+GROUP &gt;
@@ -64,9 +65,23 @@ public class PriceList extends BaseEntity {
     }
 
     public static String deriveScopeKey(UUID customerId, UUID contractId, String serviceGroup) {
+        validateScope(customerId, contractId, serviceGroup);
         return scopeKeyCandidates(customerId, contractId, serviceGroup).stream().findFirst()
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "A price list needs a customer, contract or service group (PRC-01)"));
+                        "Choose where this price list applies"));
+    }
+
+    public static void validateScope(UUID customerId, UUID contractId, String serviceGroup) {
+        boolean hasCustomer = customerId != null;
+        boolean hasContract = contractId != null;
+        boolean hasGroup = serviceGroup != null && !serviceGroup.isBlank();
+        boolean supported = (hasContract && !hasCustomer && !hasGroup)
+                || (!hasContract && hasCustomer)
+                || (!hasContract && !hasCustomer && hasGroup);
+        if (!supported) {
+            throw new IllegalArgumentException(
+                    "Choose exactly one scope: contract, customer, customer and service group, or service group");
+        }
     }
 
     public UUID getId() { return id; }

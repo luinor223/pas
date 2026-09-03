@@ -10,6 +10,14 @@ export type PageResponse<T> = {
   number: number;
 };
 
+export type PagedResult<T> = {
+  items: T[];
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+};
+
 /** Builds a query string while dropping unset values. */
 export function toParams(obj: Record<string, unknown>) {
   const params = new URLSearchParams();

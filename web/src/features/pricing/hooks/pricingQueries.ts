@@ -6,6 +6,12 @@ export const priceListsQuery = (filters: PriceListFilters = {}) => queryOptions(
   queryFn: () => pricingApi.listPriceLists(filters),
 });
 
+export const priceListQuery = (id: string) => queryOptions({
+  queryKey: ["price-list", id],
+  queryFn: () => pricingApi.getPriceList(id),
+  enabled: Boolean(id),
+});
+
 export const priceListVersionsQuery = (priceListId: string) => queryOptions({
   queryKey: ["price-list-versions", priceListId],
   queryFn: () => pricingApi.listVersions(priceListId),

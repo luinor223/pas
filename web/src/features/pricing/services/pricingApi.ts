@@ -4,6 +4,7 @@ import type {
   CreatePriceListRequest,
   CreatePriceListVersionRequest,
   PriceLineInput,
+  PriceListPageResponse,
   PriceListResponse,
   PriceListVersionDetail,
   PriceListVersionResponse,
@@ -14,11 +15,16 @@ export type PriceListFilters = {
   customerId?: string;
   contractId?: string;
   serviceGroup?: string;
+  q?: string;
+  page?: number;
+  size?: number;
 };
 
 export const pricingApi = {
   listPriceLists: (filters: PriceListFilters = {}) =>
-    api.get<PriceListResponse[]>(`/price-lists${toParams(filters)}`).then((response) => response.data),
+    api.get<PriceListPageResponse>(`/price-lists${toParams(filters)}`).then((response) => response.data),
+  getPriceList: (id: string) =>
+    api.get<PriceListResponse>(`/price-lists/${id}`).then((response) => response.data),
   createPriceList: (request: CreatePriceListRequest) =>
     api.post<PriceListResponse>("/price-lists", request).then((response) => response.data),
   listVersions: (priceListId: string) =>

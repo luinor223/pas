@@ -11,6 +11,7 @@ import {
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
 import { Button } from "@/shared/components/button";
+import { PaginationControls } from "@/shared/components/pagination-controls";
 
 type DataTableProps<T> = {
   columns: ColumnDef<T>[];
@@ -18,18 +19,29 @@ type DataTableProps<T> = {
   pageSize?: number;
   emptyMessage?: string;
   rowClassName?: (row: T) => string | undefined;
+  serverPagination?: {
+    page: number;
+    totalPages: number;
+    totalItems: number;
+    onPageChange: (page: number) => void;
+  };
 };
 
-export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No results", rowClassName }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No results", rowClassName, serverPagination }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const table = useReactTable({
     data,
     columns,
-    state: { sorting },
+    state: {
+      sorting,
+      ...(serverPagination ? { pagination: { pageIndex: serverPagination.page, pageSize } } : {}),
+    },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    getPaginationRowModel: serverPagination ? undefined : getPaginationRowModel(),
+    manualPagination: Boolean(serverPagination),
+    pageCount: serverPagination?.totalPages,
     initialState: { pagination: { pageSize } },
   });
 
@@ -81,7 +93,15 @@ export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No 
         </TableBody>
       </Table>
 
-      {table.getPageCount() > 1 && (
+      {serverPagination && data.length > 0 ? (
+        <PaginationControls
+          page={serverPagination.page}
+          totalPages={Math.max(1, serverPagination.totalPages)}
+          pageSize={pageSize}
+          totalItems={serverPagination.totalItems}
+          onPageChange={serverPagination.onPageChange}
+        />
+      ) : table.getPageCount() > 1 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>Page {pageIndex + 1} of {table.getPageCount()} · {data.length} total</span>
           <div className="flex gap-2">

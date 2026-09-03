@@ -8,6 +8,8 @@ export type PriceListResponse = {
   note: string | null;
 };
 
+export type PriceListPageResponse = import("@/shared/api/paging").PagedResult<PriceListResponse>;
+
 export type PriceListVersionStatus =
   | "DRAFT"
   | "SUBMITTED"

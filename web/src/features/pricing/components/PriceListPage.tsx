@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -18,10 +18,11 @@ import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { CustomerPicker } from "@/features/contract/components/CustomerPicker";
+import { ContractPicker } from "@/features/contract/components/ContractPicker";
 import { contractsQuery, customersQuery } from "@/features/contract/hooks/contractQueries";
 import { SERVICE_GROUPS } from "@/features/contract/contractOptions";
 import { humanize } from "@/shared/lib/text";
-import { priceListsQuery, priceListVersionByIdQuery } from "../hooks/pricingQueries";
+import { priceListQuery, priceListsQuery, priceListVersionByIdQuery } from "../hooks/pricingQueries";
 import { pricingApi } from "../services/pricingApi";
 import type { CreatePriceListRequest, PriceListResponse } from "../types/pricingTypes";
 import { PriceListDetail } from "./PriceListDetail";
@@ -35,25 +36,30 @@ export function PriceListPage() {
   const navigate = useNavigate({ from: "/price-lists" });
   const { id: selectedId, versionId: initialVersionId } = useSearch({ from: "/price-lists" });
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [serviceGroup, setServiceGroup] = useState("");
+  const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
-  const listsQuery = useQuery({ ...priceListsQuery({ serviceGroup: serviceGroup || undefined }), enabled: canRead });
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const listsQuery = useQuery({ ...priceListsQuery({
+    serviceGroup: serviceGroup || undefined,
+    q: debouncedSearch || undefined,
+    page,
+    size: DEFAULT_PAGE_SIZE,
+  }), enabled: canRead });
   const linkedVersionQuery = useQuery({ ...priceListVersionByIdQuery(initialVersionId ?? ""), enabled: canRead && !selectedId && Boolean(initialVersionId) });
-  const needsContracts = listsQuery.data?.some((list) => Boolean(list.contractId)) ?? false;
-  const needsCustomers = listsQuery.data?.some((list) => Boolean(list.customerId)) ?? false;
+  const effectiveSelectedId = selectedId ?? linkedVersionQuery.data?.version.priceListId ?? "";
+  const selectedQuery = useQuery({ ...priceListQuery(effectiveSelectedId), enabled: canRead && Boolean(effectiveSelectedId) });
+  const priceLists = listsQuery.data?.items ?? [];
+  const needsContracts = priceLists.some((list) => Boolean(list.contractId));
+  const needsCustomers = priceLists.some((list) => Boolean(list.customerId));
   const contracts = useQuery({ ...contractsQuery({ size: 100 }), enabled: canRead && needsContracts });
   const customers = useQuery({ ...customersQuery({ size: 100 }), enabled: canRead && needsCustomers });
   const contractsById = useMemo(() => new Map((contracts.data?.content ?? []).map((contract) => [contract.id, contract])), [contracts.data]);
   const customersById = useMemo(() => new Map((customers.data?.content ?? []).map((customer) => [customer.id, customer])), [customers.data]);
-
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return (listsQuery.data ?? []).filter((list) => {
-      const matchesText = !needle || [list.priceListNo, list.note, list.serviceGroup]
-        .some((value) => value?.toLowerCase().includes(needle));
-      return matchesText;
-    });
-  }, [listsQuery.data, search]);
 
   const columns = useMemo<ColumnDef<PriceListResponse>[]>(() => [
     {
@@ -83,8 +89,7 @@ export function PriceListPage() {
     return <Forbidden message="You do not have access to price lists. An administrator can grant it." />;
   }
 
-  const effectiveSelectedId = selectedId ?? linkedVersionQuery.data?.version.priceListId ?? "";
-  const selected = (listsQuery.data ?? []).find((list) => list.id === effectiveSelectedId);
+  const selected = priceLists.find((list) => list.id === effectiveSelectedId) ?? selectedQuery.data;
   if (selected) {
     return (
       <PriceListDetail
@@ -95,13 +100,19 @@ export function PriceListPage() {
       />
     );
   }
+  if (effectiveSelectedId && selectedQuery.isLoading) {
+    return <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading price list...</CardContent></Card>;
+  }
+  if (effectiveSelectedId && selectedQuery.isError) {
+    return <Card><CardContent className="p-6 text-sm text-destructive">{getApiErrorMessage(selectedQuery.error, "Could not load this price list")}</CardContent></Card>;
+  }
 
   return (
     <>
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle>Price lists ({filtered.length})</CardTitle>
+            <CardTitle>Price lists ({listsQuery.data?.totalItems ?? 0})</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">Manage where prices apply, their effective dates, and version history.</p>
           </div>
           {canWrite && <Button onClick={() => setOpenCreate(true)}><Plus size={16} className="mr-1.5" /> New price list</Button>}
@@ -113,13 +124,13 @@ export function PriceListPage() {
               label="Search price lists"
               placeholder="Search number, note, or group"
               value={search}
-              onChange={setSearch}
+              onChange={(value) => { setSearch(value); setPage(0); }}
             />
-            <Select className="w-full sm:w-52" aria-label="Filter by service group" value={serviceGroup} onChange={(event) => setServiceGroup(event.target.value)}>
+            <Select className="w-full sm:w-52" aria-label="Filter by service group" value={serviceGroup} onChange={(event) => { setServiceGroup(event.target.value); setPage(0); }}>
               <option value="">Service group: All</option>
               {SERVICE_GROUPS.map((group) => <option key={group} value={group}>{humanize(group)}</option>)}
             </Select>
-            <ClearFiltersButton className="ml-auto" disabled={!search && !serviceGroup} onClick={() => { setSearch(""); setServiceGroup(""); }} />
+            <ClearFiltersButton className="ml-auto" disabled={!search && !serviceGroup} onClick={() => { setSearch(""); setServiceGroup(""); setPage(0); }} />
           </FilterBar>
 
           {listsQuery.isLoading ? (
@@ -127,7 +138,18 @@ export function PriceListPage() {
           ) : listsQuery.isError ? (
             <p role="alert" className="text-sm text-destructive">{getApiErrorMessage(listsQuery.error, "Could not load price lists")}</p>
           ) : (
-            <DataTable columns={columns} data={filtered} pageSize={DEFAULT_PAGE_SIZE} emptyMessage={search || serviceGroup ? "No price lists match your filters" : "No price lists yet"} />
+            <DataTable
+              columns={columns}
+              data={priceLists}
+              pageSize={DEFAULT_PAGE_SIZE}
+              emptyMessage={search || serviceGroup ? "No price lists match your filters" : "No price lists yet"}
+              serverPagination={{
+                page,
+                totalPages: listsQuery.data?.totalPages ?? 0,
+                totalItems: listsQuery.data?.totalItems ?? 0,
+                onPageChange: setPage,
+              }}
+            />
           )}
         </CardContent>
       </Card>
@@ -150,9 +172,6 @@ function CreatePriceListDialog({
   const [contractId, setContractId] = useState("");
   const [serviceGroup, setServiceGroup] = useState("");
   const [note, setNote] = useState("");
-  const contracts = useQuery({ ...contractsQuery({ size: 100 }), enabled: open && scopeType === "CONTRACT" });
-  const eligibleContracts = (contracts.data?.content ?? []).filter((contract) => ["APPROVED", "ACTIVE"].includes(contract.status));
-
   const request = createRequest(scopeType, customerId, contractId, serviceGroup, note);
   const missingScope = scopeType === "CONTRACT" ? !contractId
     : scopeType === "CUSTOMER" ? !customerId
@@ -194,16 +213,14 @@ function CreatePriceListDialog({
           </div>
 
           {scopeType === "CONTRACT" && (
-            <div>
-              <Label>Approved or active contract *</Label>
-              <Select value={contractId} onChange={(event) => setContractId(event.target.value)}>
-                <option value="">Select a contract</option>
-                {eligibleContracts.map((contract) => (
-                  <option key={contract.id} value={contract.id}>{contract.contractNo} · {contract.customerName}</option>
-                ))}
-              </Select>
-              {!contracts.isLoading && eligibleContracts.length === 0 && <p className="mt-1 text-xs text-muted-foreground">No approved or active contracts are available.</p>}
-            </div>
+            <ContractPicker
+              label="Approved or active contract *"
+              value={contractId}
+              onChange={setContractId}
+              placeholder="Search approved or active contracts..."
+              statuses={["APPROVED", "ACTIVE"]}
+              allowClear={false}
+            />
           )}
 
           {(scopeType === "CUSTOMER" || scopeType === "CUSTOMER_GROUP") && (
