@@ -2,7 +2,6 @@ package com.abclogistics.pas.esign;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.esign.controller.SigningSessionController;
-import com.abclogistics.pas.esign.scheduler.EsignDispatchScheduler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -15,7 +14,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -56,9 +54,6 @@ class EsignAuthorizationIT {
         registry.add("spring.grpc.server.port", () -> 0);
         registry.add("outbox.relay.enabled", () -> "false");
     }
-
-    @MockitoBean
-    EsignDispatchScheduler dispatchScheduler;
 
     @Autowired SigningSessionController controller;
 

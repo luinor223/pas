@@ -6,7 +6,6 @@ import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.domain.SigningSession.SessionStatus;
 import com.abclogistics.pas.esign.repository.SigningSessionRepository;
 import com.abclogistics.pas.esign.repository.StatusHistoryRepository;
-import com.abclogistics.pas.esign.scheduler.EsignDispatchScheduler;
 import com.abclogistics.pas.esign.service.SigningSessionService;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -15,7 +14,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -56,10 +54,6 @@ class EsignPersistenceIT {
         registry.add("spring.grpc.server.port", () -> 0);
         registry.add("outbox.relay.enabled", () -> "false");
     }
-
-    // The dispatch scheduler would otherwise poll our PENDING_SEND rows and try to reach the provider.
-    @MockitoBean
-    EsignDispatchScheduler dispatchScheduler;
 
     @Autowired SigningSessionRepository sessions;
     @Autowired StatusHistoryRepository history;

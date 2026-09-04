@@ -11,7 +11,6 @@ import com.abclogistics.pas.esign.domain.SigningSession.SessionStatus;
 import com.abclogistics.pas.esign.repository.SigningCallbackLogRepository;
 import com.abclogistics.pas.esign.repository.SigningSessionRepository;
 import com.abclogistics.pas.esign.repository.StatusHistoryRepository;
-import com.abclogistics.pas.esign.service.MockProviderClient;
 import com.abclogistics.pas.esign.service.SigningSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +42,6 @@ class SigningSessionServiceTest {
     private StatusHistoryRepository history;
     private OutboxRepository outbox;
     private AuditRecorder audit;
-    private MockProviderClient provider;
     private SigningSessionService service;
 
     @BeforeEach
@@ -53,10 +51,10 @@ class SigningSessionServiceTest {
         history = mock(StatusHistoryRepository.class);
         outbox = mock(OutboxRepository.class);
         audit = mock(AuditRecorder.class);
-        provider = mock(MockProviderClient.class);
-        service = new SigningSessionService(sessions, callbackLog, history, outbox, audit, provider,
+        service = new SigningSessionService(sessions, callbackLog, history, outbox, audit,
                 new ObjectMapper());
         when(sessions.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(sessions.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     // --- create ------------------------------------------------------------------------------
@@ -102,14 +100,29 @@ class SigningSessionServiceTest {
         assertThat(created.getStatusHistory().get(0).getToStatus()).isEqualTo("PENDING_SEND");
     }
 
-    // --- send --------------------------------------------------------------------------------
+    // --- send (relay callbacks: markSent / failSend) -----------------------------------------
 
     @Test
-    void aSuccessfulSendMovesToSigningAndRecordsTheProviderRef() {
-        SigningSession session = session(SessionStatus.PENDING_SEND);
-        when(provider.sendForSigning(anyString(), any(), any(), any(), anyString())).thenReturn("MOCK-abc");
+    void createWritesTheProviderSendOutboxRow() {
+        when(sessions.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(sessions.existsByDocumentTypeCodeAndDocumentIdAndStatusIn(anyString(), any(), any()))
+                .thenReturn(false);
+        when(sessions.nextSessionNoSeq()).thenReturn(1L);
 
-        service.sendToProvider(session);
+        service.createSession("CONTRACT", UUID.randomUUID(), "HD-1", "ACME", "Signer", "s@acme.vn",
+                UUID.randomUUID(), UUID.randomUUID(), "Req");
+
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo(SigningSessionService.PROVIDER_SEND);
+    }
+
+    @Test
+    void markSentMovesPendingToSigning() {
+        SigningSession session = session(SessionStatus.PENDING_SEND);
+        when(sessions.findById(session.getId())).thenReturn(Optional.of(session));
+
+        service.markSent(session.getId(), "MOCK-abc", 1);
 
         assertThat(session.getStatus()).isEqualTo(SessionStatus.SIGNING);
         assertThat(session.getProviderRef()).isEqualTo("MOCK-abc");
@@ -117,30 +130,24 @@ class SigningSessionServiceTest {
     }
 
     @Test
-    void aSendThatStillHasRetriesLeftIsLeftPendingNotFailed() {
-        SigningSession session = session(SessionStatus.PENDING_SEND);
-        when(provider.getMaxAttempts()).thenReturn(3);
-        when(provider.sendForSigning(anyString(), any(), any(), any(), anyString()))
-                .thenThrow(new RuntimeException("provider down"));
+    void markSentIsANoOpWhenTheSessionIsNoLongerPending() {
+        SigningSession session = session(SessionStatus.SIGNED);
+        when(sessions.findById(session.getId())).thenReturn(Optional.of(session));
 
-        service.sendToProvider(session);
+        service.markSent(session.getId(), "MOCK-abc", 2);
 
-        assertThat(session.getStatus()).isEqualTo(SessionStatus.PENDING_SEND);
-        assertThat(session.getLastError()).isEqualTo("provider down");
-        verify(outbox, never()).save(any());   // no completion event until retries exhaust
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.SIGNED);   // a re-run after a lost ack
     }
 
     @Test
-    void aSendThatExhaustsItsRetriesFailsAndEmitsCompletion() {
+    void failSendMarksFailedAndEmitsCompletion() {
         SigningSession session = session(SessionStatus.PENDING_SEND);
-        session.setAttempts(2);   // the next failure is the third
-        when(provider.getMaxAttempts()).thenReturn(3);
-        when(provider.sendForSigning(anyString(), any(), any(), any(), anyString()))
-                .thenThrow(new RuntimeException("provider down"));
+        when(sessions.findById(session.getId())).thenReturn(Optional.of(session));
 
-        service.sendToProvider(session);
+        service.failSend(session.getId(), 3, "provider unreachable");
 
         assertThat(session.getStatus()).isEqualTo(SessionStatus.FAILED);
+        assertThat(session.getLastError()).isEqualTo("provider unreachable");
         assertThat(completionResult()).isEqualTo("FAILED");
     }
 
