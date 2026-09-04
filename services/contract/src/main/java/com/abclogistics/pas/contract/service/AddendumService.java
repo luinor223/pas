@@ -17,7 +17,7 @@ import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.domain.TriggerKind;
 import com.abclogistics.pas.contract.dto.AddendumRequest;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;

@@ -2,7 +2,7 @@ package com.abclogistics.pas.billing.service;
 
 import com.abclogistics.pas.billing.domain.*;
 import com.abclogistics.pas.billing.dto.*;
-import com.abclogistics.pas.billing.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.billing.client.*;
 import com.abclogistics.pas.billing.repository.*;
 import com.abclogistics.pas.common.audit.AuditRecorder;

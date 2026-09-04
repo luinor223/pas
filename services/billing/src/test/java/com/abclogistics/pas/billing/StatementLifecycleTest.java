@@ -3,7 +3,7 @@ package com.abclogistics.pas.billing;
 import com.abclogistics.pas.billing.domain.PaymentStatement;
 import com.abclogistics.pas.billing.domain.StatementLine;
 import com.abclogistics.pas.billing.dto.AdjustmentRequest;
-import com.abclogistics.pas.billing.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.billing.client.ContractGrpcClient;
 import com.abclogistics.pas.billing.client.OperationsGrpcClient;
 import com.abclogistics.pas.billing.client.PricingGrpcClient;
