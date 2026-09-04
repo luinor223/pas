@@ -32,8 +32,8 @@ export async function installApiMocks(
     let response: MockResponse | undefined;
     if (url.pathname === "/api/v1/auth/me") {
       response = { body: envelope({ ...currentUser, ...userOverrides }) };
-    } else if (url.pathname === "/api/v1/notifications" && url.searchParams.get("size") === "1") {
-      response = { body: envelope({ items: [], total: 0, unreadCount: 1, counts: { all: 1, unread: 1 } }) };
+    } else if (url.pathname === "/api/v1/notifications/unread-count") {
+      response = { body: envelope({ unreadCount: 1 }) };
     } else {
       response = await featureHandler(request, url);
     }

@@ -53,7 +53,7 @@ public class NotificationService {
         return targets.size();
     }
 
-    /** Returns the filtered inbox and unfiltered tab counters. */
+    /** Returns the filtered inbox and unread counters for each tab. */
     @Transactional(readOnly = true)
     public InboxResponse inbox(UUID recipient, boolean unreadOnly, NotificationCategory category,
                                Pageable pageable) {
@@ -74,13 +74,18 @@ public class NotificationService {
             counts.put(c.name(), 0L);
         }
         long all = 0;
-        for (var row : notifications.countByCategoryFor(recipient)) {
+        for (var row : notifications.countUnreadByCategoryFor(recipient)) {
             counts.put(row.getCategory().name(), row.getTotal());
             all += row.getTotal();
         }
         counts.put("all", all);
-        counts.put("unread", notifications.countByRecipientUserIdAndReadAtIsNull(recipient));
+        counts.put("unread", all);
         return counts;
+    }
+
+    @Transactional(readOnly = true)
+    public long unreadCount(UUID recipient) {
+        return notifications.countByRecipientUserIdAndReadAtIsNull(recipient);
     }
 
     /** Re-marking preserves the original {@code read_at}. */
@@ -89,7 +94,7 @@ public class NotificationService {
         notifications.findById(id)
                 .filter(n -> n.getRecipientUserId().equals(recipient))
                 // 404 rather than 403: the caller must not learn that the id exists
-                .orElseThrow(() -> new NotFoundException("Notification not found: " + id));
+                .orElseThrow(() -> new NotFoundException("Notification not found"));
         notifications.markReadFor(id, recipient, Instant.now());
     }
 

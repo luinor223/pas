@@ -10,12 +10,10 @@ export const inboxQuery = (params: InboxParams = {}) =>
     placeholderData: keepPreviousData,
   });
 
-// One row is enough: the counters are unfiltered, so the badge needs no list.
 export const unreadCountQuery = () =>
   queryOptions({
-    queryKey: ["inbox", { size: 1 }],
-    queryFn: () => notificationApi.inbox({ size: 1 }),
-    select: (d) => d.unreadCount,
+    queryKey: ["notification-unread-count"],
+    queryFn: () => notificationApi.unreadCount(),
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });

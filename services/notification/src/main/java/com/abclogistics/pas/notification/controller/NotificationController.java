@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.UUID;
 
 /** REST API for the caller's own notification inbox. */
@@ -34,6 +35,12 @@ public class NotificationController {
                               @RequestParam(required = false) NotificationCategory category,
                               Pageable pageable) {
         return notifications.inbox(SecurityUtils.currentUserId(), unread, category, pageable);
+    }
+
+    @GetMapping("/unread-count")
+    @PreAuthorize("hasAuthority('notification:read')")
+    public Map<String, Long> unreadCount() {
+        return Map.of("unreadCount", notifications.unreadCount(SecurityUtils.currentUserId()));
     }
 
     @PatchMapping("/{id}/read")

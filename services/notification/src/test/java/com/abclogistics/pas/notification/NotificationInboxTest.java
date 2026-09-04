@@ -44,14 +44,16 @@ class NotificationInboxTest {
                 new RecipientResolver(mock(IdentityGrpcClient.class)));
         when(notifications.inboxOf(any(), anyBoolean(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(notifications.countByCategoryFor(any())).thenReturn(List.of());
+        when(notifications.countUnreadByCategoryFor(any())).thenReturn(List.of());
     }
 
     @Test
     void theUnreadBadgeIsNotFilteredByTheListFilter() {
         // the Figma header shows the list and the badge together; filtering to unread must not
         UUID me = UUID.randomUUID();
-        when(notifications.countByRecipientUserIdAndReadAtIsNull(me)).thenReturn(7L);
+        when(notifications.countUnreadByCategoryFor(me)).thenReturn(List.of(
+                categoryCount(NotificationCategory.APPROVAL, 5),
+                categoryCount(NotificationCategory.SYSTEM, 2)));
 
         assertThat(service.inbox(me, true, null, FIRST_PAGE).unreadCount()).isEqualTo(7L);
         assertThat(service.inbox(me, false, null, FIRST_PAGE).unreadCount()).isEqualTo(7L);
@@ -129,8 +131,7 @@ class NotificationInboxTest {
     void everyFigmaTabGetsItsCounter() {
         // 14-notifications.png renders All / Unread / Approvals / E-signature / Expiring with counts
         UUID me = UUID.randomUUID();
-        when(notifications.countByRecipientUserIdAndReadAtIsNull(me)).thenReturn(8L);
-        when(notifications.countByCategoryFor(me)).thenReturn(List.of(
+        when(notifications.countUnreadByCategoryFor(me)).thenReturn(List.of(
                 categoryCount(NotificationCategory.APPROVAL, 5),
                 categoryCount(NotificationCategory.ESIGN, 3),
                 categoryCount(NotificationCategory.EXPIRY, 4),
@@ -138,7 +139,7 @@ class NotificationInboxTest {
 
         var counts = service.inbox(me, false, null, FIRST_PAGE).counts();
 
-        assertThat(counts).containsEntry("all", 32L).containsEntry("unread", 8L);
+        assertThat(counts).containsEntry("all", 32L).containsEntry("unread", 32L);
         assertThat(counts).containsEntry("APPROVAL", 5L).containsEntry("ESIGN", 3L)
                 .containsEntry("EXPIRY", 4L);
     }
@@ -147,7 +148,7 @@ class NotificationInboxTest {
     void aTabWithNothingInItStillReportsZero() {
         // the group-by returns no row for an empty category; the tab must show 0, not vanish
         UUID me = UUID.randomUUID();
-        when(notifications.countByCategoryFor(me))
+        when(notifications.countUnreadByCategoryFor(me))
                 .thenReturn(List.of(categoryCount(NotificationCategory.APPROVAL, 5)));
 
         assertThat(service.inbox(me, false, null, FIRST_PAGE).counts())
@@ -157,7 +158,7 @@ class NotificationInboxTest {
     @Test
     void theCountersDoNotChangeWithTheOpenTab() {
         UUID me = UUID.randomUUID();
-        when(notifications.countByCategoryFor(me)).thenReturn(List.of(
+        when(notifications.countUnreadByCategoryFor(me)).thenReturn(List.of(
                 categoryCount(NotificationCategory.APPROVAL, 5),
                 categoryCount(NotificationCategory.ESIGN, 3)));
 
@@ -165,6 +166,18 @@ class NotificationInboxTest {
         var onApprovals = service.inbox(me, true, NotificationCategory.APPROVAL, FIRST_PAGE).counts();
 
         assertThat(onApprovals).isEqualTo(unfiltered);
+    }
+
+    @Test
+    void dedicatedUnreadCountUsesOnlyTheScalarCountQuery() {
+        UUID me = UUID.randomUUID();
+        when(notifications.countByRecipientUserIdAndReadAtIsNull(me)).thenReturn(7L);
+
+        assertThat(service.unreadCount(me)).isEqualTo(7L);
+
+        verify(notifications).countByRecipientUserIdAndReadAtIsNull(me);
+        verify(notifications, never()).inboxOf(any(), anyBoolean(), any(), any());
+        verify(notifications, never()).countUnreadByCategoryFor(any());
     }
 
     @Test

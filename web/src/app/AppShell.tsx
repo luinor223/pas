@@ -57,7 +57,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const perms = usePermissions();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  // Counters are computed unfiltered, so a one-row page is enough for the badge.
   const unread = useQuery({ ...unreadCountQuery(), enabled: perms.includes("notification:read") }).data ?? 0;
   const pendingApprovals = useQuery({
     ...approvalInboxQuery("ASSIGNED", { page: 0, size: 1 }),
@@ -173,6 +172,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="ml-auto flex items-center gap-3">
             <Link
               to="/notifications"
+              search={{ tab: undefined, page: undefined }}
               className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted"
               title={unread > 0 ? `${unread} unread notifications` : "Notifications"}
             >

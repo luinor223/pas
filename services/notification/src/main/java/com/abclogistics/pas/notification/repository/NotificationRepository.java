@@ -21,7 +21,7 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             where n.recipientUserId = :recipient
               and (:unreadOnly = false or n.readAt is null)
               and (:category is null or n.category = :category)
-            order by n.createdAt desc
+            order by n.createdAt desc, n.id desc
             """)
     Page<Notification> inboxOf(@Param("recipient") UUID recipient,
                                @Param("unreadOnly") boolean unreadOnly,
@@ -47,13 +47,14 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     long countByRecipientUserIdAndReadAtIsNull(UUID recipientUserId);
 
-    /** Returns all category counters in one query. */
+    /** Returns unread category counters in one query. */
     @Query("""
             select n.category as category, count(n) as total
-            from Notification n where n.recipientUserId = :recipient
+            from Notification n
+            where n.recipientUserId = :recipient and n.readAt is null
             group by n.category
             """)
-    List<CategoryCount> countByCategoryFor(@Param("recipient") UUID recipient);
+    List<CategoryCount> countUnreadByCategoryFor(@Param("recipient") UUID recipient);
 
     interface CategoryCount {
         NotificationCategory getCategory();

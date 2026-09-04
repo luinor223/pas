@@ -61,11 +61,26 @@ class NotificationAuthorizationTest {
     }
 
     @Test
+    @WithMockUser(authorities = "notification:read")
+    void thePermissionOpensTheUnreadCount() {
+        when(notifications.unreadCount(any())).thenReturn(4L);
+
+        assertThat(controller.unreadCount()).containsEntry("unreadCount", 4L);
+    }
+
+    @Test
     @WithMockUser(authorities = "contract:read")
     void anotherPermissionDoesNotOpenIt() {
         assertThatThrownBy(() -> controller.list(false, null, Pageable.ofSize(20)))
                 .isInstanceOf(AccessDeniedException.class);
         verify(notifications, never()).inbox(any(), anyBoolean(), any(), any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "contract:read")
+    void anotherPermissionDoesNotOpenTheUnreadCount() {
+        assertThatThrownBy(controller::unreadCount).isInstanceOf(AccessDeniedException.class);
+        verify(notifications, never()).unreadCount(any());
     }
 
     @Test
