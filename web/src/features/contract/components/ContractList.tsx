@@ -59,7 +59,6 @@ export function ContractList() {
   const navigate = useNavigate();
   const canRead = useHasPermission("contract:read");
   const canWrite = useHasPermission("contract:write");
-  const canEsign = useHasPermission("esign:send");
   const canCancelActive = useHasPermission("contract:cancel_active");
   const [q, setQ] = useState("");
   const [customerId, setCustomerId] = useState(() => new URLSearchParams(window.location.search).get("customerId") ?? "");
@@ -112,7 +111,6 @@ export function ContractList() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setConfirmCancel(null); },
   });
   const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
-  const sendMut = useMutation({ mutationFn: (id: string) => contractApi.sendForSigningContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
 
   const onEdit = (c: ContractResponse) => {
     setEditId(c.id); setEditVersion(c.version);
@@ -147,7 +145,6 @@ export function ContractList() {
         if (canWrite && c.status === "REJECTED") items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
         if (canWrite) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
         if (canWrite) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
-        if (canEsign && c.status === "APPROVED") items.push({ label: "Send for signing", onClick: () => sendMut.mutate(c.id) });
         if (canWrite && cancellable) items.push({ label: "Cancel contract", onClick: () => setConfirmCancel(c), danger: true });
         return (
           <div className="text-right">
@@ -156,7 +153,7 @@ export function ContractList() {
         );
       },
     },
-  ], [canWrite, canEsign, canCancelActive, navigate]);
+  ], [canWrite, canCancelActive, navigate]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to contracts.</CardContent></Card>;
 
@@ -205,7 +202,7 @@ export function ContractList() {
           <div className="text-xs text-muted-foreground">Date filters show contracts whose full term falls within the selected dates.</div>
           {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} />}
           <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
-          {(submitMut.isError || reviseMut.isError || sendMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? reviseMut.error ?? sendMut.error) as unknown as Error, "Action failed")}</div>}
+          {(submitMut.isError || reviseMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? reviseMut.error) as unknown as Error, "Action failed")}</div>}
         </CardContent>
       </Card>
 

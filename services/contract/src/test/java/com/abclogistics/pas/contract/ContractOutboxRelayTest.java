@@ -8,6 +8,7 @@ import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.outbox.ContractOutboxRelay;
 import com.abclogistics.pas.contract.service.EsignGrpcClient;
+import com.abclogistics.pas.contract.service.SigningRequestService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -57,6 +58,7 @@ class ContractOutboxRelayTest {
     private WorkflowGrpcClient workflow;
     private EsignGrpcClient esign;
     private AuditRecorder audit;
+    private SigningRequestService signingRequests;
     private ContractOutboxRelay relay;
 
     @BeforeEach
@@ -67,10 +69,11 @@ class ContractOutboxRelayTest {
         workflow = mock(WorkflowGrpcClient.class);
         esign = mock(EsignGrpcClient.class);
         audit = mock(AuditRecorder.class);
+        signingRequests = mock(SigningRequestService.class);
         // A template that just runs the callback: these tests are about routing, and the real
         // transaction boundaries are pinned by libs:common's OutboxRelayDatabaseTest.
         relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow,
-                esign, MAPPER, audit, directTransactions());
+                esign, MAPPER, audit, directTransactions(), signingRequests);
         when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(UUID.randomUUID());
         when(kafka.send(any(ProducerRecord.class)))
@@ -206,6 +209,7 @@ class ContractOutboxRelayTest {
 
         verify(esign).createSigningSession(key, "CONTRACT", documentId, "HD-2026-0001",
                 "Tran Thi B", "b@acme.vn", "ACME Corp", null, null);
+        verify(signingRequests).associateSession(eq("CONTRACT"), eq(documentId), eq(key), any());
         verify(kafka, never()).send(any(ProducerRecord.class));
     }
 
@@ -250,8 +254,10 @@ class ContractOutboxRelayTest {
         // A double-send is refused with FAILED_PRECONDITION, and it will be refused identically on
         // every poll. At a five-second interval, retrying is a row re-claimed for the life of the
         // deployment and a log line every five seconds saying the same thing.
-        OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
-                "CONTRACT", UUID.randomUUID(), "CTR-2026-0006", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        UUID requestKey = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(requestKey,
+                "CONTRACT", documentId, "CTR-2026-0006", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
         when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(
                         Status.FAILED_PRECONDITION.withDescription("session already exists")));
@@ -268,6 +274,7 @@ class ContractOutboxRelayTest {
         Map<String, Object> detail = captureAudit("SEND_FOR_SIGNING_FAILED", "CTR-2026-0006");
         assertThat(detail).containsEntry("grpcStatus", "FAILED_PRECONDITION")
                 .containsEntry("grpcDescription", "session already exists");
+        verify(signingRequests).release("CONTRACT", documentId, requestKey, null);
     }
 
     @Test

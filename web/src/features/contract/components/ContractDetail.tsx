@@ -16,6 +16,7 @@ import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
+import { DocumentSigningPanel } from "./DocumentSigningPanel";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -117,6 +118,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
 
           <div className="space-y-4">
             <ApprovalProgressPanel progress={progQ.data} isLoading={progQ.isLoading} error={progQ.error} />
+            <DocumentSigningPanel key={`CONTRACT:${c.id}`} documentType="CONTRACT" documentId={c.id} documentStatus={c.status} />
             <Card>
               <CardHeader><CardTitle className="text-base">Record metadata</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-2 gap-2 text-sm">

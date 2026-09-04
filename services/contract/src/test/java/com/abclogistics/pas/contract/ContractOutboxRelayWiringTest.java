@@ -5,6 +5,7 @@ import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.contract.outbox.ContractOutboxRelay;
 import com.abclogistics.pas.contract.service.EsignGrpcClient;
+import com.abclogistics.pas.contract.service.SigningRequestService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -32,6 +33,7 @@ class ContractOutboxRelayWiringTest {
             .withBean(WorkflowGrpcClient.class, () -> mock(WorkflowGrpcClient.class))
             .withBean(EsignGrpcClient.class, () -> mock(EsignGrpcClient.class))
             .withBean(AuditRecorder.class, () -> mock(AuditRecorder.class))
+            .withBean(SigningRequestService.class, () -> mock(SigningRequestService.class))
             .withBean(ObjectMapper.class, ObjectMapper::new)
             .withBean(TransactionTemplate.class, () -> mock(TransactionTemplate.class));
 

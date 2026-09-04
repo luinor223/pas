@@ -12,15 +12,21 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.GlobalExceptionHandler;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.controller.ContractController;
+import com.abclogistics.pas.contract.controller.AddendumController;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
+import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.scheduler.ContractStatusScheduler;
+import com.abclogistics.pas.contract.listener.WorkflowEventListener;
 import com.abclogistics.pas.contract.service.ContractService;
+import com.abclogistics.pas.contract.service.AddendumService;
+import com.abclogistics.pas.contract.service.SigningRequestService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import org.junit.jupiter.api.AfterEach;
@@ -32,16 +38,26 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * D10 / D14e — contract-service owns the send-for-signing action (registry §6 third outbox use),
@@ -97,11 +113,19 @@ class SendForSigningNoStatusChangeTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate tx;
     @Autowired ContractController controller;
+    @Autowired AddendumService addenda;
+    @Autowired AddendumController addendumController;
+    @Autowired WorkflowEventListener eventListener;
+    @Autowired SigningRequestService signingRequests;
+    private MockMvc mvc;
 
     @BeforeEach
     void authenticate() {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(SALES, null, SALES_OFFICER_PERMISSIONS));
+        mvc = MockMvcBuilders.standaloneSetup(controller, addendumController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
     @AfterEach
@@ -126,6 +150,197 @@ class SendForSigningNoStatusChangeTest {
     }
 
     @Test
+    void approvedAddendumSendWritesOneIntentWithoutChangingApprovalStatus() {
+        UUID id = approvedAddendum(approvedContract());
+        int historyBefore = historyRows(id);
+
+        var queued = addenda.sendForSigning(id);
+
+        assertThat(addendumStatusOf(id)).isEqualTo(DocumentStatus.APPROVED);
+        assertThat(historyRows(id)).isEqualTo(historyBefore);
+        assertThat(outboxRows(id, "esign.session_requested")).isEqualTo(1);
+        assertThat(payloadOf(id, "esign.session_requested"))
+                .contains("ADDENDUM").contains("b@acme.vn").contains("Tran Thi B");
+        assertThat(queued.requestQueued()).isTrue();
+        assertThat(queued.canSendForSigning()).isFalse();
+        assertThat(queued.sessionId()).isNull();
+        assertThat(addenda.signingRequestState(id)).isEqualTo(queued);
+        assertThat(addendumController.signingRequestState(id).requestQueued()).isTrue();
+    }
+
+    @Test
+    void addendumSendRejectsEveryNonApprovedStatus() {
+        UUID id = approvedAddendum(approvedContract());
+        for (DocumentStatus status : DocumentStatus.values()) {
+            if (status == DocumentStatus.APPROVED) continue;
+            setAddendumStatus(id, status);
+            assertThatThrownBy(() -> addenda.sendForSigning(id))
+                    .as("status %s", status)
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessage("This document must be approved before it can be sent for signature.");
+        }
+        assertThat(outboxRows(id, "esign.session_requested")).isZero();
+    }
+
+    @Test
+    void nonApprovedSendReturnsABusinessFriendlyApiError() throws Exception {
+        UUID id = approvedAddendum(approvedContract());
+        setAddendumStatus(id, DocumentStatus.DRAFT);
+
+        String body = mvc.perform(post("/addenda/{id}/send-for-signing", id))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message")
+                        .value("This document must be approved before it can be sent for signature."))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("ADDENDUM", "DRAFT", "APPROVED", "D10");
+    }
+
+    @Test
+    void addendumSendRejectsMissingSignerEmail() {
+        UUID contractId = approvedContract();
+        jdbc.update("update contract.customer_contact set email = null where customer_id = "
+                + "(select customer_id from contract.contract where id = ?)", contractId);
+        UUID id = approvedAddendum(contractId);
+
+        assertThatThrownBy(() -> addenda.sendForSigning(id))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("email address");
+        assertThat(outboxRows(id, "esign.session_requested")).isZero();
+    }
+
+    @Test
+    void addendumSendRejectsBlankSignerNameAndMalformedEmail() {
+        UUID contractId = approvedContract();
+        UUID id = approvedAddendum(contractId);
+        jdbc.update("update contract.customer_contact set full_name = ' ' where customer_id = "
+                + "(select customer_id from contract.contract where id = ?)", contractId);
+
+        assertThatThrownBy(() -> addenda.sendForSigning(id))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("signer name");
+
+        jdbc.update("update contract.customer_contact set full_name = 'Signer', email = 'invalid' "
+                + "where customer_id = (select customer_id from contract.contract where id = ?)",
+                contractId);
+        assertThatThrownBy(() -> addenda.sendForSigning(id))
+                .isInstanceOf(UnprocessableEntityException.class)
+                .hasMessageContaining("valid email address");
+        assertThat(outboxRows(id, "esign.session_requested")).isZero();
+    }
+
+    @Test
+    void addendumSendRequiresEsignPermission() {
+        UUID id = approvedAddendum(approvedContract());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(SALES, null,
+                        List.of(new SimpleGrantedAuthority("addendum:write"))));
+
+        assertThatThrownBy(() -> addendumController.sendForSigning(id))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(outboxRows(id, "esign.session_requested")).isZero();
+    }
+
+    @Test
+    void signingRequestStateUsesDocumentReadOrEsignPermission() {
+        UUID contractId = approvedContract();
+        UUID addendumId = approvedAddendum(contractId);
+
+        authWith("contract:read");
+        assertThat(controller.signingRequestState(contractId).canSendForSigning()).isFalse();
+        assertThatThrownBy(() -> addendumController.signingRequestState(addendumId))
+                .isInstanceOf(AccessDeniedException.class);
+
+        authWith("addendum:read");
+        assertThat(addendumController.signingRequestState(addendumId).canSendForSigning()).isFalse();
+        assertThatThrownBy(() -> controller.signingRequestState(contractId))
+                .isInstanceOf(AccessDeniedException.class);
+
+        authWith("esign:send");
+        assertThat(controller.signingRequestState(contractId).canSendForSigning()).isTrue();
+        assertThat(addendumController.signingRequestState(addendumId).canSendForSigning()).isTrue();
+
+        authWith("customer:read");
+        assertThatThrownBy(() -> controller.signingRequestState(contractId))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> addendumController.signingRequestState(addendumId))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void duplicateAndConcurrentAddendumSendsQueueOneIntent() throws Exception {
+        UUID sequentialId = approvedAddendum(approvedContract());
+        addenda.sendForSigning(sequentialId);
+        addenda.sendForSigning(sequentialId);
+        assertThat(outboxRows(sequentialId, "esign.session_requested")).isEqualTo(1);
+
+        UUID concurrentId = approvedAddendum(approvedContract());
+        CyclicBarrier start = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> first = pool.submit(() -> concurrentSend(concurrentId, start));
+            Future<Throwable> second = pool.submit(() -> concurrentSend(concurrentId, start));
+            assertThat(first.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(second.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(outboxRows(concurrentId, "esign.session_requested")).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void publishedIntentRemainsIdempotentUntilItsSigningSessionCompletes() {
+        UUID id = approvedAddendum(approvedContract());
+        addenda.sendForSigning(id);
+        UUID requestKey = signingRequestKey(id);
+        jdbc.update("update contract.outbox set published_at = now() where aggregate_id = ? "
+                + "and event_type = 'esign.session_requested'", id);
+
+        addenda.sendForSigning(id);
+        assertThat(outboxRows(id, "esign.session_requested")).isEqualTo(1);
+
+        eventListener.onSigningCompleted(
+                "{\"idempotency_key\":\"%s\",\"session_id\":\"%s\"}"
+                        .formatted(requestKey, UUID.randomUUID()),
+                "ADDENDUM", UUID.randomUUID().toString(), id);
+        addenda.sendForSigning(id);
+        assertThat(outboxRows(id, "esign.session_requested")).isEqualTo(2);
+
+        eventListener.onSigningCompleted(
+                "{\"idempotency_key\":\"%s\",\"session_id\":\"%s\"}"
+                        .formatted(requestKey, UUID.randomUUID()),
+                "ADDENDUM", UUID.randomUUID().toString(), id);
+        addenda.sendForSigning(id);
+        assertThat(outboxRows(id, "esign.session_requested")).isEqualTo(2);
+    }
+
+    @Test
+    void oldCompletionPayloadCorrelatesBySessionIdDuringRollingDeployment() {
+        UUID id = approvedAddendum(approvedContract());
+        addenda.sendForSigning(id);
+        UUID requestKey = signingRequestKey(id);
+        UUID sessionId = UUID.randomUUID();
+        String eventId = UUID.randomUUID().toString();
+        String oldPayload = "{\"session_id\":\"%s\"}".formatted(sessionId);
+
+        assertThatThrownBy(() -> eventListener.onSigningCompleted(
+                oldPayload, "ADDENDUM", eventId, id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not been associated");
+
+        signingRequests.associateSession("ADDENDUM", id, requestKey, sessionId);
+        eventListener.onSigningCompleted(oldPayload, "ADDENDUM", eventId, id);
+        addenda.sendForSigning(id);
+        assertThat(outboxRows(id, "esign.session_requested")).isEqualTo(2);
+        signingRequests.associateSession(
+                "ADDENDUM", id, signingRequestKey(id), UUID.randomUUID());
+
+        eventListener.onSigningCompleted(oldPayload, "ADDENDUM", UUID.randomUUID().toString(), id);
+        addenda.sendForSigning(id);
+        assertThat(outboxRows(id, "esign.session_requested")).isEqualTo(2);
+    }
+
+    @Test
     void sendIsAuditedEvenThoughNothingMoved() {
         // "who sent this for signature, and when" is exactly what the History tab is for (D15),
         // and no status_history row will ever carry it.
@@ -144,7 +359,7 @@ class SendForSigningNoStatusChangeTest {
 
         assertThatThrownBy(() -> contracts.sendForSigning(id))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("APPROVED");
+                .hasMessage("This document must be approved before it can be sent for signature.");
 
         assertThat(outboxRows(id, "esign.session_requested")).isZero();
     }
@@ -199,6 +414,33 @@ class SendForSigningNoStatusChangeTest {
                 List.of()));
     }
 
+    private UUID approvedAddendum(UUID contractId) {
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(
+                contractId, "TERM_EXTENSION", "renewal for signature", LocalDate.now(),
+                LocalDate.now().plusYears(2), null, null, null)).getId());
+        setAddendumStatus(id, DocumentStatus.APPROVED);
+        return id;
+    }
+
+    private Throwable concurrentSend(UUID id, CyclicBarrier start) {
+        authenticate();
+        try {
+            start.await(10, TimeUnit.SECONDS);
+            addenda.sendForSigning(id);
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    private void authWith(String permission) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(SALES, null,
+                        List.of(new SimpleGrantedAuthority(permission))));
+    }
+
     private UUID approved(CustomerRequest customer) {
         UUID customerId = tx.execute(s -> customers.create(customer).getId());
         UUID id = tx.execute(s -> contracts.create(new ContractRequest(
@@ -215,6 +457,14 @@ class SendForSigningNoStatusChangeTest {
 
     private DocumentStatus statusOf(UUID id) {
         return tx.execute(s -> contracts.get(id).getStatus());
+    }
+
+    private void setAddendumStatus(UUID id, DocumentStatus status) {
+        tx.executeWithoutResult(s -> addenda.get(id).setStatus(status));
+    }
+
+    private DocumentStatus addendumStatusOf(UUID id) {
+        return tx.execute(s -> addenda.get(id).getStatus());
     }
 
     private int historyRows(UUID id) {
@@ -237,5 +487,13 @@ class SendForSigningNoStatusChangeTest {
                 "select payload::text from contract.outbox where aggregate_id = ? and "
                         + "(event_type = ? or payload::text like ?) limit 1",
                 String.class, id, marker, "%" + marker + "%");
+    }
+
+    private UUID signingRequestKey(UUID id) {
+        return jdbc.queryForObject(
+                "select (payload::jsonb ->> 'idempotencyKey')::uuid from contract.outbox "
+                        + "where aggregate_id = ? and event_type = 'esign.session_requested' "
+                        + "order by created_at desc limit 1",
+                UUID.class, id);
     }
 }

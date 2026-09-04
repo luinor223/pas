@@ -58,12 +58,14 @@ public class AddendumService {
     private final AuditRecorder audit;
     private final DocumentCancellationService cancellation;
     private final TransactionTemplate tx;
+    private final SigningRequestService signingRequests;
 
     public AddendumService(AddendumRepository addenda, ContractService contracts,
                            DocumentNumberService numbers, StatusTransitionService transitions,
                            AttachmentRepository attachments, WorkflowGrpcClient workflow,
                            OutboxRepository outbox, ObjectMapper objectMapper, AuditRecorder audit,
-                           DocumentCancellationService cancellation, TransactionTemplate tx) {
+                           DocumentCancellationService cancellation, TransactionTemplate tx,
+                           SigningRequestService signingRequests) {
         this.addenda = addenda;
         this.contracts = contracts;
         this.numbers = numbers;
@@ -75,6 +77,7 @@ public class AddendumService {
         this.audit = audit;
         this.cancellation = cancellation;
         this.tx = tx;
+        this.signingRequests = signingRequests;
     }
 
     @Transactional(readOnly = true)
@@ -228,6 +231,19 @@ public class AddendumService {
         transitions.transition(addendum, DocumentStatus.DRAFT, TriggerKind.U, null,
                 "Reopened for revision after rejection (CTR-04)");
         return addendum;
+    }
+
+    @Transactional
+    public SigningRequestService.State sendForSigning(UUID id) {
+        Addendum addendum = addenda.findByIdForUpdate(id)
+                .orElseThrow(() -> new NotFoundException("Addendum %s not found".formatted(id)));
+        signingRequests.queue(addendum, addendum.getContract().getCustomer());
+        return signingRequests.state(addendum);
+    }
+
+    @Transactional(readOnly = true)
+    public SigningRequestService.State signingRequestState(UUID id) {
+        return signingRequests.state(get(id));
     }
 
     @Transactional(readOnly = true)

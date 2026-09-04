@@ -7,6 +7,7 @@ import com.abclogistics.pas.contract.dto.CancelRequest;
 import com.abclogistics.pas.contract.dto.CancelResponse;
 import com.abclogistics.pas.contract.dto.ProgressResponse;
 import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
+import com.abclogistics.pas.contract.dto.SigningRequestStateResponse;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.PageableGuard;
@@ -107,5 +108,18 @@ public class AddendumController {
     @PreAuthorize("hasAuthority('addendum:read')")
     public List<StatusHistoryResponse> history(@PathVariable UUID id) {
         return addenda.history(id).stream().map(StatusHistoryResponse::of).toList();
+    }
+
+    @PostMapping("/{id}/send-for-signing")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @PreAuthorize("hasAuthority('esign:send')")
+    public SigningRequestStateResponse sendForSigning(@PathVariable UUID id) {
+        return SigningRequestStateResponse.of(addenda.sendForSigning(id));
+    }
+
+    @GetMapping("/{id}/signing-request")
+    @PreAuthorize("hasAuthority('addendum:read') or hasAuthority('esign:send')")
+    public SigningRequestStateResponse signingRequestState(@PathVariable UUID id) {
+        return SigningRequestStateResponse.of(addenda.signingRequestState(id));
     }
 }

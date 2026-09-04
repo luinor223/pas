@@ -8,6 +8,7 @@ import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.service.EsignGrpcClient;
+import com.abclogistics.pas.contract.service.SigningRequestService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -57,17 +58,20 @@ public class ContractOutboxRelay extends OutboxRelay {
     private final WorkflowGrpcClient workflow;
     private final EsignGrpcClient esign;
     private final ObjectMapper objectMapper;
+    private final SigningRequestService signingRequests;
 
     public ContractOutboxRelay(OutboxRepository outbox, OutboxRelayProperties props,
                                KafkaTemplate<String, String> kafka, WorkflowGrpcClient workflow,
                                EsignGrpcClient esign, ObjectMapper objectMapper,
-                               AuditRecorder audit, TransactionTemplate tx) {
+                               AuditRecorder audit, TransactionTemplate tx,
+                               SigningRequestService signingRequests) {
         super(outbox, props, tx);
         this.audit = audit;
         this.kafka = kafka;
         this.workflow = workflow;
         this.esign = esign;
         this.objectMapper = objectMapper;
+        this.signingRequests = signingRequests;
     }
 
     @Override
@@ -108,6 +112,8 @@ public class ContractOutboxRelay extends OutboxRelay {
                 payload.idempotencyKey(), payload.documentType(), payload.documentId(),
                 payload.documentNo(), payload.signerName(), payload.signerEmail(),
                 payload.customerName(), payload.requestedBy(), payload.requestedByName());
+        signingRequests.associateSession(payload.documentType(), payload.documentId(),
+                payload.idempotencyKey(), sessionId);
         log.debug("Created signing session {} for {} {} from outbox event {} (idempotencyKey={})",
                 sessionId, payload.documentType(), payload.documentNo(), event.getId(),
                 payload.idempotencyKey());
@@ -141,6 +147,12 @@ public class ContractOutboxRelay extends OutboxRelay {
         if (AUDIT_RECORDED.equals(event.getEventType())) {
             return;
         }
+        if (ESIGN_SESSION_REQUESTED.equals(event.getEventType())) {
+            UUID requestKey = idempotencyKey(event);
+            if (requestKey != null) {
+                signingRequests.release(event.getAggregateType(), event.getAggregateId(), requestKey, null);
+            }
+        }
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("eventType", event.getEventType());
         detail.put("outboxRow", event.getId().toString());
@@ -170,6 +182,15 @@ public class ContractOutboxRelay extends OutboxRelay {
         try {
             var node = objectMapper.readTree(event.getPayload()).get("documentNo");
             return node == null || node.isNull() ? null : node.asString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private UUID idempotencyKey(OutboxEvent event) {
+        try {
+            var node = objectMapper.readTree(event.getPayload()).get("idempotencyKey");
+            return node == null || node.isNull() ? null : UUID.fromString(node.asString());
         } catch (Exception e) {
             return null;
         }

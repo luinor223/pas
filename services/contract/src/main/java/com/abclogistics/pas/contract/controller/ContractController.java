@@ -7,6 +7,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.ContractResponse;
 import com.abclogistics.pas.contract.dto.ProgressResponse;
 import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
+import com.abclogistics.pas.contract.dto.SigningRequestStateResponse;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import com.abclogistics.pas.contract.service.ContractService;
@@ -119,8 +120,14 @@ public class ContractController {
     @PostMapping("/{id}/send-for-signing")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @PreAuthorize("hasAuthority('esign:send')")
-    public void sendForSigning(@PathVariable UUID id) {
-        contracts.sendForSigning(id);
+    public SigningRequestStateResponse sendForSigning(@PathVariable UUID id) {
+        return SigningRequestStateResponse.of(contracts.sendForSigning(id));
+    }
+
+    @GetMapping("/{id}/signing-request")
+    @PreAuthorize("hasAuthority('contract:read') or hasAuthority('esign:send')")
+    public SigningRequestStateResponse signingRequestState(@PathVariable UUID id) {
+        return SigningRequestStateResponse.of(contracts.signingRequestState(id));
     }
 
     @PutMapping("/{id}")

@@ -221,6 +221,8 @@ class SigningSessionServiceTest {
         assertThat(payload.get("session_id").asString()).isEqualTo(session.getId().toString());
         assertThat(payload.get("result").asString()).isEqualTo("SIGNED");
         assertThat(payload.get("document_no").asString()).isEqualTo("HD-1");
+        assertThat(payload.get("idempotency_key").asString())
+                .isEqualTo(session.getIdempotencyKey().toString());
         assertThat(payload.get("requested_by").asString()).isEqualTo(session.getRequestedBy().toString());
         assertThat(payload.get("signer_name").asString()).isEqualTo("Signer");
     }

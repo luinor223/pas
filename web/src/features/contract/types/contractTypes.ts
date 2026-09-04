@@ -180,3 +180,29 @@ export type ProgressResponse = {
 
 export type SubmitResponse = { status: string; workflowState: string };
 export type CancelResponse = { status: "CANCELLED" | "PENDING"; detail: string | null };
+
+export type SigningSessionResponse = {
+  id: string;
+  sessionNo: string;
+  documentTypeCode: "CONTRACT" | "ADDENDUM" | "PAYMENT_STATEMENT";
+  documentId: string;
+  documentNo: string;
+  customerName: string;
+  signerName: string;
+  signerEmail: string;
+  provider: string | null;
+  providerRef: string | null;
+  status: "PENDING_SEND" | "SIGNING" | "SIGNED" | "FAILED" | "CANCELLED";
+  attempts: number;
+  lastError: string | null;
+  requestedByName: string | null;
+  sentAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type SigningRequestStateResponse = {
+  canSendForSigning: boolean;
+  requestQueued: boolean;
+  sessionId: string | null;
+};

@@ -63,6 +63,10 @@ public class SigningSessionService {
                                          String documentNo, String customerName,
                                          String signerName, String signerEmail,
                                          UUID idempotencyKey, UUID requestedBy, String requestedByName) {
+        // There is no owner row in this service to lock before the first session exists. A
+        // transaction-scoped advisory lock gives concurrent deliveries for one document the same
+        // serialization point; unique constraints remain the final invariant.
+        sessionRepo.lockDocument(documentTypeCode, documentId);
         // Idempotency check on permanent key
         Optional<SigningSession> existing = sessionRepo.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
@@ -242,7 +246,7 @@ public class SigningSessionService {
             SigningSession.SessionStatus s = SigningSession.SessionStatus.valueOf(status.toUpperCase());
             page = sessionRepo.findByStatus(s, pageable);
         } else {
-            page = sessionRepo.findAll(pageable);
+            page = sessionRepo.findAllOrdered(pageable);
         }
         return page.map(this::toResponse);
     }
@@ -277,6 +281,7 @@ public class SigningSessionService {
                 "document_type", session.getDocumentTypeCode(),
                 "document_id", session.getDocumentId().toString(),
                 "document_no", session.getDocumentNo() != null ? session.getDocumentNo() : "",
+                "idempotency_key", session.getIdempotencyKey().toString(),
                 "requested_by", session.getRequestedBy() != null ? session.getRequestedBy().toString() : "",
                 "signer_name", session.getSignerName() != null ? session.getSignerName() : ""
             ));

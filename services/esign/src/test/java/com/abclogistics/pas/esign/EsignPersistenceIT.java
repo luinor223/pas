@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -21,6 +23,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,6 +67,7 @@ class EsignPersistenceIT {
     @Autowired StatusHistoryRepository history;
     @Autowired OutboxRepository outbox;
     @Autowired SigningSessionService service;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void migrationsApplyAndTheSchemaValidates() {
@@ -97,6 +106,55 @@ class EsignPersistenceIT {
     }
 
     @Test
+    void documentSessionsUseTheMonotonicSessionOrdinalAsTheNewestTieBreaker() {
+        UUID documentId = UUID.randomUUID();
+        SigningSession first = sessions.saveAndFlush(
+                row("SIG-2101", "ADDENDUM", documentId, UUID.randomUUID(), SessionStatus.SIGNED));
+        SigningSession second = sessions.saveAndFlush(
+                row("SIG-2102", "ADDENDUM", documentId, UUID.randomUUID(), SessionStatus.FAILED));
+        jdbc.update("update esign.signing_session set created_at = '2026-09-04T00:00:00Z' "
+                + "where id in (?, ?)", first.getId(), second.getId());
+
+        assertThat(sessions.findAllByDocument("ADDENDUM", documentId))
+                .extracting(SigningSession::getId)
+                .startsWith(second.getId(), first.getId());
+    }
+
+    @Test
+    void equalTimestampStatusAndUnfilteredPagesUseTheSessionOrdinalTieBreaker() {
+        SigningSession first = sessions.saveAndFlush(
+                row("SIG-2201", "CONTRACT", UUID.randomUUID(), UUID.randomUUID(), SessionStatus.SIGNED));
+        SigningSession second = sessions.saveAndFlush(
+                row("SIG-2202", "ADDENDUM", UUID.randomUUID(), UUID.randomUUID(), SessionStatus.SIGNED));
+        jdbc.update("update esign.signing_session set created_at = '2100-01-01T00:00:00Z' "
+                + "where id in (?, ?)", first.getId(), second.getId());
+
+        assertThat(service.listSessions("SIGNED", PageRequest.of(0, 1)).getContent())
+                .extracting(response -> response.sessionNo())
+                .containsExactly("SIG-2202");
+        assertThat(service.listSessions("SIGNED", PageRequest.of(1, 1)).getContent())
+                .extracting(response -> response.sessionNo())
+                .containsExactly("SIG-2201");
+        assertThat(service.listSessions(null, PageRequest.of(0, 2)).getContent())
+                .extracting(response -> response.sessionNo())
+                .containsExactly("SIG-2202", "SIG-2201");
+    }
+
+    @Test
+    void equalTimestampPendingSessionsUseTheSessionOrdinalTieBreaker() {
+        SigningSession first = sessions.saveAndFlush(row(
+                "SIG-2301", "CONTRACT", UUID.randomUUID(), UUID.randomUUID(), SessionStatus.PENDING_SEND));
+        SigningSession second = sessions.saveAndFlush(row(
+                "SIG-2302", "ADDENDUM", UUID.randomUUID(), UUID.randomUUID(), SessionStatus.SIGNING));
+        jdbc.update("update esign.signing_session set created_at = '2000-01-01T00:00:00Z' "
+                + "where id in (?, ?)", first.getId(), second.getId());
+
+        assertThat(sessions.findAllPendingOrSigning())
+                .extracting(SigningSession::getSessionNo)
+                .startsWith("SIG-2301", "SIG-2302");
+    }
+
+    @Test
     void requestedByMayBeNullForASystemDrivenSend() {
         SigningSession s = SigningSession.create("PAYMENT_STATEMENT", UUID.randomUUID(), "PMT-1",
                 "ACME", "Signer", "s@acme.vn", UUID.randomUUID(), null, null);
@@ -120,6 +178,30 @@ class EsignPersistenceIT {
         assertThat(history.count()).isGreaterThanOrEqualTo(2);   // opening PENDING_SEND + the SIGNED edge
         assertThat(outbox.findAll()).anySatisfy(e ->
                 assertThat(e.getEventType()).isEqualTo("esign.session_completed"));
+    }
+
+    @Test
+    void concurrentDeliveriesWithTheSameKeyReturnOneSession() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        UUID key = UUID.randomUUID();
+        CyclicBarrier start = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            var send = (java.util.concurrent.Callable<SigningSession>) () -> {
+                start.await(10, TimeUnit.SECONDS);
+                return service.createSession("ADDENDUM", documentId, "ADD-1", "ACME",
+                        "Signer", "s@acme.vn", key, UUID.randomUUID(), "Req");
+            };
+            Future<SigningSession> first = pool.submit(send);
+            Future<SigningSession> second = pool.submit(send);
+
+            SigningSession a = first.get(10, TimeUnit.SECONDS);
+            SigningSession b = second.get(10, TimeUnit.SECONDS);
+            assertThat(a.getId()).isEqualTo(b.getId());
+            assertThat(sessions.findAllByDocument("ADDENDUM", documentId)).hasSize(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     private static SigningSession row(String sessionNo, String docType, UUID documentId,

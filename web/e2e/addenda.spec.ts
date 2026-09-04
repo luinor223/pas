@@ -44,6 +44,10 @@ async function installAddendumMocks(
     if (response) return response;
     if (/^\/api\/v1\/addenda\/[^/]+\/progress$/.test(url.pathname)) return { body: envelope(emptyProgress) };
     if (/^\/api\/v1\/addenda\/[^/]+\/history$/.test(url.pathname)) return { body: envelope([]) };
+    if (/^\/api\/v1\/addenda\/[^/]+\/signing-request$/.test(url.pathname)) {
+      return { body: envelope({ canSendForSigning: false, requestQueued: false, sessionId: null }) };
+    }
+    if (/^\/api\/v1\/signing-sessions\/by-document\/ADDENDUM\/[^/]+$/.test(url.pathname)) return { body: envelope([]) };
   }, userOverrides);
 }
 
@@ -681,4 +685,151 @@ test("treats an expired document as having completed approval", async ({ page })
   await page.goto(`/addenda?id=${ADDENDUM_ID}`);
   await expect(page.getByText("Approval is complete. No approval step details are available.")).toBeVisible();
   await expect(page.getByText("Submit the document to begin approval.")).toHaveCount(0);
+});
+
+test("queues an approved addendum for signing without changing approval status", async ({ page }) => {
+  const approved = { ...addendum, status: "APPROVED" };
+  let sendRequests = 0;
+  let detailRequests = 0;
+  let requestQueued = false;
+  let stateReads = 0;
+  await installAddendumMocks(page, async (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") {
+      detailRequests += 1;
+      return { body: envelope(approved) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/send-for-signing` && request.method() === "POST") {
+      sendRequests += 1;
+      requestQueued = true;
+      return { status: 202, body: envelope({ canSendForSigning: false, requestQueued: true, sessionId: null }) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/signing-request`) {
+      stateReads += 1;
+      const staleSnapshot = requestQueued;
+      if (stateReads === 2) await new Promise((resolve) => setTimeout(resolve, 500));
+      return { body: envelope({ canSendForSigning: !staleSnapshot, requestQueued: staleSnapshot, sessionId: null }) };
+    }
+    if (url.pathname === `/api/v1/signing-sessions/by-document/ADDENDUM/${ADDENDUM_ID}`) return { body: envelope([]) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write", "esign:send"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByRole("button", { name: "Send for signing" })).toBeVisible();
+  await expect.poll(() => stateReads, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+  await page.getByRole("button", { name: "Send for signing" }).click();
+  await expect(page.getByText("Signature request queued. Signing status will appear shortly.")).toBeVisible();
+  await page.waitForTimeout(600);
+  await expect(page.getByText("Signature request queued. Signing status will appear shortly.")).toBeVisible();
+  await expect(page.getByText("Approved").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send for signing" })).toHaveCount(0);
+  expect(sendRequests).toBe(1);
+  expect(detailRequests).toBe(1);
+
+  await page.reload();
+  await expect(page.getByText("Signature request queued. Signing status will appear shortly.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send for signing" })).toHaveCount(0);
+  expect(sendRequests).toBe(1);
+});
+
+test("does not carry queued signing state to another addendum route", async ({ page }) => {
+  const secondId = "10000000-0000-4000-8000-000000000002";
+  const approved = { ...addendum, status: "APPROVED" };
+  const second = { ...approved, id: secondId, addendumNo: "ADD-2026-0002" };
+  let firstQueued = false;
+  await installAddendumMocks(page, (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(approved) };
+    if (url.pathname === `/api/v1/addenda/${secondId}`) return { body: envelope(second) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/send-for-signing`
+        && request.method() === "POST") {
+      firstQueued = true;
+      return { status: 202, body: envelope({ canSendForSigning: false, requestQueued: true, sessionId: null }) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/signing-request`) return { body: envelope({ canSendForSigning: !firstQueued, requestQueued: firstQueued, sessionId: null }) };
+    if (url.pathname === `/api/v1/addenda/${secondId}/signing-request`) return { body: envelope({ canSendForSigning: true, requestQueued: false, sessionId: null }) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "esign:send"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await page.getByRole("button", { name: "Send for signing" }).click();
+  await expect(page.getByText("Signature request queued. Signing status will appear shortly.")).toBeVisible();
+
+  await page.evaluate((id) => {
+    window.history.pushState({}, "", `/addenda?id=${id}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, secondId);
+  await expect(page.getByRole("heading", { name: second.addendumNo })).toBeVisible();
+  await expect(page.getByText("Signature request queued. Signing status will appear shortly.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send for signing" })).toBeVisible();
+});
+
+test("shows every addendum signing outcome to a read-only user without offering send", async ({ page }) => {
+  const approved = { ...addendum, status: "APPROVED" };
+  let signingStatus = "SIGNING";
+  const session = {
+    id: "70000000-0000-4000-8000-000000000001", sessionNo: "SIG-101",
+    documentTypeCode: "ADDENDUM", documentId: ADDENDUM_ID, documentNo: approved.addendumNo,
+    customerName: "ACME Logistics", signerName: "Tran Thi B", signerEmail: "signer@acme.vn",
+    provider: "MOCK", providerRef: "provider-101", status: "SIGNING", attempts: 1,
+    lastError: null, requestedByName: "Nguyen Thi Lan", sentAt: "2026-09-04T10:00:00Z",
+    completedAt: null, createdAt: "2026-09-04T09:59:00Z",
+  };
+  let sendRequests = 0;
+  await installAddendumMocks(page, (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(approved) };
+    if (url.pathname === `/api/v1/signing-sessions/by-document/ADDENDUM/${ADDENDUM_ID}`) return { body: envelope([{ ...session, status: signingStatus }]) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/send-for-signing` && request.method() === "POST") sendRequests += 1;
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByText("SIG-101")).toBeVisible();
+  await expect(page.getByText("Signing", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Tran Thi B.*signer@acme.vn/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send for signing" })).toHaveCount(0);
+  expect(sendRequests).toBe(0);
+
+  for (const [status, label] of [["PENDING_SEND", "Queued"], ["SIGNED", "Signed"], ["FAILED", "Failed"], ["CANCELLED", "Cancelled"]]) {
+    signingStatus = status;
+    await page.reload();
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+    await expect(page.getByText("Approved", { exact: true }).first()).toBeVisible();
+    if (status === "FAILED") {
+      await expect(page.getByText("The signing request failed. Please retry or contact support.")).toBeVisible();
+    }
+  }
+});
+
+test("renders a signed contract session separately from contract approval", async ({ page }) => {
+  const contract = {
+    id: CONTRACT_ID, contractNo: "CTR-2026-0001", customerId: "80000000-0000-4000-8000-000000000001",
+    customerName: "ACME Logistics", description: "Annual transport", serviceGroup: "TRANSPORTATION",
+    value: 1000000, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31",
+    paymentTerm: "NET30", billingCycle: "MONTHLY", vatRate: 10, penaltyTerms: null,
+    serviceClause: null, status: "APPROVED", editable: false, version: 2,
+    createdAt: "2026-01-01T00:00:00Z", createdByName: "Nguyen Thi Lan", updatedAt: "2026-09-04T10:00:00Z",
+  };
+  const signed = {
+    id: "70000000-0000-4000-8000-000000000002", sessionNo: "SIG-102",
+    documentTypeCode: "CONTRACT", documentId: CONTRACT_ID, documentNo: contract.contractNo,
+    customerName: contract.customerName, signerName: "Tran Thi B", signerEmail: "signer@acme.vn",
+    provider: "MOCK", providerRef: "provider-102", status: "SIGNED", attempts: 1,
+    lastError: null, requestedByName: "Nguyen Thi Lan", sentAt: "2026-09-04T10:00:00Z",
+    completedAt: "2026-09-04T10:05:00Z", createdAt: "2026-09-04T09:59:00Z",
+  };
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) return { body: envelope(contract) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/progress`) return { body: envelope({ ...emptyProgress, documentStatus: "APPROVED", workflowState: "APPROVED" }) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/history`) return { body: envelope([]) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/signing-request`) return { body: envelope({ canSendForSigning: false, requestQueued: false, sessionId: null }) };
+    if (url.pathname === "/api/v1/addenda") return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+    if (url.pathname === `/api/v1/customers/${contract.customerId}`) return { status: 404, body: envelope({ message: "Not needed" }) };
+    if (url.pathname === `/api/v1/signing-sessions/by-document/CONTRACT/${CONTRACT_ID}`) return { body: envelope([signed]) };
+  });
+
+  await page.goto(`/contracts?id=${CONTRACT_ID}`);
+  await expect(page.getByRole("heading", { name: contract.contractNo })).toBeVisible();
+  await expect(page.getByText("SIG-102")).toBeVisible();
+  await expect(page.getByText("Signed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Approved", { exact: true }).first()).toBeVisible();
 });

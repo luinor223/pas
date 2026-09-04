@@ -15,6 +15,7 @@ import { Button } from "@/shared/components/button";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
+import { DocumentSigningPanel } from "./DocumentSigningPanel";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { formatDate } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
@@ -234,6 +235,7 @@ export function AddendumDetail({ id }: { id: string }) {
 
         <div className="space-y-4">
           <ApprovalProgressPanel progress={progressQ.data} isLoading={progressQ.isLoading} error={progressQ.error} />
+          <DocumentSigningPanel key={`ADDENDUM:${addendum.id}`} documentType="ADDENDUM" documentId={addendum.id} documentStatus={addendum.status} />
           <Card>
             <CardHeader><CardTitle className="text-base">Record status</CardTitle></CardHeader>
             <CardContent className="space-y-3 text-sm">

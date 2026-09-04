@@ -14,6 +14,8 @@ const MAP: Record<string, Tone> = {
   EFFECTIVE: { label: "Effective", cls: "text-st-effective bg-st-effective-bg" },
   ISSUED: { label: "Issued", cls: "text-st-effective bg-st-effective-bg" },
   SIGNED: { label: "Signed", cls: "text-st-approved bg-st-approved-bg" },
+  PENDING_SEND: { label: "Queued", cls: "text-st-review bg-st-review-bg" },
+  FAILED: { label: "Failed", cls: "text-st-rejected bg-st-rejected-bg" },
   ACTIVE: { label: "Active", cls: "text-st-approved bg-st-approved-bg" },
   REJECTED: { label: "Rejected", cls: "text-st-rejected bg-st-rejected-bg" },
   REVISION_REQUESTED: { label: "Revision requested", cls: "text-st-review bg-st-review-bg" },

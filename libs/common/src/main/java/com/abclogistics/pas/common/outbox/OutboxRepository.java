@@ -18,13 +18,14 @@ public interface OutboxRepository extends JpaRepository<OutboxEvent, UUID> {
     /**
      * Poll for relay — oldest unpublished rows, including stale claims reclaimable after the lease.
      * Matches mechanics.md M2: WHERE published_at IS NULL AND cancelled_at IS NULL
-     * AND (claimed_at IS NULL OR claimed_at < now() - interval 'N seconds') ORDER BY created_at.
+     * AND (claimed_at IS NULL OR claimed_at < now() - interval 'N seconds')
+     * ORDER BY created_at, id (the id tie-breaker keeps migrations and relays deterministic).
      * Row-locked with SKIP LOCKED so concurrent relays don't collide; callers must pass
      * {@code staleThreshold = now() - lease}.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@jakarta.persistence.QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")) // SKIP LOCKED
-    @Query("select o from OutboxEvent o where o.publishedAt is null and o.cancelledAt is null and (o.claimedAt is null or o.claimedAt < :staleThreshold) order by o.createdAt asc")
+    @Query("select o from OutboxEvent o where o.publishedAt is null and o.cancelledAt is null and (o.claimedAt is null or o.claimedAt < :staleThreshold) order by o.createdAt asc, o.id asc")
     List<OutboxEvent> findUnpublishedForRelay(@Param("staleThreshold") Instant staleThreshold, Limit limit);
 
     /**
@@ -63,6 +64,6 @@ public interface OutboxRepository extends JpaRepository<OutboxEvent, UUID> {
     /** Legacy alias kept for compatibility — delegates to stale-aware poll with far-past threshold. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@jakarta.persistence.QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
-    @Query("select o from OutboxEvent o where o.publishedAt is null and o.cancelledAt is null order by o.createdAt asc")
+    @Query("select o from OutboxEvent o where o.publishedAt is null and o.cancelledAt is null order by o.createdAt asc, o.id asc")
     List<OutboxEvent> claimUnpublished(Limit limit);
 }
