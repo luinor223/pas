@@ -386,7 +386,15 @@ test("supports keyboard addendum creation with named service controls and restor
   await page.keyboard.press("Enter");
 
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
-  await dialog.getByLabel("Change type *").selectOption("ADDED_SERVICE");
+  const contractPicker = dialog.getByLabel("Contract *");
+  await expect(contractPicker).toBeFocused();
+  await expect(dialog.getByRole("listbox")).toHaveCount(0);
+  await contractPicker.click();
+  await expect(contractPicker).toHaveAttribute("aria-expanded", "true");
+  await expect(dialog.getByText("No matching contracts.")).toBeVisible();
+  const changeType = dialog.getByLabel("Change type *");
+  await changeType.click();
+  await changeType.selectOption("ADDED_SERVICE");
   await expect(dialog.getByText("Pricing is managed separately in the price list.")).toBeVisible();
   const addService = dialog.getByRole("button", { name: "+ Add service" });
   await addService.focus();

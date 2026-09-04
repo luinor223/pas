@@ -43,7 +43,7 @@ export function ContractPicker({ value, onChange, label = "Contract", placeholde
         </div>
       ) : (
         <Input id={combo.inputId} ref={combo.inputRef} aria-label={accessibleLabel} placeholder={value && selected ? `${selected.contractNo} · ${selected.customerName} — type to replace...` : placeholder}
-          value={combo.text} onChange={(event) => { combo.setText(event.target.value); combo.setOpen(true); combo.setActiveIndex(-1); }} onFocus={() => combo.setOpen(true)} {...combo.comboboxProps} aria-describedby={emptyHint ? hintId : undefined} aria-required={requirement === "draft"} />
+          value={combo.text} onChange={(event) => { combo.setText(event.target.value); combo.setOpen(true); combo.setActiveIndex(-1); }} onClick={() => combo.setOpen(true)} {...combo.comboboxProps} aria-describedby={emptyHint ? hintId : undefined} aria-required={requirement === "draft"} />
       )}
       <EmptyFieldHint id={hintId} show={!value && Boolean(emptyHint)} kind={requirement}>{emptyHint}</EmptyFieldHint>
       {combo.open && (combo.editing || !value) && (
