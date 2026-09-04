@@ -24,10 +24,18 @@ export type CustomerResponse = {
   status: "ACTIVE" | "SUSPENDED";
   contacts: CustomerContactResponse[];
   primaryContact: CustomerContactResponse | null;
-  contractsCount: number;
+  contractsCount: number | null;
   createdAt: string;
   createdByName: string | null;
   updatedAt: string;
+};
+
+export type CustomerMetricsResponse = {
+  activeContracts: number;
+  approvedContractValues: Array<{
+    currency: string;
+    value: string;
+  }>;
 };
 
 export type CustomerContactRequest = {

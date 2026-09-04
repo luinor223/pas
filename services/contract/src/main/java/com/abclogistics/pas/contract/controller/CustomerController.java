@@ -2,6 +2,7 @@ package com.abclogistics.pas.contract.controller;
 
 import com.abclogistics.pas.contract.dto.CustomerContactResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.dto.CustomerMetricsResponse;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.dto.SuspendRequest;
 import com.abclogistics.pas.contract.service.CustomerService;
@@ -48,6 +49,12 @@ public class CustomerController {
     @PreAuthorize("hasAuthority('customer:read')")
     public CustomerResponse get(@PathVariable UUID id) {
         return customers.toResponse(customers.get(id));
+    }
+
+    @GetMapping("/{id}/metrics")
+    @PreAuthorize("hasAuthority('customer:read') and hasAuthority('contract:read')")
+    public CustomerMetricsResponse metrics(@PathVariable UUID id) {
+        return customers.metrics(id);
     }
 
     @GetMapping("/lookup")

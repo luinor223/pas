@@ -3,10 +3,13 @@ package com.abclogistics.pas.contract.service;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
+import com.abclogistics.pas.contract.dto.CustomerMetricsResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
@@ -76,11 +79,12 @@ public class CustomerService {
         Map<UUID, CustomerContact> primaries = ids.isEmpty() ? Map.of()
                 : contacts.findByCustomerIdInAndPrimaryTrue(ids).stream()
                         .collect(Collectors.toMap(c -> c.getCustomer().getId(), Function.identity()));
-        Map<UUID, Long> counts = ids.isEmpty() ? Map.of()
+        boolean canReadContracts = SecurityUtils.hasPermission("contract:read");
+        Map<UUID, Long> counts = ids.isEmpty() || !canReadContracts ? Map.of()
                 : contracts.countByCustomerIds(ids).stream()
                         .collect(Collectors.toMap(r -> (UUID) r[0], r -> (Long) r[1]));
         return values.stream().map(c -> CustomerResponse.ofList(c, primaries.get(c.getId()),
-                counts.getOrDefault(c.getId(), 0L))).toList();
+                canReadContracts ? counts.getOrDefault(c.getId(), 0L) : null)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -93,7 +97,23 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public CustomerResponse toResponse(Customer customer) {
         return CustomerResponse.of(customer, contactsOf(customer.getId()),
-                contracts.countByCustomerId(customer.getId()));
+                SecurityUtils.hasPermission("contract:read")
+                        ? contracts.countByCustomerId(customer.getId()) : null);
+    }
+
+    @Transactional(readOnly = true)
+    public CustomerMetricsResponse metrics(UUID customerId) {
+        get(customerId); // preserve the customer API's 404 semantics
+        long activeContracts = contracts.countByCustomerIdAndStatus(
+                customerId, DocumentStatus.ACTIVE);
+        List<CustomerMetricsResponse.CurrencyValue> values = contracts
+                .sumValuesByCustomerAndStatusesGroupedByCurrency(customerId,
+                        List.of(DocumentStatus.APPROVED, DocumentStatus.ACTIVE))
+                .stream()
+                .map(row -> new CustomerMetricsResponse.CurrencyValue(
+                        (String) row[0], ((java.math.BigDecimal) row[1]).toPlainString()))
+                .toList();
+        return new CustomerMetricsResponse(activeContracts, values);
     }
 
     @Transactional(readOnly = true)

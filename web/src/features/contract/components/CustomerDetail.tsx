@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { customerQuery, contractsQuery } from "../hooks/contractQueries";
+import { customerMetricsQuery, customerQuery, contractsQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { Button } from "@/shared/components/button";
@@ -9,10 +9,11 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { ContractResponse } from "../types/contractTypes";
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { formatDate, formatMoney } from "@/shared/lib/format";
+import { formatDate, formatDecimalMoney, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
+import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 
 type Tab = "overview" | "contracts" | "contacts";
 
@@ -24,9 +25,20 @@ const TABS: readonly TabItem<Tab>[] = [
 
 export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
   const navigate = useNavigate();
-  const q = useQuery(customerQuery(id));
-  const contractsQ = useQuery(contractsQuery({ customerId: id, size: DEFAULT_PAGE_SIZE }));
+  const canReadContracts = useHasPermission("contract:read");
   const [tab, setTab] = useState<Tab>("overview");
+  const [contractsPage, setContractsPage] = useState(0);
+  const q = useQuery(customerQuery(id));
+  const metricsQ = useQuery({ ...customerMetricsQuery(id), enabled: canReadContracts && !!id });
+  const recentContractsQ = useQuery({
+    ...contractsQuery({ customerId: id, page: 0, size: 5, sort: "createdAt,desc" }),
+    enabled: canReadContracts && !!id,
+  });
+  const contractsQ = useQuery({
+    ...contractsQuery({ customerId: id, page: contractsPage, size: DEFAULT_PAGE_SIZE, sort: "createdAt,desc" }),
+    enabled: canReadContracts && tab === "contracts",
+  });
+  const tabs = canReadContracts ? TABS : TABS.filter((item) => item.value !== "contracts");
 
   const c = q.data;
   if (q.isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -34,8 +46,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
   if (!c) return null;
 
   const contracts = contractsQ.data?.content ?? [];
-  const activeContracts = contracts.filter((x) => x.status === "ACTIVE").length;
-  const approvedValue = contracts.filter((x) => x.status === "APPROVED" || x.status === "ACTIVE").reduce((s, x) => s + (x.value ?? 0), 0);
+  const recentContracts = recentContractsQ.data?.content ?? [];
 
   const recentColumns: ColumnDef<ContractResponse>[] = [
     {
@@ -66,18 +77,36 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         </div>
         <div className="flex gap-2">
           {onEdit && <Button variant="outline" onClick={onEdit}>Edit</Button>}
-          <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>View contracts</Button>
+          {canReadContracts && <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>View contracts</Button>}
         </div>
       </div>
 
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+      <TabBar tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === "overview" && (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Active contracts</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : activeContracts}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved contract value</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : formatMoney(approvedValue, "VND")}</div><div className="mt-1 text-xs text-muted-foreground">Includes approved and active contracts</div></CardContent></Card>
-          </div>
+          {canReadContracts && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Active contracts</div><div className="text-2xl font-bold">{metricsQ.isLoading ? "…" : metricsQ.isError ? "Unavailable" : metricsQ.data?.activeContracts ?? 0}</div></CardContent></Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Approved contract value</div>
+                {metricsQ.isLoading ? (
+                  <div className="text-2xl font-bold">…</div>
+                ) : metricsQ.isError ? (
+                  <div className="text-sm text-destructive">Failed to load contract metrics</div>
+                ) : metricsQ.data?.approvedContractValues.length ? (
+                  <div className="space-y-1">
+                    {metricsQ.data.approvedContractValues.map((total) => (
+                      <div key={total.currency} className="text-2xl font-bold tabular-nums">{formatDecimalMoney(total.value, total.currency)}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No approved contract value</div>
+                )}
+                <div className="mt-1 text-xs text-muted-foreground">Includes approved and active contracts</div>
+              </CardContent>
+            </Card>
+          </div>}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
@@ -109,23 +138,36 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
             </Card>
           </div>
 
-          <Card>
+          {canReadContracts && <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Recent contracts</CardTitle>
               <a href={`/contracts?customerId=${c.id}`} className="text-sm text-blue-600 hover:underline">View all</a>
             </CardHeader>
             <CardContent>
-              {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts.slice(0, 5)} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
+              {recentContractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : recentContractsQ.isError ? <div className="text-sm text-destructive">Failed to load recent contracts</div> : <DataTable columns={recentColumns} data={recentContracts} emptyMessage="No contracts" pageSize={5} />}
             </CardContent>
-          </Card>
+          </Card>}
         </>
       )}
 
-      {tab === "contracts" && (
+      {canReadContracts && tab === "contracts" && (
         <Card>
           <CardHeader><CardTitle className="text-base">Contracts · {c.name}</CardTitle></CardHeader>
           <CardContent>
-            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
+            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : contractsQ.isError ? <div className="text-sm text-destructive">Failed to load contracts</div> : (
+              <DataTable
+                columns={recentColumns}
+                data={contracts}
+                emptyMessage="No contracts"
+                pageSize={DEFAULT_PAGE_SIZE}
+                serverPagination={{
+                  page: contractsQ.data?.number ?? contractsPage,
+                  totalPages: contractsQ.data?.totalPages ?? 0,
+                  totalItems: contractsQ.data?.totalElements ?? 0,
+                  onPageChange: setContractsPage,
+                }}
+              />
+            )}
           </CardContent>
         </Card>
       )}

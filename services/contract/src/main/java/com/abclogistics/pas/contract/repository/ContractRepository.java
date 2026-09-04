@@ -38,6 +38,22 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
     @Query("select c.customer.id, count(c) from Contract c where c.customer.id in :ids group by c.customer.id")
     List<Object[]> countByCustomerIds(@Param("ids") List<UUID> ids);
 
+    long countByCustomerIdAndStatus(UUID customerId, DocumentStatus status);
+
+    /** Approved-value metric grouped by currency so unlike denominations are never added. */
+    @Query("""
+            select c.currency, sum(c.value)
+            from Contract c
+            where c.customer.id = :customerId
+              and c.status in :statuses
+              and c.value is not null
+            group by c.currency
+            order by c.currency
+            """)
+    List<Object[]> sumValuesByCustomerAndStatusesGroupedByCurrency(
+            @Param("customerId") UUID customerId,
+            @Param("statuses") List<DocumentStatus> statuses);
+
     @EntityGraph(attributePaths = "customer")
     @Query("""
             select c from Contract c

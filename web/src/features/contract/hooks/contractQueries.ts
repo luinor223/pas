@@ -7,6 +7,9 @@ export const customersQuery = (params: CustomerListParams = {}) =>
 export const customerQuery = (id: string) =>
   queryOptions({ queryKey: ["customer", id], queryFn: () => contractApi.getCustomer(id), enabled: !!id });
 
+export const customerMetricsQuery = (id: string) =>
+  queryOptions({ queryKey: ["customer-metrics", id], queryFn: () => contractApi.getCustomerMetrics(id), enabled: !!id });
+
 export const customerLookupsQuery = (ids: string[]) =>
   queryOptions({ queryKey: ["customer-lookups", ids], queryFn: () => contractApi.lookupCustomers(ids), enabled: ids.length > 0 });
 

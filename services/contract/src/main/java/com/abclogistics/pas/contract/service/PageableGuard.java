@@ -20,9 +20,15 @@ public final class PageableGuard {
                 filtered = filtered.and(Sort.by(order));
             }
         }
-        // default sort if none allowed
-        if (filtered.isUnsorted() && !allowedSorts.isEmpty()) {
-            // keep unsorted; repository query's ORDER BY will apply if needed, but we want deterministic
+        // A timestamp alone is not unique. Keep explicitly requested newest-first views stable
+        // across page boundaries without exposing UUID sorting as a public list option.
+        if (filtered.getOrderFor("createdAt") != null) {
+            filtered = filtered.and(Sort.by(Sort.Direction.DESC, "id"));
+        }
+        // Invalid and omitted sorts get a stable newest-first default where the entity supports it.
+        if (filtered.isUnsorted() && allowedSorts.contains("createdAt")) {
+            filtered = Sort.by(Sort.Direction.DESC, "createdAt")
+                    .and(Sort.by(Sort.Direction.DESC, "id"));
         }
         return PageRequest.of(page, pageable.getPageSize(), filtered);
     }

@@ -10,7 +10,7 @@ import { Select } from "@/shared/components/select";
 import { Textarea } from "@/shared/components/textarea";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DataTable } from "@/shared/components/data-table";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { CellContext, ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { useForm, useFieldArray } from "react-hook-form";
@@ -55,6 +55,7 @@ export function CustomerList() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const canRead = useHasPermission("customer:read");
+  const canReadContracts = useHasPermission("contract:read");
   const canWrite = useHasPermission("customer:write");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
@@ -153,10 +154,10 @@ export function CustomerList() {
       id: "contact", header: "CONTACT",
       cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.primaryContact?.email ?? "—"}</span>,
     },
-    {
+    ...(canReadContracts ? [{
       id: "contracts", header: "CONTRACTS",
-      cell: ({ row }) => <span className="tabular-nums">{row.original.contractsCount}</span>,
-    },
+      cell: ({ row }: CellContext<CustomerResponse, unknown>) => <span className="tabular-nums">{row.original.contractsCount}</span>,
+    }] : []),
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
       id: "actions", header: "ACTION", enableSorting: false,
@@ -169,7 +170,7 @@ export function CustomerList() {
         if (canWrite) items.push({ label: "Edit", onClick: () => onEdit(c) });
         if (canWrite && c.status === "ACTIVE") items.push({ label: "Suspend", onClick: () => setConfirmSuspend(c), danger: true });
         if (canWrite && c.status !== "ACTIVE") items.push({ label: "Activate", onClick: () => activateMut.mutate(c.id) });
-        items.push({ label: "View contracts", onClick: () => navigate({ to: "/contracts", search: { customerId: c.id } as never }) });
+        if (canReadContracts) items.push({ label: "View contracts", onClick: () => navigate({ to: "/contracts", search: { customerId: c.id } as never }) });
         return (
           <div className="text-right">
             <RowMenu items={items} />
@@ -177,7 +178,7 @@ export function CustomerList() {
         );
       },
     },
-  ], [canWrite, navigate]);
+  ], [canReadContracts, canWrite, navigate]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to customers.</CardContent></Card>;
 

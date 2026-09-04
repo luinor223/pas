@@ -5,6 +5,7 @@ import type {
   AttachmentResponse,
   ContractResponse,
   CustomerResponse,
+  CustomerMetricsResponse,
   ProgressResponse,
   StatusHistoryResponse,
   SubmitResponse,
@@ -51,6 +52,7 @@ export const contractApi = {
       toPage<CustomerResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
     ),
   getCustomer: (id: string) => api.get<CustomerResponse>(`/customers/${id}`).then((r) => r.data),
+  getCustomerMetrics: (id: string) => api.get<CustomerMetricsResponse>(`/customers/${id}/metrics`).then((r) => r.data),
   lookupCustomers: (ids: string[]) => api.get<CustomerResponse[]>(`/customers/lookup?ids=${ids.join(",")}`).then((r) => r.data),
   getCustomerContacts: (id: string) =>
     api.get<import("../types/contractTypes").CustomerContactResponse[]>(`/customers/${id}/contacts`).then((r) => r.data),
