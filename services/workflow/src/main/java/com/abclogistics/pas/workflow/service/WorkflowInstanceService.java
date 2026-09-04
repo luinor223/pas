@@ -8,6 +8,7 @@ import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.identity.grpc.UserRef;
+import com.abclogistics.pas.workflow.client.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.error.AbortedException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.domain.StepAssignee;

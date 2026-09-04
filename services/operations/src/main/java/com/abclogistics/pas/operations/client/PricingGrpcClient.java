@@ -1,4 +1,4 @@
-package com.abclogistics.pas.operations.grpc;
+package com.abclogistics.pas.operations.client;
 
 import com.abclogistics.pas.pricing.grpc.GetServiceItemRequest;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;

@@ -16,7 +16,7 @@ import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
-import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;

@@ -1,7 +1,7 @@
 package com.abclogistics.pas.workflow;
 
 import com.abclogistics.pas.identity.grpc.UserRef;
-import com.abclogistics.pas.workflow.service.IdentityGrpcClient;
+import com.abclogistics.pas.workflow.client.IdentityGrpcClient;
 
 import java.util.List;
 import java.util.Map;

@@ -1,7 +1,7 @@
 package com.abclogistics.pas.billing.outbox;
 
-import com.abclogistics.pas.billing.grpc.EsignGrpcClient;
-import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
+import com.abclogistics.pas.billing.client.EsignGrpcClient;
+import com.abclogistics.pas.billing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;

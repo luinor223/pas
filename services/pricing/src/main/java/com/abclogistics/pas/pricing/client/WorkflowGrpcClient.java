@@ -1,4 +1,4 @@
-package com.abclogistics.pas.pricing.service;
+package com.abclogistics.pas.pricing.client;
 
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.grpc.StartInstanceRequest;

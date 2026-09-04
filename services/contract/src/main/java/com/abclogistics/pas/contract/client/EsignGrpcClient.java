@@ -1,4 +1,4 @@
-package com.abclogistics.pas.contract.service;
+package com.abclogistics.pas.contract.client;
 
 import com.abclogistics.pas.esign.grpc.CreateSigningSessionRequest;
 import com.abclogistics.pas.esign.grpc.EsignInternalGrpc;

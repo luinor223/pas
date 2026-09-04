@@ -1,6 +1,6 @@
 package com.abclogistics.pas.operations;
 
-import com.abclogistics.pas.operations.grpc.PricingClient;
+import com.abclogistics.pas.operations.client.PricingClient;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
 import com.abclogistics.pas.common.error.NotFoundException;
 

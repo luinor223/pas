@@ -4,7 +4,7 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRelay;
 import com.abclogistics.pas.common.outbox.OutboxRelayProperties;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
-import com.abclogistics.pas.pricing.service.WorkflowGrpcClient;
+import com.abclogistics.pas.pricing.client.WorkflowGrpcClient;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;

@@ -1,4 +1,4 @@
-package com.abclogistics.pas.billing.grpc;
+package com.abclogistics.pas.billing.client;
 
 import com.abclogistics.pas.pricing.grpc.GetEffectivePriceListRequest;
 import com.abclogistics.pas.pricing.grpc.GetEffectivePriceListResponse;
