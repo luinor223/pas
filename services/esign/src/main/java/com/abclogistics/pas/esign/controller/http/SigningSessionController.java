@@ -27,11 +27,11 @@ public class SigningSessionController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('esign:send')")
-    public ResponseEntity<ApiResponse<Page<SigningSessionResponse>>> listSessions(
+    public ResponseEntity<Page<SigningSessionResponse>> listSessions(
             @RequestParam(required = false) String status,
             Pageable pageable) {
         Page<SigningSessionResponse> page = sessionService.listSessions(status, pageable);
-        return ResponseEntity.ok(ApiResponse.of(page));
+        return ResponseEntity.ok(page);
     }
 
     @GetMapping("/{id}")

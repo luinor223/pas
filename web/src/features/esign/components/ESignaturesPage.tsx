@@ -81,7 +81,7 @@ export function ESignaturesPage() {
             </Select>
             <ClearFiltersButton className="ml-auto bg-card" disabled={!status} onClick={() => { setStatus(""); setPage(0); }} />
           </FilterBar>
-          <div className="text-xs text-muted-foreground">Signature requests are created when a document is sent for signing from contracts or payment statements.</div>
+          <div className="text-xs text-muted-foreground">Signature requests are created when a contract, addendum, or payment statement is sent for signing.</div>
           {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div>
             : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>
             : <DataTable columns={columns} data={sessions} emptyMessage="No signature requests" pageSize={PAGE_SIZE} />}
