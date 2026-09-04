@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ca
 import { StatusBadge } from "@/shared/components/status-badge";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
@@ -33,28 +32,11 @@ import { statusLabel } from "@/shared/lib/labels";
 import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 import type { ContractRouteSearch } from "../contractSearchParams";
+import { contractFormSchema, contractRequest, type ContractFormData } from "../contractForm";
+import { ContractEditDialog } from "./ContractEditDialog";
 
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
-
-const schema = z.object({
-  customerId: z.string().min(1, "Required"),
-  description: z.string().optional().nullable(),
-  serviceGroup: z.string().min(1),
-  value: z.string().optional().nullable(),
-  currency: z.string().optional().nullable(),
-  validFrom: z.string().min(1, "Required"),
-  validTo: z.string().min(1, "Required"),
-  paymentTerm: z.string().optional().nullable(),
-  billingCycle: z.string().optional().nullable(),
-  vatRate: z.string().optional().nullable(),
-  penaltyTerms: z.string().optional().nullable(),
-  serviceClause: z.string().optional().nullable(),
-}).refine((d) => !d.validFrom || !d.validTo || d.validFrom <= d.validTo, { message: "validFrom must not be after validTo", path: ["validTo"] })
-  .refine((d) => d.value === null || d.value === undefined || d.value === "" || !isNaN(Number(d.value)), { message: "value must be a number", path: ["value"] })
-  .refine((d) => d.vatRate === null || d.vatRate === undefined || d.vatRate === "" || (!isNaN(Number(d.vatRate)) && Number(d.vatRate) >= 0 && Number(d.vatRate) <= 100), { message: "vatRate 0..100", path: ["vatRate"] });
-
-type FormData = z.infer<typeof schema>;
 
 export function ContractList({ search }: { search: ContractRouteSearch }) {
   const formId = useId();
@@ -71,8 +53,7 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
   const page = search.page ?? 0;
   const snapshotCursor = search.cursor;
   const [openCreate, setOpenCreate] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editVersion, setEditVersion] = useState<number | null>(null);
+  const [editing, setEditing] = useState<ContractResponse | null>(null);
   const invalidFilterRange = isInvalidDateRange(validFromFrom, validToTo);
   const hasFilters = !!(q || customerId || status || serviceGroup || validFromFrom || validToTo);
 
@@ -103,30 +84,15 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
   }, [qc, updateList]);
   useRecoverOutOfRangePage({ ready: listQ.isSuccess, page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, recover: recoverFirstPage });
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
-    resolver: zodResolver(schema),
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ContractFormData>({
+    resolver: zodResolver(contractFormSchema),
     defaultValues: { customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: "", validTo: "", paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" },
   });
   const selectedCustomerId = watch("customerId");
 
-  const toNum = (v: string | null | undefined) => (v === null || v === undefined || v === "" ? null : Number(v));
-
   const createMut = useMutation({
-    mutationFn: (data: FormData) => contractApi.createContract({
-      customerId: data.customerId, description: data.description || null, serviceGroup: data.serviceGroup, value: toNum(data.value), currency: data.currency || "VND",
-      validFrom: data.validFrom, validTo: data.validTo, paymentTerm: data.paymentTerm || null, billingCycle: data.billingCycle || "MONTHLY", vatRate: toNum(data.vatRate), penaltyTerms: data.penaltyTerms || null, serviceClause: data.serviceClause || null,
-    }),
+    mutationFn: (data: ContractFormData) => contractApi.createContract(contractRequest(data)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setOpenCreate(false); reset(); },
-  });
-  const updateMut = useMutation({
-    mutationFn: (data: FormData) => {
-      if (!editId) throw new Error("No edit");
-      return contractApi.updateContract(editId, {
-        customerId: data.customerId, description: data.description || null, serviceGroup: data.serviceGroup, value: toNum(data.value), currency: data.currency || "VND",
-        validFrom: data.validFrom, validTo: data.validTo, paymentTerm: data.paymentTerm || null, billingCycle: data.billingCycle || "MONTHLY", vatRate: toNum(data.vatRate), penaltyTerms: data.penaltyTerms || null, serviceClause: data.serviceClause || null, version: editVersion ?? 0,
-      });
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setEditId(null); },
   });
   const [confirmCancel, setConfirmCancel] = useState<ContractResponse | null>(null);
   const submitMut = useMutation({ mutationFn: (id: string) => contractApi.submitContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
@@ -135,13 +101,6 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setConfirmCancel(null); },
   });
   const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
-
-  const onEdit = (c: ContractResponse) => {
-    setEditId(c.id); setEditVersion(c.version);
-    reset({
-      customerId: c.customerId, description: c.description ?? "", serviceGroup: c.serviceGroup, value: c.value != null ? String(c.value) : "", currency: c.currency, validFrom: c.validFrom, validTo: c.validTo, paymentTerm: c.paymentTerm ?? "", billingCycle: c.billingCycle, vatRate: c.vatRate != null ? String(c.vatRate) : "", penaltyTerms: c.penaltyTerms ?? "", serviceClause: c.serviceClause ?? "",
-    });
-  };
 
   const columns = useMemo<ColumnDef<ContractResponse>[]>(() => [
     {
@@ -162,7 +121,7 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
           { label: "View details", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id } }) },
           { label: "Download", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id, tab: "attachments" } }) },
         ];
-        if (c.canEdit) items.push({ label: "Edit", onClick: () => onEdit(c) });
+        if (c.canEdit) items.push({ label: "Edit", onClick: () => setEditing(c) });
         if (c.canSubmit) items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
         if (c.canRevise) items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
         if (c.canCreateAddendum) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
@@ -271,25 +230,16 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editId} onOpenChange={(o) => !o && setEditId(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
-          <DialogHeader><DialogTitle>Edit contract</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit((d) => updateMut.mutate(d))} className="space-y-3">
-            <div>
-              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." status="ACTIVE" />
-              {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
-            </div>
-            <div><Label htmlFor={`${formId}-description`}>Description</Label><Textarea id={`${formId}-description`} {...register("description")} /></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-service-group`}>Service group *</Label><Select id={`${formId}-service-group`} {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label htmlFor={`${formId}-currency`}>Currency</Label><Input id={`${formId}-currency`} {...register("currency")} /></div></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-value`}>Value</Label><Input id={`${formId}-value`} type="number" step="0.01" {...register("value")} /></div><div><Label htmlFor={`${formId}-valid-from`}>Valid from *</Label><Input id={`${formId}-valid-from`} type="date" {...register("validFrom")} /></div><div><Label htmlFor={`${formId}-valid-to`}>Valid to *</Label><Input id={`${formId}-valid-to`} type="date" {...register("validTo")} /></div></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-payment-term`}>Payment term</Label><Input id={`${formId}-payment-term`} {...register("paymentTerm")} /></div><div><Label htmlFor={`${formId}-billing-cycle`}>Billing cycle</Label><Input id={`${formId}-billing-cycle`} {...register("billingCycle")} readOnly /></div><div><Label htmlFor={`${formId}-vat-rate`}>VAT rate</Label><Input id={`${formId}-vat-rate`} type="number" step="0.01" {...register("vatRate")} /></div></div>
-            <div><Label htmlFor={`${formId}-penalty-terms`}>Penalty terms</Label><Textarea id={`${formId}-penalty-terms`} {...register("penaltyTerms")} /></div>
-            <div><Label htmlFor={`${formId}-service-clause`}>Service clause</Label><Textarea id={`${formId}-service-clause`} {...register("serviceClause")} /></div>
-            {updateMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(updateMut.error, "Update failed")}</div>}
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button><Button type="submit" disabled={updateMut.isPending}>{updateMut.isPending ? "Saving..." : "Save"}</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {editing && (
+        <ContractEditDialog
+          contract={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await qc.invalidateQueries({ queryKey: ["contracts"] });
+          }}
+        />
+      )}
     </div>
   );
 }

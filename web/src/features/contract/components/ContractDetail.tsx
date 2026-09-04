@@ -10,7 +10,7 @@ import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { AddendumResponse } from "../types/contractTypes";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
@@ -21,6 +21,7 @@ import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-rang
 import { addendumChangeTypeLabel } from "../contractOptions";
 import { contractApi } from "../services/contractApi";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { ContractEditDialog } from "./ContractEditDialog";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -36,6 +37,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
 }) {
   const navigate = useNavigate({ from: "/contracts" });
   const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
   const tab = requestedTab ?? "overview";
   const q = useQuery(contractQuery(id));
   const progQ = useQuery(contractProgressQuery(id));
@@ -130,6 +132,16 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
           </div>
         </div>
         <div className="flex gap-2 items-center">
+          {c.canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={submitMut.isPending}
+              onClick={() => setEditOpen(true)}
+            >
+              Edit
+            </Button>
+          )}
           {(c.canSubmit || c.submitBlockedReason) && (
             <Button
               size="sm"
@@ -224,6 +236,22 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
       {tab === "approval-history" && <Card><CardHeader><CardTitle className="text-base">Approval History</CardTitle></CardHeader><CardContent><HistoryTimeline history={histQ.data} isLoading={histQ.isLoading} /></CardContent></Card>}
       {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} mutationsDisabled={submitMut.isPending} />}
       </div>
+      {editOpen && (
+        <ContractEditDialog
+          contract={c}
+          onClose={() => setEditOpen(false)}
+          onSaved={async (updated) => {
+            queryClient.setQueryData(["contract", id], updated);
+            setEditOpen(false);
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["contract", id] }),
+              queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+              queryClient.invalidateQueries({ queryKey: ["contract-progress", id] }),
+              queryClient.invalidateQueries({ queryKey: ["contract-history", id] }),
+            ]);
+          }}
+        />
+      )}
     </div>
   );
 }

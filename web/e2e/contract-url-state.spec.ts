@@ -224,7 +224,7 @@ test("nested pagination is ignored unless its owning detail tab is active", asyn
   await expect(page).not.toHaveURL(/contractsPage|contractsCursor/);
 });
 
-test("enables contract submission on details after the required attachment is uploaded", async ({ page }) => {
+test("edits contract details and enables submission after the required attachment is uploaded", async ({ page }) => {
   const attachment = {
     id: "70000000-0000-4000-8000-000000000001",
     ownerType: "CONTRACT",
@@ -237,6 +237,9 @@ test("enables contract submission on details after the required attachment is up
   let hasAttachment = false;
   let submitted = false;
   let submitRequests = 0;
+  let updateBody: Record<string, unknown> | undefined;
+  let savedDescription = "URL state contract";
+  let savedVersion = 0;
   const draft = {
     ...contract,
     status: "DRAFT",
@@ -248,11 +251,13 @@ test("enables contract submission on details after the required attachment is up
     canCreateAddendum: false,
   };
 
-  await installApiMocks(page, (_request, url) => {
+  await installApiMocks(page, async (_request, url) => {
     if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}` && _request.method() === "GET") {
       const status = submitted ? "SUBMITTED" : "DRAFT";
       return { body: envelope({
         ...draft,
+        description: savedDescription,
+        version: savedVersion,
         status,
         canEdit: !submitted,
         canSubmit: !submitted && hasAttachment,
@@ -260,6 +265,17 @@ test("enables contract submission on details after the required attachment is up
           ? "Upload at least one attachment before submitting this contract for approval."
           : null,
         canCancel: true,
+      }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}` && _request.method() === "PUT") {
+      updateBody = await _request.postDataJSON();
+      savedDescription = String(updateBody?.description);
+      savedVersion += 1;
+      return { body: envelope({
+        ...draft,
+        ...updateBody,
+        description: savedDescription,
+        version: savedVersion,
       }) };
     }
     if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/submit` && _request.method() === "POST") {
@@ -292,6 +308,19 @@ test("enables contract submission on details after the required attachment is up
   const submit = page.getByRole("button", { name: "Submit for approval" });
   await expect(submit).toBeDisabled();
   await expect(page.getByText("Upload at least one attachment before submitting this contract for approval.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const editDialog = page.getByRole("dialog", { name: `Edit contract ${contract.contractNo}` });
+  await expect(editDialog.getByLabel("Customer *")).toHaveAttribute("placeholder", /CUS-URL.*URL Logistics/);
+  await editDialog.getByLabel("Description").fill("Updated from contract details");
+  await editDialog.getByRole("button", { name: "Save changes" }).click();
+  await expect(editDialog).toHaveCount(0);
+  await expect(page.getByText("Updated from contract details")).toBeVisible();
+  expect(updateBody).toMatchObject({
+    customerId: CUSTOMER_ID,
+    description: "Updated from contract details",
+    version: 0,
+  });
 
   await page.getByLabel("Choose attachment file").setInputFiles({
     name: attachment.fileName,
