@@ -2,7 +2,6 @@ package com.abclogistics.pas.billing;
 
 import com.abclogistics.pas.billing.domain.PaymentStatement;
 import com.abclogistics.pas.billing.grpc.ContractGrpcClient;
-import com.abclogistics.pas.billing.grpc.EsignGrpcClient;
 import com.abclogistics.pas.billing.grpc.OperationsGrpcClient;
 import com.abclogistics.pas.billing.grpc.PricingGrpcClient;
 import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
@@ -45,7 +44,6 @@ class StatementAuditRecorderTest {
                 pricing,
                 operations,
                 mock(WorkflowGrpcClient.class),
-                mock(EsignGrpcClient.class),
                 audit,
                 new com.abclogistics.pas.billing.service.StatusTransitionService(
                         mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class)),
