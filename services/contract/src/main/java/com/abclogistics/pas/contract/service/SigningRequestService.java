@@ -49,6 +49,8 @@ public class SigningRequestService {
     public boolean queue(ApprovableDocument document, Customer customer) {
         if (document.getStatus() != DocumentStatus.APPROVED) {
             throw new ConflictException(
+                    "DOCUMENT_NOT_APPROVED",
+                    "This document must be approved before it can be sent for signature.",
                     "This document must be approved before it can be sent for signature.");
         }
 

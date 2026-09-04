@@ -168,7 +168,10 @@ public class PriceListVersionService {
         for (PriceListVersion peer : versions.overlapping(
                 version.getScopeKey(), version.getId(), version.getValidFrom(), version.getValidTo())) {
             if (!peer.getValidFrom().isBefore(version.getValidFrom())) {
-                throw new ConflictException("Validity overlaps an existing effective version of the same scope (PRC-03)");
+                throw new ConflictException(
+                        "PRICE_LIST_DATE_OVERLAP",
+                        "These dates overlap an approved or effective price-list version for the same scope. Choose a non-overlapping period.",
+                        "Validity overlaps an existing effective version of the same scope (PRC-03)");
             }
         }
     }

@@ -7,4 +7,8 @@ public class ConflictException extends DomainException {
     public ConflictException(String message) {
         super(HttpStatus.CONFLICT, message);
     }
+
+    public ConflictException(String publicCode, String publicMessage, String diagnosticMessage) {
+        super(HttpStatus.CONFLICT, publicCode, publicMessage, diagnosticMessage);
+    }
 }

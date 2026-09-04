@@ -159,7 +159,9 @@ public class CustomerService {
     public Customer update(UUID id, CustomerRequest request) {
         if (request.contacts() == null) {
             throw new UnprocessableEntityException(
-                    "contacts is required on update; send [] to remove all contacts");
+                    "CUSTOMER_CONTACTS_REQUIRED",
+                    "Include customer contacts when saving. To remove all contacts, submit an empty contact list.",
+                    "Customer update omitted the contacts collection");
         }
         Customer customer = get(id);
         // taken before anything is applied: the audit row is the only record of the prior value

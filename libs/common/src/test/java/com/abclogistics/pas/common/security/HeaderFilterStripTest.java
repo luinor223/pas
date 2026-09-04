@@ -109,7 +109,56 @@ class HeaderFilterStripTest {
         filter.doFilter(req, res, chain);
 
         assertThat(res.getStatus()).isEqualTo(401);
-        assertThat(res.getContentAsString()).contains("Malformed identity headers");
+        assertThat(objectMapper.readTree(res.getContentAsString()).get("code").asText())
+                .isEqualTo("INVALID_IDENTITY");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void malformedJsonRolesReturnAStableIdentityError() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/users");
+        req.addHeader("X-User-Id", UUID.randomUUID().toString());
+        req.addHeader("X-Roles", "[not-json]");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        filter.doFilter(req, res, new MockFilterChain());
+
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(objectMapper.readTree(res.getContentAsString()).get("code").asText())
+                .isEqualTo("INVALID_IDENTITY");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void invalidRoleValuesReturnAStableIdentityError() throws Exception {
+        for (String roles : List.of("[null]", "[\"\"]", "[42]", "[[\"SALES_OFFICER\"]]", "sales_officer")) {
+            SecurityContextHolder.clearContext();
+            MockHttpServletRequest req = new MockHttpServletRequest("GET", "/users");
+            req.addHeader("X-User-Id", UUID.randomUUID().toString());
+            req.addHeader("X-Roles", roles);
+            MockHttpServletResponse res = new MockHttpServletResponse();
+
+            filter.doFilter(req, res, new MockFilterChain());
+
+            assertThat(res.getStatus()).as("roles header %s", roles).isEqualTo(401);
+            assertThat(objectMapper.readTree(res.getContentAsString()).get("code").asText())
+                    .isEqualTo("INVALID_IDENTITY");
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        }
+    }
+
+    @Test
+    void abbreviatedUuidIsRejectedRatherThanCanonicalized() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/users");
+        req.addHeader("X-User-Id", "1-1-1-1-1");
+        req.addHeader("X-Roles", "[]");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        filter.doFilter(req, res, new MockFilterChain());
+
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(objectMapper.readTree(res.getContentAsString()).get("code").asText())
+                .isEqualTo("INVALID_IDENTITY");
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
@@ -126,7 +175,8 @@ class HeaderFilterStripTest {
         filter.doFilter(req, res, chain);
 
         assertThat(res.getStatus()).isEqualTo(403);
-        assertThat(res.getContentAsString()).contains("Authorization service unavailable");
+        assertThat(objectMapper.readTree(res.getContentAsString()).get("code").asText())
+                .isEqualTo("AUTHORIZATION_UNAVAILABLE");
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 

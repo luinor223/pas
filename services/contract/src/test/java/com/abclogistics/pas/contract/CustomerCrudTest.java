@@ -71,6 +71,7 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -430,7 +431,8 @@ class CustomerCrudTest {
         mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.path").value("/customers/" + id + "/metrics"));
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                .andExpect(jsonPath("$.path").value("/customers/{id}/metrics"));
 
         verify(contractRepository, never()).countByCustomerId(any());
         verify(contractRepository, never()).countByCustomerIds(anyList());
@@ -444,7 +446,8 @@ class CustomerCrudTest {
         mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.path").value("/customers/" + id + "/metrics"));
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                .andExpect(jsonPath("$.path").value("/customers/{id}/metrics"));
     }
 
     @Test
@@ -454,7 +457,60 @@ class CustomerCrudTest {
         mvc.perform(get("/customers/{id}/metrics", missing).headers(salesHeaders()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.path").value("/customers/" + missing + "/metrics"));
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/customers/{id}/metrics"));
+    }
+
+    @Test
+    void attachmentEndpointMissingOwnerTypeReturnsAStableSafeError() throws Exception {
+        mvc.perform(get("/attachments")
+                        .param("ownerId", UUID.randomUUID().toString())
+                        .headers(salesHeaders()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_REQUEST_VALUE"))
+                .andExpect(jsonPath("$.message").value("A required request value is missing."))
+                .andExpect(jsonPath("$.path").value("/attachments"));
+    }
+
+    @Test
+    void attachmentUploadMissingFileReturnsAStableSafeError() throws Exception {
+        mvc.perform(multipart("/attachments")
+                        .param("ownerType", "CONTRACT")
+                        .param("ownerId", UUID.randomUUID().toString())
+                        .headers(salesHeaders()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_REQUEST_VALUE"))
+                .andExpect(jsonPath("$.message").value("A required request value is missing."))
+                .andExpect(jsonPath("$.path").value("/attachments"));
+    }
+
+    @Test
+    void unknownRouteUsesTheStableEnvelopeAndRedactsItsUuid() throws Exception {
+        UUID secret = UUID.fromString("90000000-0000-4000-8000-000000000001");
+
+        mvc.perform(get("/unknown-resource/{id}", secret).headers(salesHeaders()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("The requested resource was not found."))
+                .andExpect(jsonPath("$.path").value("/unknown-resource/{id}"));
+    }
+
+    @Test
+    void generatedOpenApiPublishesTheSharedErrorContract() throws Exception {
+        String document = mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode root = objectMapper.readTree(document);
+        JsonNode error = root.path("components").path("schemas").path("ApiError");
+
+        assertThat(error.path("required").valueStream().map(JsonNode::asString).toList())
+                .contains("code", "violations", "message", "path");
+        assertThat(error.path("properties").path("code").path("type").asString())
+                .isEqualTo("string");
+        assertThat(error.path("properties").path("violations").path("items").path("$ref").asString())
+                .isEqualTo("#/components/schemas/ApiErrorFieldViolation");
+        assertThat(root.at("/paths/~1customers/get/responses/default/$ref").asString())
+                .isEqualTo("#/components/responses/ApiErrorResponse");
     }
 
     // ---- update --------------------------------------------------------------------------
@@ -497,8 +553,12 @@ class CustomerCrudTest {
         // PUT is full replacement, so an omitted contacts is an incomplete request — not a
         // licence to wipe the set behind the caller's back
         assertThatThrownBy(() -> tx.execute(s -> customers.update(id, noContacts)))
-                .isInstanceOf(UnprocessableEntityException.class)
-                .hasMessageContaining("contacts is required");
+                .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+                    assertThat(ex.getPublicCode()).isEqualTo("CUSTOMER_CONTACTS_REQUIRED");
+                    assertThat(ex.getPublicMessage())
+                            .isEqualTo("Include customer contacts when saving. To remove all contacts, submit an empty contact list.");
+                    assertThat(ex.getMessage()).contains("omitted the contacts collection");
+                });
         assertThat(namesOf(id)).containsExactly("Keep Me");
     }
 
@@ -524,8 +584,9 @@ class CustomerCrudTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Wire Co\"}"))
                 .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CUSTOMER_CONTACTS_REQUIRED"))
                 .andExpect(jsonPath("$.message").value(
-                        "contacts is required on update; send [] to remove all contacts"));
+                        "Include customer contacts when saving. To remove all contacts, submit an empty contact list."));
 
         assertThat(namesOf(id)).containsExactly("Keep Me");
     }

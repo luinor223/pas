@@ -38,7 +38,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/InboxResponse' }
-        '403': { description: Requires notification:read }
+        '403':
+          description: Requires notification:read
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default: { $ref: '#/components/responses/ApiErrorResponse' }
       security: [{ bearerAuth: [] }]
 
   /notifications/{id}/read:
@@ -51,8 +56,17 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '204': { description: Marked }
-        '403': { description: Requires notification:read }
-        '404': { description: No such notification for this recipient }
+        '403':
+          description: Requires notification:read
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: No such notification for this recipient
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default: { $ref: '#/components/responses/ApiErrorResponse' }
       security: [{ bearerAuth: [] }]
 
   /notifications/unread-count:
@@ -65,7 +79,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UnreadCountResponse' }
-        '403': { description: Requires notification:read }
+        '403':
+          description: Requires notification:read
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default: { $ref: '#/components/responses/ApiErrorResponse' }
       security: [{ bearerAuth: [] }]
 
   /notifications/read-all:
@@ -73,13 +92,43 @@ paths:
       summary: Mark every unread notification read ("Mark all as read")
       responses:
         '204': { description: Marked }
-        '403': { description: Requires notification:read }
+        '403':
+          description: Requires notification:read
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default: { $ref: '#/components/responses/ApiErrorResponse' }
       security: [{ bearerAuth: [] }]
 
 components:
+  responses:
+    ApiErrorResponse:
+      description: Request failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
+    ApiError:
+      type: object
+      required: [timestamp, status, error, code, message, path, violations]
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer, format: int32 }
+        error: { type: string }
+        code: { type: string }
+        message: { type: string }
+        path: { type: string }
+        violations:
+          type: array
+          items: { $ref: '#/components/schemas/ApiErrorFieldViolation' }
+    ApiErrorFieldViolation:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string }
+        message: { type: string }
     InboxResponse:
       type: object
       properties:

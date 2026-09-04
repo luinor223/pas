@@ -220,7 +220,10 @@ public class SigningSessionService {
             .orElseThrow(() -> new NotFoundException("Signing session not found: " + sessionId));
 
         if (!session.canCancel()) {
-            throw new ConflictException("Cannot cancel session in status " + session.getStatus());
+            throw new ConflictException(
+                    "SIGNING_SESSION_NOT_CANCELLABLE",
+                    "This signing request can no longer be cancelled.",
+                    "Cannot cancel session in status " + session.getStatus());
         }
 
         String fromStatus = session.getStatus().name();

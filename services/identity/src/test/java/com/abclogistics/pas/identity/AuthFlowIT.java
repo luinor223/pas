@@ -131,9 +131,59 @@ class AuthFlowIT {
 
     @Test
     void rejectsUnauthenticatedUserList() {
-        HttpStatusCode status = client().get().uri("/users")
-                .exchange((request, response) -> response.getStatusCode());
+        HttpResult result = client().get().uri("/users")
+                .exchange((request, response) -> new HttpResult(
+                        response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
 
-        assertThat(status.value()).isIn(401, 403);
+        assertThat(result.status()).isEqualTo(401);
+        assertThat(result.body()).contains(
+                "\"code\":\"AUTHENTICATION_REQUIRED\"",
+                "\"message\":\"Authentication is required.\"");
     }
+
+    @Test
+    void deniedUserListUsesTheStableSecurityEnvelope() {
+        HttpResult result = client().get().uri("/users")
+                .header("X-User-Id", java.util.UUID.randomUUID().toString())
+                .header("X-Roles", "SALES_OFFICER")
+                .exchange((request, response) -> new HttpResult(
+                        response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertThat(result.status()).isEqualTo(403);
+        assertThat(result.body()).contains(
+                "\"code\":\"ACCESS_DENIED\"",
+                "\"message\":\"You do not have permission to perform this action.\"");
+    }
+
+    @Test
+    void loginAndRefreshFailuresHaveSpecificPublicCodes() {
+        HttpResult badLogin = client().post().uri("/auth/login")
+                .body(new LoginRequest("admin", "wrong-password"))
+                .exchange((request, response) -> new HttpResult(
+                        response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
+        HttpResult missingRefresh = client().post().uri("/auth/refresh")
+                .exchange((request, response) -> new HttpResult(
+                        response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
+        HttpResult invalidRefresh = client().post().uri("/auth/refresh")
+                .body(new RefreshRequest("not-a-valid-refresh-token"))
+                .exchange((request, response) -> new HttpResult(
+                        response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertThat(badLogin.status()).isEqualTo(401);
+        assertThat(badLogin.body()).contains("\"code\":\"INVALID_CREDENTIALS\"")
+                .doesNotContain("DOMAIN_ERROR");
+        assertThat(missingRefresh.status()).isEqualTo(401);
+        assertThat(missingRefresh.body()).contains("\"code\":\"REFRESH_TOKEN_REQUIRED\"")
+                .doesNotContain("DOMAIN_ERROR");
+        assertThat(invalidRefresh.status()).isEqualTo(401);
+        assertThat(invalidRefresh.body()).contains("\"code\":\"INVALID_REFRESH_TOKEN\"")
+                .doesNotContain("DOMAIN_ERROR");
+    }
+
+    private record HttpResult(int status, String body) { }
 }

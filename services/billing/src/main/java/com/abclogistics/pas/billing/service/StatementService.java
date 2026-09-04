@@ -295,10 +295,16 @@ public class StatementService {
 
         // PAY-04 checks
         if (statement.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
-            throw new FailedPreconditionException("total_amount must be >= 0 (PAY-04)");
+            throw new FailedPreconditionException(
+                    "STATEMENT_TOTAL_INVALID",
+                    "The statement total cannot be negative.",
+                    "total_amount must be >= 0 (PAY-04)");
         }
         if (statement.getLines().isEmpty()) {
-            throw new FailedPreconditionException("Statement must have at least 1 line (PAY-04)");
+            throw new FailedPreconditionException(
+                    "STATEMENT_LINES_REQUIRED",
+                    "Add at least one line before submitting the statement.",
+                    "Statement must have at least 1 line (PAY-04)");
         }
 
         if (statement.getAdjustsStatementId() == null) {
@@ -600,7 +606,10 @@ public class StatementService {
                 "Only APPROVED, SIGNED or ISSUED statements can have adjustments (PAY-05)");
         }
         if (req.lines() == null || req.lines().isEmpty()) {
-            throw new UnprocessableEntityException("Adjustment must have at least 1 line (PAY-04)");
+            throw new UnprocessableEntityException(
+                "ADJUSTMENT_LINES_REQUIRED",
+                "Add at least one line to the adjustment.",
+                "Adjustment must have at least 1 line (PAY-04)");
         }
 
         PaymentStatement adjustment = new PaymentStatement();
@@ -648,7 +657,10 @@ public class StatementService {
         adjustment.setTaxAmount(taxAmount);
         adjustment.setTotalAmount(subtotal.add(taxAmount));
         if (adjustment.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
-            throw new UnprocessableEntityException("total_amount must be >= 0 (PAY-04)");
+            throw new UnprocessableEntityException(
+                "ADJUSTMENT_TOTAL_INVALID",
+                "The adjustment total cannot be negative.",
+                "total_amount must be >= 0 (PAY-04)");
         }
         statementRepo.saveAndFlush(adjustment);
 

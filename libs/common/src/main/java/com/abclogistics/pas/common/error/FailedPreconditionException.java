@@ -9,4 +9,8 @@ public class FailedPreconditionException extends DomainException {
     public FailedPreconditionException(String message) {
         super(HttpStatus.PRECONDITION_FAILED, message);
     }
+
+    public FailedPreconditionException(String publicCode, String publicMessage, String diagnosticMessage) {
+        super(HttpStatus.PRECONDITION_FAILED, publicCode, publicMessage, diagnosticMessage);
+    }
 }

@@ -81,6 +81,7 @@ public final class PageSnapshotCodec {
     }
 
     private static UnprocessableEntityException invalid() {
-        return new UnprocessableEntityException("The page cursor is invalid or has expired; return to the first page.");
+        String message = "The page cursor is invalid or has expired; return to the first page.";
+        return new UnprocessableEntityException("INVALID_PAGE_CURSOR", message, message);
     }
 }

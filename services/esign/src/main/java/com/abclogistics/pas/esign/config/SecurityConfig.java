@@ -1,5 +1,6 @@
 package com.abclogistics.pas.esign.config;
 
+import com.abclogistics.pas.common.security.ApiSecurityErrorHandler;
 import com.abclogistics.pas.common.security.HeaderAuthenticationFilter;
 import com.abclogistics.pas.common.security.PermissionCache;
 import tools.jackson.databind.ObjectMapper;
@@ -37,9 +38,11 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         HeaderAuthenticationFilter jwtFilter =
                 new HeaderAuthenticationFilter(permissionCache, objectMapper);
+        ApiSecurityErrorHandler errors = new ApiSecurityErrorHandler(objectMapper);
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(e -> e.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .anyRequest().authenticated())
