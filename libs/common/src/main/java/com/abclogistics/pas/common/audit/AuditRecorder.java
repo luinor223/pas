@@ -3,12 +3,11 @@ package com.abclogistics.pas.common.audit;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.common.security.SystemActor;
 import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -46,7 +45,7 @@ public class AuditRecorder {
     public void record(String entityType, UUID entityId, String entityNo, String action,
                        String beforeStatus, String afterStatus, String note,
                        Map<String, Object> changes) {
-        AuthenticatedUser actor = currentActor();
+        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         String ip = currentIpAddress();
         AuditPayload payload = new AuditPayload(
                 sourceService,
@@ -58,14 +57,6 @@ public class AuditRecorder {
                 changes == null ? Map.of() : changes,
                 note, ip, Instant.now());
         outbox.save(OutboxEvent.audit(entityType, entityId, serialize(payload)));
-    }
-
-    private AuthenticatedUser currentActor() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof AuthenticatedUser user) {
-            return user;
-        }
-        return null;
     }
 
     private String currentIpAddress() {
