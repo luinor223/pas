@@ -1,5 +1,6 @@
 package com.abclogistics.pas.contract.controller;
 
+import com.abclogistics.pas.common.api.ApiResponse;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.AddendumResponse;
@@ -8,12 +9,14 @@ import com.abclogistics.pas.contract.dto.CancelResponse;
 import com.abclogistics.pas.contract.dto.ProgressResponse;
 import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
 import com.abclogistics.pas.contract.dto.SigningRequestStateResponse;
+import com.abclogistics.pas.contract.dto.SnapshotPage;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.PageableGuard;
+import com.abclogistics.pas.contract.service.PageSnapshot;
+import com.abclogistics.pas.contract.service.PageSnapshotCodec;
 import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -37,23 +40,28 @@ import java.util.UUID;
 public class AddendumController {
 
     private final AddendumService addenda;
+    private final PageSnapshotCodec pageSnapshots;
 
-    public AddendumController(AddendumService addenda) {
+    public AddendumController(AddendumService addenda, PageSnapshotCodec pageSnapshots) {
         this.addenda = addenda;
+        this.pageSnapshots = pageSnapshots;
     }
 
     @GetMapping
     @PreAuthorize("hasAuthority('addendum:read')")
-    public Page<AddendumResponse> list(@RequestParam(required = false) UUID contractId,
+    public ApiResponse<List<AddendumResponse>> list(@RequestParam(required = false) UUID contractId,
                                        @RequestParam(required = false) String status,
                                        @RequestParam(required = false) String changeType,
                                        @RequestParam(required = false) String q,
                                        @RequestParam(required = false) String effectiveFromFrom,
                                        @RequestParam(required = false) String effectiveFromTo,
+                                       @RequestParam(required = false) String cursor,
                                        @PageableDefault(size = 20) Pageable pageable) {
+        PageSnapshot snapshot = pageSnapshots.resolve(cursor);
         Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.ADDENDUM_SORTS);
-        return addenda.search(contractId, status, changeType, q, effectiveFromFrom, effectiveFromTo, safe)
-                .map(AddendumResponse::of);
+        return SnapshotPage.of(addenda.search(contractId, status, changeType, q,
+                        effectiveFromFrom, effectiveFromTo, snapshot.createdAt(), safe)
+                .map(AddendumResponse::of), snapshot.cursor());
     }
 
     @GetMapping("/{id}")

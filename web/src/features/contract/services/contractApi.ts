@@ -23,6 +23,7 @@ type PageParams = {
   page?: number;
   size?: number;
   sort?: string;
+  cursor?: string;
 };
 
 export type CustomerListParams = PageParams & { q?: string; status?: string };

@@ -1,5 +1,6 @@
 package com.abclogistics.pas.contract.controller;
 
+import com.abclogistics.pas.common.api.ApiResponse;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.CancelRequest;
 import com.abclogistics.pas.contract.dto.CancelResponse;
@@ -8,12 +9,14 @@ import com.abclogistics.pas.contract.dto.ContractResponse;
 import com.abclogistics.pas.contract.dto.ProgressResponse;
 import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
 import com.abclogistics.pas.contract.dto.SigningRequestStateResponse;
+import com.abclogistics.pas.contract.dto.SnapshotPage;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.PageableGuard;
+import com.abclogistics.pas.contract.service.PageSnapshot;
+import com.abclogistics.pas.contract.service.PageSnapshotCodec;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -37,14 +40,16 @@ import java.util.UUID;
 public class ContractController {
 
     private final ContractService contracts;
+    private final PageSnapshotCodec pageSnapshots;
 
-    public ContractController(ContractService contracts) {
+    public ContractController(ContractService contracts, PageSnapshotCodec pageSnapshots) {
         this.contracts = contracts;
+        this.pageSnapshots = pageSnapshots;
     }
 
     @GetMapping
     @PreAuthorize("hasAuthority('contract:read')")
-    public Page<ContractResponse> list(@RequestParam(required = false) UUID customerId,
+    public ApiResponse<List<ContractResponse>> list(@RequestParam(required = false) UUID customerId,
                                        @RequestParam(required = false) String status,
                                        @RequestParam(required = false) String serviceGroup,
                                        @RequestParam(required = false) String q,
@@ -52,11 +57,13 @@ public class ContractController {
                                        @RequestParam(required = false) String validFromTo,
                                        @RequestParam(required = false) String validToFrom,
                                        @RequestParam(required = false) String validToTo,
+                                       @RequestParam(required = false) String cursor,
                                        @PageableDefault(size = 20) Pageable pageable) {
+        PageSnapshot snapshot = pageSnapshots.resolve(cursor);
         Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CONTRACT_SORTS);
-        return contracts.search(customerId, status, serviceGroup, q,
-                        validFromFrom, validFromTo, validToFrom, validToTo, safe)
-                .map(ContractResponse::of);
+        return SnapshotPage.of(contracts.search(customerId, status, serviceGroup, q,
+                        validFromFrom, validFromTo, validToFrom, validToTo,
+                        snapshot.createdAt(), safe).map(ContractResponse::of), snapshot.cursor());
     }
 
     @GetMapping("/{id}")

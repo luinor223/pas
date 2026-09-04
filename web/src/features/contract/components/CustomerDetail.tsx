@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { customerMetricsQuery, customerQuery, contractsQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { StatusBadge } from "@/shared/components/status-badge";
@@ -24,10 +24,12 @@ const TABS: readonly TabItem<Tab>[] = [
 ];
 
 export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const canReadContracts = useHasPermission("contract:read");
   const [tab, setTab] = useState<Tab>("overview");
   const [contractsPage, setContractsPage] = useState(0);
+  const [contractsCursor, setContractsCursor] = useState<string>();
   const q = useQuery(customerQuery(id));
   const metricsQ = useQuery({ ...customerMetricsQuery(id), enabled: canReadContracts && !!id });
   const recentContractsQ = useQuery({
@@ -35,10 +37,19 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
     enabled: canReadContracts && !!id,
   });
   const contractsQ = useQuery({
-    ...contractsQuery({ customerId: id, page: contractsPage, size: DEFAULT_PAGE_SIZE, sort: "createdAt,desc" }),
+    ...contractsQuery({ customerId: id, page: contractsPage, size: DEFAULT_PAGE_SIZE, sort: "createdAt,desc", cursor: contractsCursor }),
     enabled: canReadContracts && tab === "contracts",
   });
   const tabs = canReadContracts ? TABS : TABS.filter((item) => item.value !== "contracts");
+  const changeContractsPage = (nextPage: number) => {
+    if (contractsPage === 0 && contractsQ.data?.cursor) setContractsCursor(contractsQ.data.cursor);
+    setContractsPage(nextPage);
+  };
+  const recoverContracts = () => {
+    queryClient.removeQueries({ queryKey: ["contracts"] });
+    setContractsCursor(undefined);
+    setContractsPage(0);
+  };
 
   const c = q.data;
   if (q.isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -154,7 +165,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         <Card>
           <CardHeader><CardTitle className="text-base">Contracts · {c.name}</CardTitle></CardHeader>
           <CardContent>
-            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : contractsQ.isError ? <div className="text-sm text-destructive">Failed to load contracts</div> : (
+            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : contractsQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">Failed to load contracts</div>{contractsCursor && <Button variant="outline" size="sm" onClick={recoverContracts}>Return to first page</Button>}</div> : (
               <DataTable
                 columns={recentColumns}
                 data={contracts}
@@ -164,7 +175,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
                   page: contractsQ.data?.number ?? contractsPage,
                   totalPages: contractsQ.data?.totalPages ?? 0,
                   totalItems: contractsQ.data?.totalElements ?? 0,
-                  onPageChange: setContractsPage,
+                  onPageChange: changeContractsPage,
                 }}
               />
             )}

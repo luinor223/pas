@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Currency;
@@ -94,6 +95,7 @@ public class ContractService {
                                  String q,
                                  String validFromFrom, String validFromTo,
                                  String validToFrom, String validToTo,
+                                 Instant snapshot,
                                  Pageable pageable) {
         return contracts.search(
                 customerId,
@@ -104,13 +106,25 @@ public class ContractService {
                 RequestValues.parseOptionalDate("validFromTo", validFromTo),
                 RequestValues.parseOptionalDate("validToFrom", validToFrom),
                 RequestValues.parseOptionalDate("validToTo", validToTo),
+                snapshot,
                 pageable);
     }
 
     @Transactional(readOnly = true)
     public Page<Contract> search(UUID customerId, String status, String serviceGroup,
+                                 String q,
+                                 String validFromFrom, String validFromTo,
+                                 String validToFrom, String validToTo,
+                                 Pageable pageable) {
+        return search(customerId, status, serviceGroup, q, validFromFrom, validFromTo,
+                validToFrom, validToTo, Instant.now(), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Contract> search(UUID customerId, String status, String serviceGroup,
                                  String q, Pageable pageable) {
-        return search(customerId, status, serviceGroup, q, null, null, null, null, pageable);
+        return search(customerId, status, serviceGroup, q, null, null, null, null,
+                Instant.now(), pageable);
     }
 
     @Transactional(readOnly = true)

@@ -18,7 +18,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
-import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CustomerPicker } from "./CustomerPicker";
@@ -67,17 +66,25 @@ export function ContractList() {
   const [validFromFrom, setValidFromFrom] = useState("");
   const [validToTo, setValidToTo] = useState("");
   const [page, setPage] = useState(0);
+  const [snapshotCursor, setSnapshotCursor] = useState<string>();
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVersion, setEditVersion] = useState<number | null>(null);
   const invalidFilterRange = isInvalidDateRange(validFromFrom, validToTo);
   const hasFilters = !!(q || customerId || status || serviceGroup || validFromFrom || validToTo);
 
-  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE };
+  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor };
   const listQ = useQuery({ ...contractsQuery(listParams), enabled: canRead && !invalidFilterRange });
 
   const contracts = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
+
+  const changePage = (nextPage: number) => {
+    if (page === 0 && listQ.data?.cursor) setSnapshotCursor(listQ.data.cursor);
+    setPage(nextPage);
+  };
+  const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
+  const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["contracts"] }); restartListing(); };
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -168,7 +175,7 @@ export function ContractList() {
               label="Search contracts"
               placeholder="Search no/description/customer..."
               value={q}
-              onChange={(value) => { setQ(value); setPage(0); }}
+              onChange={(value) => { setQ(value); restartListing(); }}
             />
           {canWrite && <Button onClick={() => { reset({ customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
           </div>
@@ -180,12 +187,12 @@ export function ContractList() {
               label=""
               placeholder="All customers"
               value={customerId}
-              onChange={(id) => { setCustomerId(id); setPage(0); }}
+              onChange={(id) => { setCustomerId(id); restartListing(); }}
             />
-            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); restartListing(); }}>
               <option value="">Status: All</option>{STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </Select>
-            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); restartListing(); }}>
               <option value="">Group: All</option>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
             </Select>
             <DateRangeFields
@@ -194,14 +201,13 @@ export function ContractList() {
               to={validToTo}
               fromLabel="Effective from"
               toLabel="Expiry"
-              onFromChange={(value) => { setValidFromFrom(value); setPage(0); }}
-              onToChange={(value) => { setValidToTo(value); setPage(0); }}
+              onFromChange={(value) => { setValidFromFrom(value); restartListing(); }}
+              onToChange={(value) => { setValidToTo(value); restartListing(); }}
             />
-            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); setPage(0); }} />
+            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); restartListing(); }} />
           </FilterBar>
           <div className="text-xs text-muted-foreground">Date filters show contracts whose full term falls within the selected dates.</div>
-          {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} />}
-          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
+          {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, onPageChange: changePage }} />}
           {(submitMut.isError || reviseMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? reviseMut.error) as unknown as Error, "Action failed")}</div>}
         </CardContent>
       </Card>

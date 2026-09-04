@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +44,7 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
                    or lower(a.contract.contractNo) like :q)
               and (:#{#effectiveFromFrom == null} = true or a.effectiveFrom >= :effectiveFromFrom)
               and (:#{#effectiveFromTo == null} = true or a.effectiveFrom <= :effectiveFromTo)
+              and a.createdAt <= :snapshot
             """)
     Page<Addendum> search(@Param("contractId") UUID contractId,
                           @Param("status") DocumentStatus status,
@@ -50,6 +52,7 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
                           @Param("q") String q,
                           @Param("effectiveFromFrom") LocalDate effectiveFromFrom,
                           @Param("effectiveFromTo") LocalDate effectiveFromTo,
+                          @Param("snapshot") Instant snapshot,
                           Pageable pageable);
 
     List<Addendum> findByContractId(UUID contractId);

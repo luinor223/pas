@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { currentUser, envelope, installApiMocks } from "./support/api";
 
 const CUSTOMER_ID = "40000000-0000-4000-8000-000000000001";
+const SECOND_CUSTOMER_ID = "40000000-0000-4000-8000-000000000002";
 
 const customer = {
   id: CUSTOMER_ID,
@@ -72,15 +73,16 @@ test("uses complete currency metrics and paginates the contracts tab independent
         page: url.searchParams.get("page"),
         size: url.searchParams.get("size"),
         sort: url.searchParams.get("sort"),
+        cursor: url.searchParams.get("cursor"),
       });
       if (size === 5) {
-        return { body: envelope([1, 2, 3, 4, 5].map(contract), { page: 0, size: 5, totalElements: 16, totalPages: 4 }) };
+        return { body: envelope([1, 2, 3, 4, 5].map(contract), { page: 0, size: 5, totalElements: 16, totalPages: 4, cursor: "recent-token" }) };
       }
       contractPages.push(pageNumber);
       const rows = pageNumber === 0
         ? Array.from({ length: 15 }, (_, index) => contract(index + 1))
         : [contract(16)];
-      return { body: envelope(rows, { page: pageNumber, size: 15, totalElements: 16, totalPages: 2 }) };
+      return { body: envelope(rows, { page: pageNumber, size: 15, totalElements: 16, totalPages: 2, cursor: "contracts-token" }) };
     }
   });
 
@@ -96,6 +98,7 @@ test("uses complete currency metrics and paginates the contracts tab independent
     page: "0",
     size: "5",
     sort: "createdAt,desc",
+    cursor: null,
   }]);
 
   await page.getByRole("tab", { name: "Contracts" }).click();
@@ -103,10 +106,55 @@ test("uses complete currency metrics and paginates the contracts tab independent
   await page.getByRole("button", { name: "Next page" }).click();
   await expect(page.getByText("CTR-2026-0016")).toBeVisible();
   await expect(page.getByText("Page 2 of 2")).toBeVisible();
-  expect(contractPages).toEqual([0, 1]);
+  await page.getByRole("button", { name: "Previous page" }).click();
+  await expect(page.getByText("Page 1 of 2")).toBeVisible();
+  expect(contractPages).toEqual([0, 1, 0]);
   expect(contractRequests.slice(1)).toEqual([
-    { customerId: CUSTOMER_ID, page: "0", size: "15", sort: "createdAt,desc" },
-    { customerId: CUSTOMER_ID, page: "1", size: "15", sort: "createdAt,desc" },
+    { customerId: CUSTOMER_ID, page: "0", size: "15", sort: "createdAt,desc", cursor: null },
+    { customerId: CUSTOMER_ID, page: "1", size: "15", sort: "createdAt,desc", cursor: "contracts-token" },
+    { customerId: CUSTOMER_ID, page: "0", size: "15", sort: "createdAt,desc", cursor: "contracts-token" },
+  ]);
+});
+
+test("switching customer routes starts the contracts tab on a fresh snapshot", async ({ page }) => {
+  const pagedRequests: Array<{ customerId: string | null; page: string | null; cursor: string | null }> = [];
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/customers/${CUSTOMER_ID}`) return { body: envelope(customer) };
+    if (url.pathname === `/api/v1/customers/${SECOND_CUSTOMER_ID}`) {
+      return { body: envelope({ ...customer, id: SECOND_CUSTOMER_ID, code: "CUS-0043", name: "Second Logistics" }) };
+    }
+    if (url.pathname.endsWith("/metrics")) {
+      return { body: envelope({ activeContracts: 0, approvedContractValues: [] }) };
+    }
+    if (url.pathname === "/api/v1/contracts") {
+      const size = url.searchParams.get("size");
+      const customerId = url.searchParams.get("customerId");
+      const pageNumber = url.searchParams.get("page") ?? "0";
+      if (size === "5") {
+        return { body: envelope([], { page: 0, size: 5, totalElements: 0, totalPages: 0, cursor: `recent-${customerId}` }) };
+      }
+      pagedRequests.push({ customerId, page: pageNumber, cursor: url.searchParams.get("cursor") });
+      return { body: envelope([contract(pageNumber === "1" ? 16 : 1)], { page: Number(pageNumber), size: 15, totalElements: 16, totalPages: 2, cursor: `cursor-${customerId}` }) };
+    }
+  });
+
+  await page.goto(`/customers?id=${CUSTOMER_ID}`);
+  await page.getByRole("tab", { name: "Contracts" }).click();
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(page.getByText("Page 2 of 2")).toBeVisible();
+
+  await page.evaluate((id) => {
+    window.history.pushState({}, "", `/customers?id=${id}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, SECOND_CUSTOMER_ID);
+  await expect(page.getByRole("heading", { name: "Second Logistics" })).toBeVisible();
+  await page.getByRole("tab", { name: "Contracts" }).click();
+  await expect(page.getByText("Page 1 of 2")).toBeVisible();
+
+  expect(pagedRequests).toEqual([
+    { customerId: CUSTOMER_ID, page: "0", cursor: null },
+    { customerId: CUSTOMER_ID, page: "1", cursor: `cursor-${CUSTOMER_ID}` },
+    { customerId: SECOND_CUSTOMER_ID, page: "0", cursor: null },
   ]);
 });
 

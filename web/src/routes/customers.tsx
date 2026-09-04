@@ -9,6 +9,6 @@ export const Route = createFileRoute("/customers")({
 
 function CustomersPage() {
   const { id } = Route.useSearch();
-  if (id) return <CustomerDetail id={id} />;
+  if (id) return <CustomerDetail key={id} id={id} />;
   return <CustomerList />;
 }

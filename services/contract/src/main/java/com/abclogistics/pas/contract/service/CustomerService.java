@@ -21,6 +21,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,20 +54,31 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Customer> search(String query, String status, Pageable pageable) {
+    public Page<Customer> search(String query, String status, Instant snapshot, Pageable pageable) {
         return customers.search(
                 RequestValues.likePattern(query),
                 RequestValues.parseOptional("status", status,
                         CustomerStatus::valueOf, CustomerStatus.values()),
+                snapshot,
                 pageable);
     }
 
     @Transactional(readOnly = true)
-    public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
-        Page<Customer> page = search(query, status, pageable);
+    public Page<Customer> search(String query, String status, Pageable pageable) {
+        return search(query, status, Instant.now(), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerResponse> searchResponses(String query, String status, Instant snapshot, Pageable pageable) {
+        Page<Customer> page = search(query, status, snapshot, pageable);
         Map<UUID, CustomerResponse> responses = listResponses(page.getContent()).stream()
                 .collect(Collectors.toMap(CustomerResponse::id, Function.identity()));
         return page.map(customer -> responses.get(customer.getId()));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
+        return searchResponses(query, status, Instant.now(), pageable);
     }
 
     @Transactional(readOnly = true)

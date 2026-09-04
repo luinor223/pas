@@ -18,7 +18,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
-import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { RowMenu } from "@/shared/components/row-menu";
@@ -60,6 +59,7 @@ export function CustomerList() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
   const [page, setPage] = useState(0);
+  const [snapshotCursor, setSnapshotCursor] = useState<string>();
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   // Customer id whose contacts are shown — the full record is fetched because
@@ -67,11 +67,18 @@ export function CustomerList() {
   const [viewContactsId, setViewContactsId] = useState<string | null>(null);
   const [confirmSuspend, setConfirmSuspend] = useState<CustomerResponse | null>(null);
 
-  const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: PAGE_SIZE }));
+  const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: PAGE_SIZE, cursor: snapshotCursor }));
   const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
 
   const customers = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
+
+  const changePage = (nextPage: number) => {
+    if (page === 0 && listQ.data?.cursor) setSnapshotCursor(listQ.data.cursor);
+    setPage(nextPage);
+  };
+  const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
+  const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["customers"] }); restartListing(); };
 
 
 
@@ -193,19 +200,18 @@ export function CustomerList() {
               label="Search customers"
               placeholder="Search code/name/tax..."
               value={q}
-              onChange={(value) => { setQ(value); setPage(0); }}
+              onChange={(value) => { setQ(value); restartListing(); }}
             />
           {canWrite && <Button onClick={() => { reset({ name: "", shortName: "", taxCode: "", address: "", representativeName: "", representativePosition: "", segment: "", contacts: [{ fullName: "", title: "", email: "", phone: "", primary: true }] }); setOpenCreate(true); }}>+ New Customer</Button>}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <FilterBar>
-            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); restartListing(); }}>
               <option value="All">Status: All</option><option value="ACTIVE">{statusLabel("ACTIVE")}</option><option value="SUSPENDED">{statusLabel("SUSPENDED")}</option>
             </Select>
           </FilterBar>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={PAGE_SIZE} />}
-          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, onPageChange: changePage }} />}
         </CardContent>
       </Card>
 

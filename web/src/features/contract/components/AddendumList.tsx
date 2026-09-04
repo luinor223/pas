@@ -19,7 +19,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
-import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
@@ -68,13 +67,21 @@ export function AddendumList() {
   const [changeType, setChangeType] = useState(() => new URLSearchParams(window.location.search).get("changeType") ?? "");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
+  const [snapshotCursor, setSnapshotCursor] = useState<string>();
   const [openCreate, setOpenCreate] = useState(false);
   const hasFilters = !!(status || changeType || q);
 
-  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE }));
+  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
   const pageItems = listQ.data?.content ?? [];
   const items = pageItems;
+
+  const changePage = (nextPage: number) => {
+    if (page === 0 && listQ.data?.cursor) setSnapshotCursor(listQ.data.cursor);
+    setPage(nextPage);
+  };
+  const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
+  const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["addenda"] }); restartListing(); };
 
   const { register, handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -130,23 +137,22 @@ export function AddendumList() {
               label="Search addenda"
               placeholder="Search no/description..."
               value={q}
-              onChange={(value) => { setQ(value); setPage(0); }}
+              onChange={(value) => { setQ(value); restartListing(); }}
             />
           {canWrite && <Button onClick={() => { reset({ contractId: defaultContractId || (contractsQ.data?.content?.[0]?.id ?? ""), changeType: changeType || CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <FilterBar>
-                        <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+                        <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); restartListing(); }}>
               <option value="">Status: All</option>{["DRAFT","SUBMITTED","UNDER_REVIEW","APPROVED","ACTIVE","REJECTED","REVISION_REQUESTED","CANCELLED"].map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </Select>
-            <Select className="w-full sm:w-48" aria-label="Filter by change type" value={changeType} onChange={(e) => { setChangeType(e.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-48" aria-label="Filter by change type" value={changeType} onChange={(e) => { setChangeType(e.target.value); restartListing(); }}>
               <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
             </Select>
-            <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }} />
+            <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); restartListing(); }} />
           </FilterBar>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} />}
-          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={listQ.data?.totalElements ?? 0} onPageChange={setPage} />
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: listQ.data?.totalElements ?? 0, onPageChange: changePage }} />}
         </CardContent>
       </Card>
 

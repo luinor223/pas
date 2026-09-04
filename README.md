@@ -13,3 +13,10 @@ A centralized system for managing the **lifecycle of business documents** at Com
 - Notifications, logging, and audit trail
 
 > Coursework / capstone project. Currently in development.
+
+## Configuration
+
+Set `PAGINATION_CURSOR_SECRET` to the same private value of at least 32 characters on every
+contract-service replica. It signs pagination cursors; changing it invalidates cursors that are
+currently in use. Docker Compose supplies a local-development value that must be overridden in
+shared environments.

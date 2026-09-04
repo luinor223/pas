@@ -32,6 +32,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -82,7 +83,8 @@ public class AddendumService {
 
     @Transactional(readOnly = true)
     public Page<Addendum> search(UUID contractId, String status, String changeType, String q,
-                                 String effectiveFromFrom, String effectiveFromTo, Pageable pageable) {
+                                 String effectiveFromFrom, String effectiveFromTo,
+                                 Instant snapshot, Pageable pageable) {
         return addenda.search(contractId,
                 RequestValues.parseOptional("status", status,
                         DocumentStatus::valueOf, DocumentStatus.values()),
@@ -91,12 +93,20 @@ public class AddendumService {
                 RequestValues.likePattern(q),
                 RequestValues.parseOptionalDate("effectiveFromFrom", effectiveFromFrom),
                 RequestValues.parseOptionalDate("effectiveFromTo", effectiveFromTo),
+                snapshot,
                 pageable);
     }
 
     @Transactional(readOnly = true)
+    public Page<Addendum> search(UUID contractId, String status, String changeType, String q,
+                                 String effectiveFromFrom, String effectiveFromTo, Pageable pageable) {
+        return search(contractId, status, changeType, q, effectiveFromFrom, effectiveFromTo,
+                Instant.now(), pageable);
+    }
+
+    @Transactional(readOnly = true)
     public Page<Addendum> search(UUID contractId, String status, Pageable pageable) {
-        return search(contractId, status, null, null, null, null, pageable);
+        return search(contractId, status, null, null, null, null, Instant.now(), pageable);
     }
 
     @Transactional(readOnly = true)

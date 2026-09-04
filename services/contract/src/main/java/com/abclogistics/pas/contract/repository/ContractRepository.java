@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -68,6 +69,7 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
               and (:#{#validFromTo == null} = true or c.validFrom <= :validFromTo)
               and (:#{#validToFrom == null} = true or c.validTo >= :validToFrom)
               and (:#{#validToTo == null} = true or c.validTo <= :validToTo)
+              and c.createdAt <= :snapshot
             """)
     Page<Contract> search(@Param("customerId") UUID customerId,
                           @Param("status") DocumentStatus status,
@@ -77,6 +79,7 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                           @Param("validFromTo") LocalDate validFromTo,
                           @Param("validToFrom") LocalDate validToFrom,
                           @Param("validToTo") LocalDate validToTo,
+                          @Param("snapshot") Instant snapshot,
                           Pageable pageable);
 
     /**

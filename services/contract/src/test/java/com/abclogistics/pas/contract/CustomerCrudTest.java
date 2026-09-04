@@ -49,13 +49,18 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -120,6 +125,7 @@ class CustomerCrudTest {
     @Autowired StatusHistoryRepository history;
     @Autowired TransactionTemplate tx;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ObjectMapper objectMapper;
     @MockitoSpyBean ContractRepository contractRepository;
 
     @BeforeEach
@@ -316,6 +322,81 @@ class CustomerCrudTest {
                             .headers(salesHeaders()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data[0].id").value(expected.get(1).toString()));
+        }
+    }
+
+    @Test
+    void snapshotCursorPreventsConcurrentInsertFromShiftingContractPages() throws Exception {
+        UUID customerId = tx.execute(s -> customers.create(request("Snapshot Pages Co")).getId());
+        List<UUID> originalIds = tx.execute(s -> List.of(
+                contracts.create(contractRequest(customerId)).getId(),
+                contracts.create(contractRequest(customerId)).getId(),
+                contracts.create(contractRequest(customerId)).getId()));
+
+        String firstBody = mvc.perform(get("/contracts")
+                        .param("customerId", customerId.toString())
+                        .param("size", "2")
+                        .param("page", "0")
+                        .headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.totalElements").value(3))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode firstJson = objectMapper.readTree(firstBody);
+        String cursor = firstJson.get("meta").get("cursor").asText();
+
+        UUID insertedId;
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            insertedId = executor.submit(() -> {
+                SecurityContextHolder.getContext().setAuthentication(
+                        new UsernamePasswordAuthenticationToken(SALES, null,
+                                List.of(new SimpleGrantedAuthority("contract:read"))));
+                try {
+                    return tx.execute(s -> contracts.create(contractRequest(customerId)).getId());
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            }).get();
+        }
+        // Make the insertion boundary unambiguous even on databases with coarse clock precision.
+        jdbc.update("update contract.contract set created_at = clock_timestamp() + interval '10 seconds' where id = ?",
+                insertedId);
+
+        String secondBody = mvc.perform(get("/contracts")
+                        .param("customerId", customerId.toString())
+                        .param("size", "2")
+                        .param("page", "1")
+                        .param("cursor", cursor)
+                        .headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.totalElements").value(3))
+                .andReturn().getResponse().getContentAsString();
+
+        List<UUID> pagedIds = new ArrayList<>();
+        firstJson.get("data").forEach(node -> pagedIds.add(UUID.fromString(node.get("id").asText())));
+        objectMapper.readTree(secondBody).get("data")
+                .forEach(node -> pagedIds.add(UUID.fromString(node.get("id").asText())));
+
+        assertThat(pagedIds).hasSize(3).doesNotHaveDuplicates();
+        assertThat(Set.copyOf(pagedIds)).isEqualTo(Set.copyOf(originalIds));
+        assertThat(pagedIds).doesNotContain(insertedId);
+    }
+
+    @Test
+    void invalidAndTamperedPageCursorsReturnSafeClientErrors() throws Exception {
+        String firstBody = mvc.perform(get("/contracts").headers(salesHeaders()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String issued = objectMapper.readTree(firstBody).get("meta").get("cursor").asText();
+        int signatureStart = issued.lastIndexOf('.') + 1;
+        char firstSignatureCharacter = issued.charAt(signatureStart);
+        String tampered = issued.substring(0, signatureStart)
+                + (firstSignatureCharacter == 'A' ? 'B' : 'A')
+                + issued.substring(signatureStart + 1);
+
+        for (String cursor : List.of("not-a-valid-cursor", tampered)) {
+            mvc.perform(get("/contracts").param("cursor", cursor).headers(salesHeaders()))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.message").value(
+                            "The page cursor is invalid or has expired; return to the first page."));
         }
     }
 

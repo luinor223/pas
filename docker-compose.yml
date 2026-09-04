@@ -220,6 +220,8 @@ services:
       WORKFLOW_GRPC_PORT: 50056
       ESIGN_GRPC_HOST: esign-service
       ESIGN_GRPC_PORT: 50057
+      # Override outside local development; every replica must use the same 32+ character value.
+      PAGINATION_CURSOR_SECRET: ${PAGINATION_CURSOR_SECRET:-local-development-pagination-cursor-secret}
       # a bind inside the container would put uploads on the writable layer, where a redeploy
       # loses every attachment CTR-02 made mandatory
       ATTACHMENT_STORAGE_PATH: /var/pas/attachments

@@ -1,7 +1,6 @@
 pluginManagement {
     repositories {
-        // Prefer Maven Central so Docker builds do not depend on the Plugin
-        // Portal's redirect to plugins-artifacts.gradle.org.
+        // Central first; the portal only backs markers it lacks (protobuf).
         mavenCentral()
         gradlePluginPortal()
     }

@@ -20,9 +20,9 @@ public final class PageableGuard {
                 filtered = filtered.and(Sort.by(order));
             }
         }
-        // A timestamp alone is not unique. Keep explicitly requested newest-first views stable
-        // across page boundaries without exposing UUID sorting as a public list option.
-        if (filtered.getOrderFor("createdAt") != null) {
+        // Public sort fields are not unique. Stabilize every explicit ordering across page
+        // boundaries without exposing UUID sorting as a public list option.
+        if (filtered.isSorted()) {
             filtered = filtered.and(Sort.by(Sort.Direction.DESC, "id"));
         }
         // Invalid and omitted sorts get a stable newest-first default where the entity supports it.

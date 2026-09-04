@@ -39,6 +39,7 @@ dependencies {
 
 tasks.test {
     jvmArgs("-Duser.timezone=UTC")
+    systemProperty("PAGINATION_CURSOR_SECRET", "contract-test-pagination-cursor-secret-32chars")
     useJUnitPlatform {
         val include = project.findProperty("includeIntegration") != null
                 || System.getProperty("includeIntegration") != null

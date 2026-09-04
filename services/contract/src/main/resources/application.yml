@@ -83,6 +83,8 @@ outbox:
     poll-interval: PT5S
 
 contract:
+  # Must be identical on every replica so issued page cursors survive load balancing and restarts.
+  pagination-cursor-secret: ${PAGINATION_CURSOR_SECRET}
   kafka:
     dlt-suffix: ".DLT"
     # ~4 minutes of retry before the DLT, so a database or identity restart is not an audit gap
