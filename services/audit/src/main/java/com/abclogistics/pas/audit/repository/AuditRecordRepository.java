@@ -61,7 +61,7 @@ public interface AuditRecordRepository extends Repository<AuditRecord, UUID> {
                     or lower(r.actorName) like lower(concat('%', :query, '%')))
                    or :query is null)
               and (r.actorId  = :actorId  or cast(:actorId as java.util.UUID) is null)
-            order by r.occurredAt desc
+            order by r.occurredAt desc, r.id desc
             """)
     Page<AuditRecord> search(@Param("entityType") String entityType,
                              @Param("query") String query,
