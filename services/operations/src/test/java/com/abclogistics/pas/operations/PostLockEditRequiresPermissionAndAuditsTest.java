@@ -174,7 +174,7 @@ class PostLockEditRequiresPermissionAndAuditsTest {
         VolumeResponse matching = volumeService.create(firstContract, pc, "STORAGE", new BigDecimal("5"), null);
         volumeService.create(secondContract, pc, "STORAGE", new BigDecimal("7"), null);
 
-        assertThat(volumeService.list(null, firstContract))
+        assertThat(volumeService.search(null, firstContract, null, null, 0, 15).items())
                 .extracting(VolumeResponse::id)
                 .containsExactly(matching.id());
     }

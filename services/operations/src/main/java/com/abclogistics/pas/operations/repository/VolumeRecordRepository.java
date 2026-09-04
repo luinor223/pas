@@ -24,9 +24,6 @@ public interface VolumeRecordRepository extends JpaRepository<VolumeRecord, UUID
     List<VolumeRecord> findByContractIdAndPeriod_PeriodCode(UUID contractId, String periodCode);
 
     @EntityGraph(attributePaths = "period")
-    List<VolumeRecord> findByContractId(UUID contractId);
-
-    @EntityGraph(attributePaths = "period")
     List<VolumeRecord> findByPeriod_Id(UUID periodId);
 
     long countByPeriod_Id(UUID periodId);

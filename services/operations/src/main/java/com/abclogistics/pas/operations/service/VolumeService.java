@@ -27,7 +27,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Locale;
@@ -108,9 +107,9 @@ public class VolumeService {
                 TransactionTemplate tt = new TransactionTemplate(txManager);
                 tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
                 return tt.execute(status -> {
-                    OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
+                    OperationPeriod period = periodRepo.findByPeriodCodeForUpdate(periodCode)
                             .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
-                    // P0-1 fix: re-validate isLocked inside new TX after period is re-read (TOCTOU)
+                    // Serialize with PeriodService.lock so a write cannot commit behind a completed lock.
                     if (period.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
                         throw new AccessDeniedException("Period is locked; volume:edit_locked required");
                     }
@@ -122,7 +121,8 @@ public class VolumeService {
                             "contractId", contractId.toString(),
                             "periodCode", periodCode,
                             "serviceCode", serviceCode,
-                            "quantity", quantityFinal.toPlainString()
+                            "quantity", quantityFinal.toPlainString(),
+                            "periodLocked", period.isLocked()
                     );
                     audit.record("VOLUME_RECORD", record.getId(), currentRecNo, "volume.created",
                             null, null, null, changes);
@@ -136,21 +136,6 @@ public class VolumeService {
             }
         }
         throw new IllegalStateException("Failed to create volume after retry");
-    }
-
-    @Transactional(readOnly = true)
-    public List<VolumeResponse> list(String periodCode, UUID contractId) {
-        List<VolumeRecord> records;
-        if (periodCode != null && contractId != null) {
-            records = volumeRepo.findByContractIdAndPeriod_PeriodCode(contractId, periodCode);
-        } else if (periodCode != null) {
-            records = volumeRepo.findByPeriod_PeriodCode(periodCode);
-        } else if (contractId != null) {
-            records = volumeRepo.findByContractId(contractId);
-        } else {
-            records = volumeRepo.findAll();
-        }
-        return records.stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -179,7 +164,8 @@ public class VolumeService {
         VolumeRecord record = volumeRepo.findById(id)
                 .orElseThrow(() -> new NotFoundException("Volume record not found: " + id));
 
-        OperationPeriod period = record.getPeriod();
+        OperationPeriod period = periodRepo.findByPeriodCodeForUpdate(record.getPeriod().getPeriodCode())
+                .orElseThrow(() -> new NotFoundException("Period not found: " + record.getPeriod().getPeriodCode()));
         // guard OPEN or volume:edit_locked + audit
         if (period.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
             throw new AccessDeniedException("Period is locked; volume:edit_locked required to edit");
