@@ -5,17 +5,14 @@ import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useRef, useState } from "react";
-import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import type { AttachmentResponse } from "../types/contractTypes";
 import { formatDateTime } from "@/shared/lib/format";
 import { FileText, Upload } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 
-export function AttachmentPanel({ ownerType, ownerId, editable = true, mutationsDisabled = false }: { ownerType: "CONTRACT" | "ADDENDUM"; ownerId: string; editable?: boolean; mutationsDisabled?: boolean }) {
+export function AttachmentPanel({ ownerType, ownerId, canEdit, mutationsDisabled = false }: { ownerType: "CONTRACT" | "ADDENDUM"; ownerId: string; canEdit: boolean; mutationsDisabled?: boolean }) {
   const qc = useQueryClient();
-  const canWrite = useHasPermission(ownerType === "CONTRACT" ? "contract:write" : "addendum:write");
-  const canManage = canWrite && editable;
   const q = useQuery(attachmentsQuery(ownerType, ownerId));
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -35,7 +32,10 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
         ...(current ?? []).filter((attachment) => attachment.id !== uploaded.id),
         uploaded,
       ]);
-      return qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] });
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] }),
+        qc.invalidateQueries({ queryKey: [ownerType === "CONTRACT" ? "contract" : "addendum", ownerId] }),
+      ]);
     },
   });
 
@@ -47,7 +47,10 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
         (current ?? []).filter((attachment) => attachment.id !== deletedId),
       );
       setConfirmDelete(null);
-      return qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] });
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] }),
+        qc.invalidateQueries({ queryKey: [ownerType === "CONTRACT" ? "contract" : "addendum", ownerId] }),
+      ]);
     },
   });
 
@@ -55,7 +58,7 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
     <Card>
       <CardHeader><CardTitle className="text-base">Attachments</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {q.isLoading && !q.data ? <div className="text-sm text-muted-foreground">Loading...</div> : !q.data ? <div className="text-sm text-destructive">{getApiErrorMessage(q.error, "Failed")}</div> : q.data.length === 0 ? <div className="text-sm text-muted-foreground">No attachments. {canManage ? "A document needs at least one attachment before it can be submitted." : ""}</div> : (
+        {q.isLoading && !q.data ? <div className="text-sm text-muted-foreground">Loading...</div> : !q.data ? <div className="text-sm text-destructive">{getApiErrorMessage(q.error, "Failed")}</div> : q.data.length === 0 ? <div className="text-sm text-muted-foreground">No attachments. {canEdit ? "A document needs at least one attachment before it can be submitted." : ""}</div> : (
           <div className="space-y-1">
             {q.data.map((a) => (
               <div key={a.id} className="flex items-center justify-between border rounded p-2 text-sm">
@@ -65,14 +68,14 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
                 </div>
                 <div className="flex gap-1">
                   <Button size="sm" variant="outline" onClick={() => window.open(contractApi.downloadAttachmentUrl(a.id), "_blank")}>Download</Button>
-                  {canManage && <Button size="sm" variant="destructive" disabled={mutationsDisabled} onClick={() => setConfirmDelete(a)}>Delete</Button>}
+                  {canEdit && <Button size="sm" variant="destructive" disabled={mutationsDisabled} onClick={() => setConfirmDelete(a)}>Delete</Button>}
                 </div>
               </div>
             ))}
           </div>
         )}
         {q.isError && q.data && <div role="alert" className="text-xs text-amber-700">Attachments were updated, but the latest refresh failed. The confirmed changes are still shown.</div>}
-        {canManage && (
+        {canEdit && (
           <div className="space-y-3">
             <input
               ref={fileInputRef}
@@ -143,8 +146,7 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
           onConfirm={() => confirmDelete && !mutationsDisabled && deleteMut.mutate(confirmDelete.id)}
           onCancel={() => setConfirmDelete(null)}
         />
-        {!canWrite && <div className="text-xs text-muted-foreground">You do not have permission to change attachments.</div>}
-        {canWrite && !editable && <div className="text-xs text-muted-foreground">Attachments cannot be changed in this status.</div>}
+        {!canEdit && <div className="text-xs text-muted-foreground">Attachments cannot be changed for this document.</div>}
       </CardContent>
     </Card>
   );

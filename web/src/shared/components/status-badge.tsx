@@ -1,10 +1,12 @@
 import { cn } from "@/shared/lib/cn";
+import { statusLabel } from "@/shared/lib/labels";
 import { statusTone } from "@/shared/lib/status-tone";
 
 const DOT = "before:mr-1.5 before:h-1.5 before:w-1.5 before:rounded-full before:bg-current before:content-['']";
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
-  const tone = statusTone(status);
+  const key = status.toUpperCase().replace(/[\s-]+/g, "_");
+  const tone = statusTone(key);
   return (
     <span
       className={cn(
@@ -15,7 +17,7 @@ export function StatusBadge({ status, className }: { status: string; className?:
         className
       )}
     >
-      {tone.label || status}
+      {statusLabel(key)}
     </span>
   );
 }

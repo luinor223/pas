@@ -61,15 +61,15 @@ public class ContractController {
                                        @PageableDefault(size = 20) Pageable pageable) {
         PageSnapshot snapshot = pageSnapshots.resolve(cursor);
         Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CONTRACT_SORTS);
-        return SnapshotPage.of(contracts.search(customerId, status, serviceGroup, q,
+        return SnapshotPage.of(contracts.toResponses(contracts.search(customerId, status, serviceGroup, q,
                         validFromFrom, validFromTo, validToFrom, validToTo,
-                        snapshot.createdAt(), safe).map(ContractResponse::of), snapshot.cursor());
+                        snapshot.createdAt(), safe)), snapshot.cursor());
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('contract:read')")
     public ContractResponse get(@PathVariable UUID id) {
-        return ContractResponse.of(contracts.get(id));
+        return contracts.toResponse(contracts.get(id));
     }
 
     @GetMapping("/lookup")
@@ -82,7 +82,7 @@ public class ContractController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse create(@Valid @RequestBody ContractRequest request) {
-        return ContractResponse.of(contracts.create(request));
+        return contracts.toResponse(contracts.create(request));
     }
 
     @PostMapping("/{id}/submit")
@@ -105,7 +105,7 @@ public class ContractController {
     @PostMapping("/{id}/revise")
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse revise(@PathVariable UUID id) {
-        return ContractResponse.of(contracts.revise(id));
+        return contracts.toResponse(contracts.revise(id));
     }
 
     @GetMapping("/{id}/progress")
@@ -140,6 +140,6 @@ public class ContractController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('contract:write')")
     public ContractResponse update(@PathVariable UUID id, @Valid @RequestBody ContractRequest request) {
-        return ContractResponse.of(contracts.update(id, request));
+        return contracts.toResponse(contracts.update(id, request));
     }
 }

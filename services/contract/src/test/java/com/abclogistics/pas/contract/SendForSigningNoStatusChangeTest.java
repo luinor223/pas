@@ -191,9 +191,13 @@ class SendForSigningNoStatusChangeTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message")
                         .value("This document must be approved before it can be sent for signature."))
+                // the prose is what must not leak internals; `code` is a published contract, and
+                // DOCUMENT_NOT_APPROVED spells a status name on purpose
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.matchesPattern(".*\\b(ADDENDUM|DRAFT|APPROVED|D10)\\b.*"))))
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(body).doesNotContain("ADDENDUM", "DRAFT", "APPROVED", "D10");
+        assertThat(body).doesNotContain("D10");
     }
 
     @Test

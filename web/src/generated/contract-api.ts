@@ -544,6 +544,11 @@ export interface components {
             serviceClause?: string;
             status?: string;
             editable?: boolean;
+            canEdit?: boolean;
+            canSubmit?: boolean;
+            submitBlockedReason?: string;
+            canRevise?: boolean;
+            canCancel?: boolean;
             canCreateAddendum?: boolean;
             /** Format: int32 */
             version?: number;
@@ -590,7 +595,14 @@ export interface components {
             newValidTo?: string;
             paymentTermOverride?: string;
             status?: string;
+            canEdit?: boolean;
+            canSubmit?: boolean;
+            submitBlockedReason?: string;
+            canRevise?: boolean;
+            canCancel?: boolean;
             services?: components["schemas"]["AddendumResponseServiceLine"][];
+            /** Format: date-time */
+            createdAt?: string;
             /** Format: int32 */
             version?: number;
         };

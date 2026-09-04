@@ -521,6 +521,26 @@ class AddendumActiveAppliesToParentTxTest {
     }
 
     @Test
+    void anOutOfRangeEffectiveDateTellsTheUserWhichDatesAreAllowed() {
+        // The diagnostic stays log-only, but a date the user picked themselves is theirs to correct,
+        // so the reason has to reach them instead of the generic 422 message.
+        UUID contractId = activeContract();
+        AddendumRequest request = new AddendumRequest(contractId, "UNIT_PRICE_CHANGE", null,
+                LocalDate.of(2025, 12, 31), null, null, null, null);
+
+        assertThatThrownBy(() -> tx.execute(s -> addenda.create(request)))
+                .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+                    assertThat(ex.hasPublicMessage()).isTrue();
+                    assertThat(ex.getPublicMessage())
+                            .contains("2025-12-31")
+                            .contains("2026-01-01")
+                            .doesNotContain("effectiveFrom")
+                            .doesNotContain("validFrom");
+                    assertThat(ex.getPublicCode()).isEqualTo("ADDENDUM_EFFECTIVE_DATE_OUT_OF_RANGE");
+                });
+    }
+
+    @Test
     void aShorteningTermExtensionIsStillRefused() {
         UUID contractId = activeContract();
         // effectiveFrom before newValidTo, so the request is internally coherent and it is the

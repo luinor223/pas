@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /** Contract lifecycle (4.2, CTR-01..CTR-07). */
@@ -136,7 +137,32 @@ public class ContractService {
 
     @Transactional(readOnly = true)
     public List<ContractResponse> lookupResponses(List<UUID> ids) {
-        return contracts.findAllById(ids).stream().map(ContractResponse::of).toList();
+        List<Contract> found = contracts.findAllById(ids);
+        Set<UUID> withAttachments = ownerIdsWithAttachments(found);
+        return found.stream()
+                .map(contract -> ContractResponse.of(contract, withAttachments.contains(contract.getId())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ContractResponse toResponse(Contract contract) {
+        return ContractResponse.of(contract,
+                attachments.existsByOwnerTypeAndOwnerId(EntityType.CONTRACT, contract.getId()));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ContractResponse> toResponses(Page<Contract> page) {
+        Set<UUID> withAttachments = ownerIdsWithAttachments(page.getContent());
+        return page.map(contract ->
+                ContractResponse.of(contract, withAttachments.contains(contract.getId())));
+    }
+
+    private Set<UUID> ownerIdsWithAttachments(List<Contract> found) {
+        if (found.isEmpty()) {
+            return Set.of();
+        }
+        List<UUID> ids = found.stream().map(Contract::getId).toList();
+        return Set.copyOf(attachments.findOwnerIdsWithAttachments(EntityType.CONTRACT, ids));
     }
 
     @Transactional

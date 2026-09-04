@@ -4,6 +4,7 @@ import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.AddendumServiceLine;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -19,7 +20,13 @@ public record AddendumResponse(
         LocalDate newValidTo,
         String paymentTermOverride,
         String status,
+        boolean canEdit,
+        boolean canSubmit,
+        String submitBlockedReason,
+        boolean canRevise,
+        boolean canCancel,
         List<ServiceLine> services,
+        Instant createdAt,
         int version) {
 
     @Schema(name = "AddendumResponseServiceLine")
@@ -27,6 +34,12 @@ public record AddendumResponse(
                               String serviceName, String unit, String scopeNote) { }
 
     public static AddendumResponse of(Addendum addendum) {
+        return of(addendum, false);
+    }
+
+    public static AddendumResponse of(Addendum addendum, boolean hasAttachment) {
+        DocumentActionCapabilities capabilities =
+                DocumentActionCapabilities.forAddendum(addendum, hasAttachment);
         return new AddendumResponse(
                 addendum.getId(),
                 addendum.getAddendumNo(),
@@ -38,7 +51,13 @@ public record AddendumResponse(
                 addendum.getNewValidTo(),
                 addendum.getPaymentTermOverride(),
                 addendum.getStatus().name(),
+                capabilities.canEdit(),
+                capabilities.canSubmit(),
+                capabilities.submitBlockedReason(),
+                capabilities.canRevise(),
+                capabilities.canCancel(),
                 addendum.getServices().stream().map(AddendumResponse::line).toList(),
+                addendum.getCreatedAt(),
                 addendum.getVersion());
     }
 

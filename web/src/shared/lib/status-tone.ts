@@ -4,7 +4,7 @@ export type StatusTone = { label: string; text: string; bg: string };
 
 const MAP: Record<string, StatusTone> = {
   DRAFT: { label: "Draft", text: "text-st-draft", bg: "bg-st-draft-bg" },
-  SUBMITTED: { label: "Under Review", text: "text-st-review", bg: "bg-st-review-bg" },
+  SUBMITTED: { label: "Submitted", text: "text-st-review", bg: "bg-st-review-bg" },
   UNDER_REVIEW: { label: "Under Review", text: "text-st-review", bg: "bg-st-review-bg" },
   IN_PROGRESS: { label: "In progress", text: "text-st-review", bg: "bg-st-review-bg" },
   APPROVED: { label: "Approved", text: "text-st-approved", bg: "bg-st-approved-bg" },

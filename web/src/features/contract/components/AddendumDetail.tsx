@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { addendumHistoryQuery, addendumProgressQuery, addendumQuery, attachmentsQuery } from "../hooks/contractQueries";
+import { addendumHistoryQuery, addendumProgressQuery, addendumQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import { AttachmentPanel } from "./AttachmentPanel";
 import { AddendumEditDialog } from "./AddendumEditDialog";
 import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
 import { HistoryTimeline } from "./HistoryTimeline";
-import { addendumChangeTypeLabel, isUserCancellableStatus } from "../contractOptions";
+import { addendumChangeTypeLabel } from "../contractOptions";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
@@ -37,10 +37,6 @@ export function AddendumDetail({ id }: { id: string }) {
     enabled: userQ.isSuccess && canRead,
     retry: (failureCount, error) => responseStatus(error) !== 404 && failureCount < 1,
   });
-  const attachmentsQ = useQuery({
-    ...attachmentsQuery("ADDENDUM", id),
-    enabled: userQ.isSuccess && canRead,
-  });
   const progressQ = useQuery({
     ...addendumProgressQuery(id),
     enabled: userQ.isSuccess && canRead,
@@ -54,7 +50,15 @@ export function AddendumDetail({ id }: { id: string }) {
     mutationFn: () => contractApi.submitAddendum(id),
     onSuccess: async (response) => {
       queryClient.setQueryData(["addendum", id], (current: typeof q.data) =>
-        current ? { ...current, status: response.status } : current,
+        current ? {
+          ...current,
+          status: response.status,
+          canEdit: false,
+          canSubmit: false,
+          submitBlockedReason: null,
+          canRevise: false,
+          canCancel: false,
+        } : current,
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["addendum", id] }),
@@ -84,7 +88,15 @@ export function AddendumDetail({ id }: { id: string }) {
     onSuccess: async (response) => {
       if (response.status === "CANCELLED") {
         queryClient.setQueryData(["addendum", id], (current: typeof q.data) =>
-          current ? { ...current, status: "CANCELLED" } : current,
+          current ? {
+            ...current,
+            status: "CANCELLED",
+            canEdit: false,
+            canSubmit: false,
+            submitBlockedReason: null,
+            canRevise: false,
+            canCancel: false,
+          } : current,
         );
       } else {
         setCancelNotice(response.detail
@@ -115,11 +127,6 @@ export function AddendumDetail({ id }: { id: string }) {
 
   const addendum = q.data;
   if (!addendum) return null;
-  const editable = addendum.status === "DRAFT" || addendum.status === "REVISION_REQUESTED";
-  const canSubmit = canWrite && addendum.status === "DRAFT";
-  const canRevise = canWrite && addendum.status === "REJECTED";
-  const canCancel = canWrite && isUserCancellableStatus(addendum.status);
-  const hasAttachments = (attachmentsQ.data?.length ?? 0) > 0;
   const lifecyclePending = submitMut.isPending || reviseMut.isPending || cancelMut.isPending;
 
   const onEditSaved = async (updated: typeof addendum) => {
@@ -155,25 +162,25 @@ export function AddendumDetail({ id }: { id: string }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {canWrite && editable && <Button size="sm" variant="outline" disabled={lifecyclePending} onClick={() => setEditOpen(true)}>Edit</Button>}
-          {canSubmit && (
+          {addendum.canEdit && <Button size="sm" variant="outline" disabled={lifecyclePending} onClick={() => setEditOpen(true)}>Edit</Button>}
+          {(addendum.canSubmit || addendum.submitBlockedReason) && (
             <Button
               size="sm"
-              disabled={attachmentsQ.isLoading || attachmentMutations > 0 || !hasAttachments || submitMut.isPending}
+              disabled={!addendum.canSubmit || attachmentMutations > 0 || submitMut.isPending}
               onClick={() => submitMut.mutate()}
             >
               {submitMut.isPending ? "Submitting..." : "Submit for approval"}
             </Button>
           )}
-          {canRevise && <Button size="sm" disabled={lifecyclePending} onClick={() => reviseMut.mutate()}>Revise</Button>}
-          {canCancel && <Button size="sm" variant="destructive" disabled={lifecyclePending || attachmentMutations > 0} onClick={() => setCancelOpen(true)}>Cancel</Button>}
+          {addendum.canRevise && <Button size="sm" disabled={lifecyclePending} onClick={() => reviseMut.mutate()}>Revise</Button>}
+          {addendum.canCancel && <Button size="sm" variant="destructive" disabled={lifecyclePending || attachmentMutations > 0} onClick={() => setCancelOpen(true)}>Cancel</Button>}
           {!canWrite && <Badge variant="secondary">Read-only access</Badge>}
         </div>
       </div>
 
-      {canSubmit && !attachmentsQ.isLoading && !hasAttachments && !attachmentsQ.isError && (
+      {addendum.submitBlockedReason && (
         <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          Upload at least one attachment before submitting this addendum for approval.
+          {addendum.submitBlockedReason}
         </div>
       )}
       {(submitMut.isError || reviseMut.isError) && (
@@ -210,7 +217,7 @@ export function AddendumDetail({ id }: { id: string }) {
           <AttachmentPanel
             ownerType="ADDENDUM"
             ownerId={addendum.id}
-            editable={editable}
+            canEdit={addendum.canEdit}
             mutationsDisabled={lifecyclePending}
           />
 

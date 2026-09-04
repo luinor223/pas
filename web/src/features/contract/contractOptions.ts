@@ -14,9 +14,3 @@ const ADDENDUM_CHANGE_TYPE_LABELS = {
 export function addendumChangeTypeLabel(changeType: string): string {
   return (ADDENDUM_CHANGE_TYPE_LABELS as Record<string, string>)[changeType] ?? "Other change";
 }
-
-const USER_CANCELLABLE_STATUSES = new Set(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACTIVE"]);
-
-export function isUserCancellableStatus(status: string): boolean {
-  return USER_CANCELLABLE_STATUSES.has(status);
-}

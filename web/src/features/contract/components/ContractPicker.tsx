@@ -4,10 +4,12 @@ import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
 import { useEntityCombobox } from "@/shared/hooks/use-entity-combobox";
 import { contractQuery, contractsQuery } from "../hooks/contractQueries";
+import { EmptyFieldHint, RequirementMark, type RequirementKind } from "./FormRequirement";
 
-export function ContractPicker({ value, onChange, label = "Contract", placeholder = "Search contract number or customer...", statuses, eligibleForAddendum = false, allowClear = true, className }: {
+export function ContractPicker({ value, onChange, label = "Contract", placeholder = "Search contract number or customer...", statuses, eligibleForAddendum = false, allowClear = true, className, requirement, emptyHint }: {
   value: string; onChange: (id: string) => void; label?: string; placeholder?: string;
   statuses?: string[]; eligibleForAddendum?: boolean; allowClear?: boolean; className?: string;
+  requirement?: RequirementKind; emptyHint?: string;
 }) {
   const selectedQuery = useQuery({ ...contractQuery(value), enabled: Boolean(value) });
   const selected = selectedQuery.data;
@@ -26,21 +28,24 @@ export function ContractPicker({ value, onChange, label = "Contract", placeholde
   const loading = resultQueries.some((query) => query.isLoading);
   const failed = resultQueries.some((query) => query.isError);
   const offset = allowClear ? 1 : 0;
+  const hintId = `${combo.inputId}-hint`;
+  const accessibleLabel = `${label || "Contract"}${requirement ? " *" : ""}`;
 
   return (
     <div ref={combo.boxRef} className={`relative ${className ?? ""}`}>
-      {label && <Label htmlFor={combo.inputId}>{label}</Label>}
+      {label && <Label htmlFor={combo.inputId}>{label}{requirement && <RequirementMark kind={requirement} />}</Label>}
       {value && !combo.editing ? (
         <div className="flex items-center gap-1">
-          <Input id={combo.inputId} readOnly aria-label={label || "Contract"} className="cursor-pointer"
+          <Input id={combo.inputId} readOnly aria-label={accessibleLabel} className="cursor-pointer"
             value={selected ? `${selected.contractNo} · ${selected.customerName}` : selectedQuery.isError ? "Contract unavailable" : "Loading contract..."}
-            title="Click to choose another contract" onClick={combo.startSelecting} onFocus={combo.startSelecting} {...combo.comboboxProps} />
+            title="Click to choose another contract" onClick={combo.startSelecting} {...combo.comboboxProps} />
           {allowClear && <button type="button" aria-label="Clear contract" className="px-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => combo.select("")}>×</button>}
         </div>
       ) : (
-        <Input id={combo.inputId} ref={combo.inputRef} aria-label={label || "Contract"} placeholder={value && selected ? `${selected.contractNo} · ${selected.customerName} — type to replace...` : placeholder}
-          value={combo.text} onChange={(event) => { combo.setText(event.target.value); combo.setOpen(true); combo.setActiveIndex(-1); }} onFocus={() => combo.setOpen(true)} {...combo.comboboxProps} />
+        <Input id={combo.inputId} ref={combo.inputRef} aria-label={accessibleLabel} placeholder={value && selected ? `${selected.contractNo} · ${selected.customerName} — type to replace...` : placeholder}
+          value={combo.text} onChange={(event) => { combo.setText(event.target.value); combo.setOpen(true); combo.setActiveIndex(-1); }} onFocus={() => combo.setOpen(true)} {...combo.comboboxProps} aria-describedby={emptyHint ? hintId : undefined} aria-required={requirement === "draft"} />
       )}
+      <EmptyFieldHint id={hintId} show={!value && Boolean(emptyHint)} kind={requirement}>{emptyHint}</EmptyFieldHint>
       {combo.open && (combo.editing || !value) && (
         <div className="absolute z-30 mt-1 w-full rounded-md border bg-background text-sm shadow-lg">
           <div ref={combo.listRef} id={combo.listId} role="listbox" className="max-h-56 overflow-auto">

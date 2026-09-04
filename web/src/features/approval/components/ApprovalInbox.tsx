@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Check, Download, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Badge } from "@/shared/components/badge";
@@ -66,10 +66,13 @@ export function ApprovalInbox() {
     refetchIntervalInBackground: false,
   });
   const items = activeQuery.data?.items ?? [];
-  const assignedCountQuery = useQuery({
-    ...approvalInboxQuery("ASSIGNED", { page: 0, size: 1 }),
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: false,
+  // every tab badge counts its whole bucket, unfiltered; the filtered total is shown above the table
+  const tabCountQueries = useQueries({
+    queries: TABS.map((item) => ({
+      ...approvalInboxQuery(item.value, { page: 0, size: 1 }),
+      refetchInterval: item.value === "ASSIGNED" ? 30_000 : false,
+      refetchIntervalInBackground: false,
+    })),
   });
 
   const actionMutation = useMutation({
@@ -125,7 +128,7 @@ export function ApprovalInbox() {
     <div className="space-y-4">
       <TabBar
         id="approval-inbox-tabs"
-        tabs={TABS.map((item) => ({ ...item, count: item.value === "ASSIGNED" ? assignedCountQuery.data?.totalItems : item.value === tab ? activeQuery.data?.totalItems : undefined }))}
+        tabs={TABS.map((item, index) => ({ ...item, count: tabCountQueries[index]?.data?.totalItems }))}
         value={tab}
         onChange={changeTab}
         panelId="approval-inbox-panel"

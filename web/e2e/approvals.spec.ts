@@ -169,3 +169,23 @@ test("restores the previous approval tab with browser Back", async ({ page }) =>
   await expect(page.getByRole("tab", { name: "Submitted by me" })).toHaveAttribute("aria-selected", "true");
   await expect(page).toHaveURL(/tab=SUBMITTED/);
 });
+
+test("counts every inbox tab, not just the active one", async ({ page }) => {
+  const totals: Record<string, number> = { ASSIGNED: 2, SUBMITTED: 5, COMPLETED: 9 };
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/inbox") {
+      const totalItems = totals[url.searchParams.get("tab") ?? "ASSIGNED"] ?? 0;
+      return { body: envelope({ items: [], page: 0, size: 15, totalItems, totalPages: 1 }) };
+    }
+  });
+
+  await page.goto("/approvals");
+  await expect(page.getByRole("tab", { name: "Assigned to me 2" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Submitted by me 5" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Completed 9" })).toBeVisible();
+
+  // a filter narrows the table, but the bucket counts stay whole
+  await page.getByLabel("Filter by priority").selectOption("HIGH");
+  await expect(page).toHaveURL(/priority=HIGH/);
+  await expect(page.getByRole("tab", { name: "Submitted by me 5" })).toBeVisible();
+});

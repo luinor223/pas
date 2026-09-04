@@ -6,6 +6,18 @@ const ADDENDUM_ID = "10000000-0000-4000-8000-000000000001";
 const CONTRACT_ID = "20000000-0000-4000-8000-000000000001";
 const ATTACHMENT_ID = "30000000-0000-4000-8000-000000000001";
 
+const ATTACHMENT_REQUIRED = "Upload at least one attachment before submitting this addendum for approval.";
+
+function addendumCapabilities(status: string, hasAttachment = false) {
+  return {
+    canEdit: status === "DRAFT" || status === "REVISION_REQUESTED",
+    canSubmit: status === "DRAFT" && hasAttachment,
+    submitBlockedReason: status === "DRAFT" && !hasAttachment ? ATTACHMENT_REQUIRED : null,
+    canRevise: status === "REJECTED",
+    canCancel: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACTIVE"].includes(status),
+  };
+}
+
 const addendum = {
   id: ADDENDUM_ID,
   addendumNo: "ADD-2026-0001",
@@ -17,9 +29,14 @@ const addendum = {
   newValidTo: "2027-09-30",
   paymentTermOverride: null,
   status: "DRAFT",
+  ...addendumCapabilities("DRAFT"),
   services: [],
   version: 0,
 };
+
+function addendumWithStatus(status: string, fields: Record<string, unknown> = {}) {
+  return { ...addendum, status, ...addendumCapabilities(status), ...fields };
+}
 
 const pageMeta = { page: 0, size: 15, totalElements: 1, totalPages: 1 };
 
@@ -102,7 +119,7 @@ test("shows business change labels and includes expired addenda in the status fi
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === "/api/v1/addenda") {
       requestedStatuses.push(url.searchParams.get("status"));
-      return { body: envelope([{ ...addendum, changeType: "UNIT_PRICE_CHANGE", status: "EXPIRED" }], pageMeta) };
+      return { body: envelope([addendumWithStatus("EXPIRED", { changeType: "UNIT_PRICE_CHANGE" })], pageMeta) };
     }
   }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
 
@@ -118,15 +135,22 @@ test("shows business change labels and includes expired addenda in the status fi
 
   await page.getByRole("button", { name: "+ New Addendum" }).click();
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
+  await expect(dialog.getByLabel("Field requirement guide")).toContainText("attachment can be added after the draft is created");
   await dialog.getByLabel("Change type *").selectOption("TERM_EXTENSION");
+  await expect(dialog.locator("label [data-requirement=draft]")).toHaveCount(4);
+  await expect(dialog.locator("label [data-requirement=submit]")).toHaveCount(0);
+  await expect(dialog.getByText("Enter a date later than the contract's current end date.")).toBeVisible();
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(dialog.getByText("New valid-to date is required for a term extension")).toBeVisible();
   await expect(dialog.getByText("TERM_EXTENSION", { exact: true })).toHaveCount(0);
 });
 
 test("shows read-only detail access without write permission", async ({ page }) => {
+  const readOnlyDraft = addendumWithStatus("DRAFT", {
+    canEdit: false, canSubmit: false, submitBlockedReason: null, canRevise: false, canCancel: false,
+  });
   await installAddendumMocks(page, (_request, url) => {
-    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(readOnlyDraft) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
   }, { permissions: [...currentUser.permissions, "addendum:read"] });
 
@@ -136,6 +160,29 @@ test("shows read-only detail access without write permission", async ({ page }) 
   for (const action of ["Edit", "Submit for approval", "Revise", "Cancel"]) {
     await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
   }
+});
+
+test("addendum actions follow backend capabilities and send no unavailable mutations", async ({ page }) => {
+  const deniedDraft = addendumWithStatus("DRAFT", {
+    canEdit: false, canSubmit: false, submitBlockedReason: null, canRevise: false, canCancel: false,
+  });
+  let mutationRequests = 0;
+  await installAddendumMocks(page, (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") {
+      return { body: envelope(deniedDraft) };
+    }
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+    if (url.pathname.startsWith(`/api/v1/addenda/${ADDENDUM_ID}`) && request.method() !== "GET") {
+      mutationRequests += 1;
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  for (const action of ["Edit", "Submit for approval", "Revise", "Cancel"]) {
+    await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+  }
+  await expect(page.getByText("Upload at least one attachment before submitting this addendum for approval.")).toHaveCount(0);
+  expect(mutationRequests).toBe(0);
 });
 
 test("does not request detail data without addendum read permission", async ({ page }) => {
@@ -220,7 +267,8 @@ test("preserves deep-link context when navigating to a newly created addendum an
   await page.goto(`/addenda?contractId=${CONTRACT_ID}&changeType=TERM_EXTENSION`);
   await page.getByRole("button", { name: "+ New Addendum" }).click();
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
-  await expect(dialog.getByLabel("Contract *")).toHaveAttribute("placeholder", /CTR-2026-0001 · Customer/);
+  await expect(dialog.getByLabel("Contract *")).toHaveValue(/CTR-2026-0001 · Customer/);
+  await expect(dialog.getByRole("listbox")).toHaveCount(0);
   await expect(dialog.locator("select").first()).toHaveValue("TERM_EXTENSION");
   await dialog.locator('input[type="date"]').nth(1).fill("2027-09-30");
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
@@ -291,7 +339,7 @@ test("waits for deep-link eligibility before opening the create form", async ({ 
   await expect(newButton).toBeEnabled();
   await newButton.click();
   await expect(page.getByRole("dialog", { name: "Create addendum" }).getByLabel("Contract *"))
-    .toHaveAttribute("placeholder", /CTR-DEEP-LINK · Deep Link Customer/);
+    .toHaveValue(/CTR-DEEP-LINK · Deep Link Customer/);
 });
 
 test("searches eligible contracts instead of limiting creation to the first 100", async ({ page }) => {
@@ -339,7 +387,8 @@ test("supports keyboard addendum creation with named service controls and restor
 
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
   await dialog.getByLabel("Change type *").selectOption("ADDED_SERVICE");
-  const addService = dialog.getByRole("button", { name: "+ Service" });
+  await expect(dialog.getByText("Pricing is managed separately in the price list.")).toBeVisible();
+  const addService = dialog.getByRole("button", { name: "+ Add service" });
   await addService.focus();
   await page.keyboard.press("Enter");
 
@@ -417,7 +466,8 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && method === "GET") {
       if (submitted) await new Promise((resolve) => setTimeout(resolve, 500));
-      return { body: envelope({ ...created, status: submitted ? "SUBMITTED" : "DRAFT" }) };
+      const status = submitted ? "SUBMITTED" : "DRAFT";
+      return { body: envelope({ ...created, status, ...addendumCapabilities(status, attachments.length > 0) }) };
     }
     if (url.pathname === "/api/v1/attachments" && method === "GET") return { body: envelope(attachments) };
     if (url.pathname === "/api/v1/attachments" && method === "POST") {
@@ -455,7 +505,7 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
   expect(uploadRequest?.body).toContain(`filename="${attachment.fileName}"`);
 
   await page.getByRole("button", { name: "Submit for approval" }).click();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Submitted").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit for approval" })).toHaveCount(0);
   expect(submitRequests).toBe(1);
 });
@@ -472,7 +522,9 @@ test("blocks lifecycle actions while deleting the final attachment", async ({ pa
   let submitRequests = 0;
   let cancelRequests = 0;
   await installAddendumMocks(page, async (request, url) => {
-    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) {
+      return { body: envelope(addendumWithStatus("DRAFT", { ...addendumCapabilities("DRAFT", !deleted) })) };
+    }
     if (url.pathname === "/api/v1/attachments" && request.method() === "GET") {
       if (deleted) await new Promise((resolve) => setTimeout(resolve, 500));
       return { body: envelope(deleted ? [] : [attachment]) };
@@ -524,7 +576,10 @@ test("blocks upload and delete while submission is in flight", async ({ page }) 
   await installAddendumMocks(page, async (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) {
       if (submitted) return { status: 503, body: envelope({ message: "Refresh unavailable" }) };
-      return { body: envelope({ ...addendum, status: submitted ? "SUBMITTED" : "DRAFT" }) };
+      return { body: envelope(addendumWithStatus(
+        submitted ? "SUBMITTED" : "DRAFT",
+        addendumCapabilities(submitted ? "SUBMITTED" : "DRAFT", true),
+      )) };
     }
     if (url.pathname === "/api/v1/attachments" && request.method() === "GET") {
       return { body: envelope([attachment]) };
@@ -566,12 +621,15 @@ test("blocks upload and delete while submission is in flight", async ({ page }) 
   expect(deleteRequests).toBe(0);
 
   releaseSubmit();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Submitted").first()).toBeVisible();
   await expect(page.getByText("The addendum was updated, but its latest refresh failed. The confirmed update is still shown.")).toBeVisible();
+  for (const action of ["Edit", "Submit for approval", "Revise", "Cancel", "Upload attachment", "Delete"]) {
+    await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+  }
 });
 
 test("keeps locked addendum attachments downloadable but not editable", async ({ page }) => {
-  const approved = { ...addendum, status: "APPROVED" };
+  const approved = addendumWithStatus("APPROVED");
   const attachment = {
     id: ATTACHMENT_ID, ownerType: "ADDENDUM", ownerId: approved.id,
     fileName: "approved.pdf", contentType: "application/pdf", sizeBytes: 1024,
@@ -600,11 +658,11 @@ test("keeps locked addendum attachments downloadable but not editable", async ({
   expect(openedUrls).toEqual([`/api/v1/attachments/${ATTACHMENT_ID}`]);
   await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
   await expect(page.getByLabel("Choose attachment file")).toHaveCount(0);
-  await expect(page.getByText("Attachments cannot be changed in this status.")).toBeVisible();
+  await expect(page.getByText("Attachments cannot be changed for this document.")).toBeVisible();
 });
 
 test("shows approval progress and status history for an addendum under review", async ({ page }) => {
-  const underReview = { ...addendum, status: "UNDER_REVIEW" };
+  const underReview = addendumWithStatus("UNDER_REVIEW");
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(underReview) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
@@ -660,7 +718,7 @@ test("shows approval progress and status history for an addendum under review", 
 });
 
 test("revises a rejected addendum and refreshes every detail panel", async ({ page }) => {
-  let current = { ...addendum, status: "REJECTED", version: 4 };
+  let current = addendumWithStatus("REJECTED", { version: 4 });
   let progressRequests = 0;
   let historyRequests = 0;
   let attachmentRequests = 0;
@@ -669,7 +727,7 @@ test("revises a rejected addendum and refreshes every detail panel", async ({ pa
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(current) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/revise` && request.method() === "POST") {
       reviseRequests += 1;
-      current = { ...current, status: "DRAFT", version: 5 };
+      current = { ...current, status: "DRAFT", ...addendumCapabilities("DRAFT"), version: 5 };
       return { body: envelope(current) };
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) {
@@ -716,14 +774,14 @@ test("revises a rejected addendum and refreshes every detail panel", async ({ pa
 });
 
 test("edits a revision-requested addendum and preserves optimistic-lock data", async ({ page }) => {
-  let current = { ...addendum, status: "REVISION_REQUESTED", version: 7 };
+  let current = addendumWithStatus("REVISION_REQUESTED", { version: 7 });
   let updateBody: Record<string, unknown> | undefined;
   let historyRequests = 0;
   await installAddendumMocks(page, async (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(current) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "PUT") {
       updateBody = await request.postDataJSON();
-      current = { ...current, description: String(updateBody?.description), status: "DRAFT", version: 8 };
+      current = { ...current, description: String(updateBody?.description), status: "DRAFT", ...addendumCapabilities("DRAFT"), version: 8 };
       return { body: envelope(current) };
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) {
@@ -753,8 +811,7 @@ test("edits a revision-requested addendum and preserves optimistic-lock data", a
 
 test("gives repeated edit-service actions distinct accessible names", async ({ page }) => {
   const serviceAddendum = {
-    ...addendum,
-    status: "REVISION_REQUESTED",
+    ...addendumWithStatus("REVISION_REQUESTED"),
     changeType: "ADDED_SERVICE",
     services: [
       { id: "61000000-0000-4000-8000-000000000001", serviceCode: "SEA", serviceName: "Sea freight", unit: "trip", scopeNote: null },
@@ -776,14 +833,14 @@ test("gives repeated edit-service actions distinct accessible names", async ({ p
 });
 
 test("cancels a pre-submission addendum without showing submit guidance", async ({ page }) => {
-  let current = { ...addendum, status: "DRAFT", version: 3 };
+  let current = addendumWithStatus("DRAFT", { version: 3 });
   let cancelBody: Record<string, unknown> | undefined;
   let historyRequests = 0;
   await installAddendumMocks(page, async (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(current) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/cancel` && request.method() === "POST") {
       cancelBody = await request.postDataJSON();
-      current = { ...current, status: "CANCELLED", version: 4 };
+      current = { ...current, status: "CANCELLED", ...addendumCapabilities("CANCELLED"), version: 4 };
       return { body: envelope({ status: "CANCELLED", detail: null }) };
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) {
@@ -812,7 +869,7 @@ test("cancels a pre-submission addendum without showing submit guidance", async 
 });
 
 test("keeps a pending cancellation actionable and explains that it must be retried", async ({ page }) => {
-  const underReview = { ...addendum, status: "UNDER_REVIEW" };
+  const underReview = addendumWithStatus("UNDER_REVIEW");
   await installAddendumMocks(page, (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(underReview) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/cancel` && request.method() === "POST") {
@@ -831,11 +888,11 @@ test("keeps a pending cancellation actionable and explains that it must be retri
 
   await expect(page.getByText(/addendum keeps its current status.*Retry this call/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Under review").first()).toBeVisible();
 });
 
 test("shows a completed approval and keeps an approved addendum read-only", async ({ page }) => {
-  const approved = { ...addendum, status: "APPROVED" };
+  const approved = addendumWithStatus("APPROVED");
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(approved) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
@@ -866,9 +923,10 @@ test("shows a completed approval and keeps an approved addendum read-only", asyn
 });
 
 test("uses addendum write rather than the contract active-cancellation permission", async ({ page }) => {
-  const active = { ...addendum, status: "ACTIVE" };
+  const active = addendumWithStatus("ACTIVE");
+  const activeWithoutWrite = { ...active, canCancel: false };
   await installAddendumMocks(page, (_request, url) => {
-    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(active) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(activeWithoutWrite) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
   }, { permissions: [...currentUser.permissions, "addendum:read", "contract:cancel_active"] });
 
@@ -885,7 +943,7 @@ test("uses addendum write rather than the contract active-cancellation permissio
 });
 
 test("treats an expired document as having completed approval", async ({ page }) => {
-  const expired = { ...addendum, status: "EXPIRED" };
+  const expired = addendumWithStatus("EXPIRED");
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(expired) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) return { body: envelope({
@@ -900,7 +958,7 @@ test("treats an expired document as having completed approval", async ({ page })
 });
 
 test("queues an approved addendum for signing without changing approval status", async ({ page }) => {
-  const approved = { ...addendum, status: "APPROVED" };
+  const approved = addendumWithStatus("APPROVED");
   let sendRequests = 0;
   let detailRequests = 0;
   let requestQueued = false;
@@ -945,7 +1003,7 @@ test("queues an approved addendum for signing without changing approval status",
 
 test("does not carry queued signing state to another addendum route", async ({ page }) => {
   const secondId = "10000000-0000-4000-8000-000000000002";
-  const approved = { ...addendum, status: "APPROVED" };
+  const approved = addendumWithStatus("APPROVED");
   const second = { ...approved, id: secondId, addendumNo: "ADD-2026-0002" };
   let firstQueued = false;
   await installAddendumMocks(page, (request, url) => {
@@ -975,7 +1033,7 @@ test("does not carry queued signing state to another addendum route", async ({ p
 });
 
 test("shows every addendum signing outcome to a read-only user without offering send", async ({ page }) => {
-  const approved = { ...addendum, status: "APPROVED" };
+  const approved = addendumWithStatus("APPROVED");
   let signingStatus = "SIGNING";
   const session = {
     id: "70000000-0000-4000-8000-000000000001", sessionNo: "SIG-101",
@@ -1000,7 +1058,7 @@ test("shows every addendum signing outcome to a read-only user without offering 
   await expect(page.getByRole("button", { name: "Send for signing" })).toHaveCount(0);
   expect(sendRequests).toBe(0);
 
-  for (const [status, label] of [["PENDING_SEND", "Queued"], ["SIGNED", "Signed"], ["FAILED", "Failed"], ["CANCELLED", "Cancelled"]]) {
+  for (const [status, label] of [["PENDING_SEND", "Pending send"], ["SIGNED", "Signed"], ["FAILED", "Failed"], ["CANCELLED", "Cancelled"]]) {
     signingStatus = status;
     await page.reload();
     await expect(page.getByText(label, { exact: true })).toBeVisible();
@@ -1017,7 +1075,8 @@ test("renders a signed contract session separately from contract approval", asyn
     customerName: "ACME Logistics", description: "Annual transport", serviceGroup: "TRANSPORTATION",
     value: 1000000, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31",
     paymentTerm: "NET30", billingCycle: "MONTHLY", vatRate: 10, penaltyTerms: null,
-    serviceClause: null, status: "APPROVED", editable: false, version: 2,
+    serviceClause: null, status: "APPROVED", editable: false, canEdit: false, canSubmit: false,
+    submitBlockedReason: null, canRevise: false, canCancel: false, canCreateAddendum: true, version: 2,
     createdAt: "2026-01-01T00:00:00Z", createdByName: "Nguyen Thi Lan", updatedAt: "2026-09-04T10:00:00Z",
   };
   const signed = {

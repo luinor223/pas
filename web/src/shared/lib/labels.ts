@@ -38,6 +38,19 @@ const STATUSES: Record<string, string> = {
   CANCELLED: "Cancelled",
   SUSPENDED: "Suspended",
   DISABLED: "Disabled",
+  IN_PROGRESS: "In progress",
+  EFFECTIVE: "Effective",
+  ISSUED: "Issued",
+  SIGNED: "Signed",
+  SIGNING: "Signing",
+  CALCULATED: "Calculated",
+  RECONCILED: "Reconciled",
+  REVISION: "Revision requested",
+  PENDING_SEND: "Pending send",
+  FAILED: "Failed",
+  SUPERSEDED: "Superseded",
+  OPEN: "Open",
+  LOCKED: "Locked",
 };
 
 // Keep these English labels aligned with permissions seeded by identity-service.

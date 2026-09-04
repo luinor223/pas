@@ -3,11 +3,19 @@ import { currentUser, envelope, installApiMocks } from "./support/api";
 
 const meta = (page: number) => ({ page, size: 15, totalElements: 16, totalPages: 2, cursor: "snapshot-token" });
 
-const contractRow = (id: string, status: string, canCreateAddendum: boolean) => ({
+const contractRow = (id: string, status: string, canCreateAddendum: boolean, capabilities: Partial<{
+  canEdit: boolean; canSubmit: boolean; submitBlockedReason: string | null; canRevise: boolean; canCancel: boolean;
+}> = {}) => ({
   id, contractNo: `CTR-${id.slice(-1)}`, customerId: "40000000-0000-4000-8000-000000000001",
   customerName: "Customer", description: null, serviceGroup: "TRANSPORTATION", value: 1, currency: "VND",
-  validFrom: "2026-01-01", validTo: "2026-12-31", paymentTerm: null, billingCycle: "MONTHLY",
-  vatRate: null, penaltyTerms: null, serviceClause: null, status, editable: status === "DRAFT",
+  validFrom: "2026-01-01", validTo: "2026-12-31", paymentTerm: "NET30", billingCycle: "MONTHLY",
+  vatRate: 10, penaltyTerms: null, serviceClause: null, status, editable: status === "DRAFT",
+  canEdit: status === "DRAFT" || status === "REVISION_REQUESTED",
+  canSubmit: status === "DRAFT",
+  submitBlockedReason: null,
+  canRevise: status === "REJECTED",
+  canCancel: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACTIVE"].includes(status),
+  ...capabilities,
   canCreateAddendum, version: 0, createdAt: "2026-01-01T00:00:00Z", createdByName: null,
   updatedAt: "2026-01-01T00:00:00Z",
 });
@@ -44,11 +52,12 @@ test("contract list requests server pages without a client sort", async ({ page 
       const p = url.searchParams.get("page") ?? "0";
       requests.push([p, url.searchParams.get("sort"), url.searchParams.get("cursor")]);
       const n = p === "1" ? 16 : 1;
-      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", version: 0 }], meta(Number(p))) };
+      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", createdAt: "2026-01-01T00:00:00Z", version: 0 }], meta(Number(p))) };
     }
   });
   await page.goto("/contracts");
   await expect(page.locator("thead button")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /CTR-1/ }).getByText(/^Created /)).toBeVisible();
   await page.getByRole("button", { name: "Next page" }).click();
   await expect(page.getByText("CTR-16")).toBeVisible();
   await page.getByRole("button", { name: "Previous page" }).click();
@@ -69,11 +78,12 @@ test("addendum list requests server pages without a client sort", async ({ page 
       const p = url.searchParams.get("page") ?? "0";
       requests.push([p, url.searchParams.get("sort"), url.searchParams.get("cursor")]);
       const n = p === "1" ? 16 : 1;
-      return { body: envelope([{ id: `60000000-0000-4000-8000-${String(n).padStart(12, "0")}`, addendumNo: `ADD-${n}`, contractId: "50000000-0000-4000-8000-000000000001", contractNo: "CTR-1", changeType: "TERM_EXTENSION", effectiveFrom: "2026-01-01", status: "DRAFT", services: [], version: 0 }], meta(Number(p))) };
+      return { body: envelope([{ id: `60000000-0000-4000-8000-${String(n).padStart(12, "0")}`, addendumNo: `ADD-${n}`, contractId: "50000000-0000-4000-8000-000000000001", contractNo: "CTR-1", changeType: "TERM_EXTENSION", effectiveFrom: "2026-01-01", status: "DRAFT", services: [], createdAt: "2026-01-01T00:00:00Z", version: 0 }], meta(Number(p))) };
     }
   }, { permissions: [...currentUser.permissions, "addendum:read"] });
   await page.goto("/addenda");
   await expect(page.locator("thead button")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /ADD-1/ }).getByText(/^Created /)).toBeVisible();
   await page.getByRole("button", { name: "Next page" }).click();
   await expect(page.getByText("ADD-16")).toBeVisible();
   await page.getByRole("button", { name: "Previous page" }).click();
@@ -96,7 +106,7 @@ test("contract list can recover when its snapshot cursor expires while navigatin
       requests.push([p, cursor]);
       if (p === "0" && cursor) return { status: 422, body: { message: "The page cursor is invalid or has expired; return to the first page." } };
       const n = p === "1" ? 16 : 1;
-      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", version: 0 }], meta(Number(p))) };
+      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", createdAt: "2026-01-01T00:00:00Z", version: 0 }], meta(Number(p))) };
     }
   });
 
@@ -114,29 +124,38 @@ test("contract list can recover when its snapshot cursor expires while navigatin
     (p === "1" || p === "0") && cursor === "snapshot-token")).toBe(true);
 });
 
-test("contract actions follow backend addendum capabilities", async ({ page }) => {
+test("contract actions follow backend capabilities and do not send unavailable actions", async ({ page }) => {
   let addendumRequests = 0;
+  let lifecycleRequests = 0;
   await installApiMocks(page, (_request, url) => {
     if (url.pathname === "/api/v1/contracts") {
       return { body: envelope([
-        contractRow("50000000-0000-4000-8000-000000000001", "DRAFT", false),
+        contractRow("50000000-0000-4000-8000-000000000001", "DRAFT", false, {
+          canEdit: false, canSubmit: false, canRevise: false, canCancel: false,
+        }),
         contractRow("50000000-0000-4000-8000-000000000002", "APPROVED", true),
       ], { page: 0, size: 15, totalElements: 2, totalPages: 1, cursor: "actions-token" }) };
     }
     if (url.pathname === "/api/v1/addenda") addendumRequests += 1;
-  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+    if (/^\/api\/v1\/contracts\/[^/]+\/(submit|revise|cancel)$/.test(url.pathname)) lifecycleRequests += 1;
+  }, { permissions: [...currentUser.permissions, "contract:write", "addendum:read", "addendum:write"] });
 
   await page.goto("/contracts");
   const actionButtons = page.getByRole("button", { name: "Row actions" });
   await actionButtons.nth(0).click();
   await expect(page.getByRole("menuitem", { name: "Create addendum" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { name: "Renew contract" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Submit for approval" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Revise" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Cancel contract" })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await actionButtons.nth(1).click();
   await expect(page.getByRole("menuitem", { name: "Create addendum" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Renew contract" })).toBeVisible();
   expect(addendumRequests).toBe(0);
+  expect(lifecycleRequests).toBe(0);
 });
 
 test("contract forms request only active customers", async ({ page }) => {
@@ -162,6 +181,13 @@ test("contract forms request only active customers", async ({ page }) => {
 
   await page.getByRole("button", { name: "+ New Contract" }).click();
   const createDialog = page.getByRole("dialog", { name: "Create contract" });
+  await expect(createDialog.getByLabel("Field requirement guide")).toContainText("Required to save a draft");
+  await expect(createDialog.locator("label [data-requirement=draft]")).toHaveCount(4);
+  await expect(createDialog.locator("label [data-requirement=submit]")).toHaveCount(2);
+  await expect(createDialog.getByText("Required before submission. Example: NET30.")).toBeVisible();
+  await expect(createDialog.getByText("Required before submission. Enter 0 when no VAT applies.")).toBeVisible();
+  await createDialog.getByLabel("Payment term *").fill("NET30");
+  await expect(createDialog.getByText("Required before submission. Example: NET30.")).toHaveCount(0);
   await createDialog.getByLabel("Customer *").click();
   await expect.poll(() => customerStatuses.filter((status) => status === "ACTIVE").length).toBeGreaterThanOrEqual(1);
   await createDialog.getByRole("button", { name: "Cancel" }).click();

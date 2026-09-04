@@ -20,7 +20,6 @@ export function DocumentSigningPanel({ documentType, documentId, documentStatus 
   const permissions = userQ.data?.permissions ?? [];
   const readPermission = documentType === "CONTRACT" ? "contract:read" : "addendum:read";
   const canView = permissions.includes(readPermission) || permissions.includes("esign:send");
-  const canSend = permissions.includes("esign:send");
   const requestStateQ = useQuery({
     ...signingRequestStateQuery(documentType, documentId),
     enabled: userQ.isSuccess && canView,
@@ -65,7 +64,7 @@ export function DocumentSigningPanel({ documentType, documentId, documentStatus 
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-2">
         <CardTitle className="text-base">E-signature</CardTitle>
-        {documentStatus === "APPROVED" && canSend && requestStateQ.data?.canSendForSigning && !active && !waitingForSession && (
+        {requestStateQ.data?.canSendForSigning && !active && !waitingForSession && (
           <Button size="sm" onClick={() => sendMut.mutate()} disabled={sendMut.isPending}>
             {sendMut.isPending ? "Queueing..." : "Send for signing"}
           </Button>

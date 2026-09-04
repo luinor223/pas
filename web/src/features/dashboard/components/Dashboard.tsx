@@ -87,7 +87,13 @@ export function Dashboard() {
         <section className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between px-5 py-4">
             <h2 className="text-[15px] font-semibold">Pending my approval</h2>
-            <Link to="/approvals" className="text-sm font-medium text-primary hover:underline">View all</Link>
+            <Link
+              to="/approvals"
+              search={{ tab: undefined, q: undefined, documentType: undefined, priority: undefined, page: undefined }}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              View all
+            </Link>
           </div>
           <div className="px-5 pb-5">
             {approvals.isLoading ? (
@@ -104,7 +110,21 @@ export function Dashboard() {
           <section className="rounded-xl border border-border bg-card p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-[15px] font-semibold">Recent activity</h2>
-              <Link to="/audit-log" className="text-sm font-medium text-primary hover:underline">View all</Link>
+              <Link
+                to="/audit-log"
+                search={{
+                  sourceService: undefined,
+                  entityType: undefined,
+                  q: undefined,
+                  action: undefined,
+                  from: undefined,
+                  to: undefined,
+                  page: undefined,
+                }}
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                View all
+              </Link>
             </div>
             {activity.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading activity...</p>
