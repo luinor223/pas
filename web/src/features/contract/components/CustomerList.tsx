@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { customersQuery, customerQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { CustomerResponse } from "../types/contractTypes";
@@ -26,6 +26,9 @@ import { SearchInput } from "@/shared/components/search-input";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ContactTable } from "./ContactTable";
 import { statusLabel } from "@/shared/lib/labels";
+import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import type { CustomerRouteSearch } from "../contractSearchParams";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -50,16 +53,16 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export function CustomerList() {
+export function CustomerList({ search }: { search: CustomerRouteSearch }) {
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/customers" });
   const canRead = useHasPermission("customer:read");
   const canReadContracts = useHasPermission("contract:read");
   const canWrite = useHasPermission("customer:write");
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("All");
-  const [page, setPage] = useState(0);
-  const [snapshotCursor, setSnapshotCursor] = useState<string>();
+  const q = search.q ?? "";
+  const status = search.status ?? "";
+  const page = search.page ?? 0;
+  const snapshotCursor = search.cursor;
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   // Customer id whose contacts are shown — the full record is fetched because
@@ -67,18 +70,32 @@ export function CustomerList() {
   const [viewContactsId, setViewContactsId] = useState<string | null>(null);
   const [confirmSuspend, setConfirmSuspend] = useState<CustomerResponse | null>(null);
 
-  const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: PAGE_SIZE, cursor: snapshotCursor }));
+  const [searchText, setSearchText] = useDebouncedUrlValue(q, (value) => navigate({
+    to: "/customers",
+    search: (previous) => ({ ...previous, q: value || undefined, page: undefined, cursor: undefined }),
+  }));
+  const updateList = useCallback((patch: Partial<CustomerRouteSearch>, replace = false) => navigate({
+    to: "/customers",
+    search: (previous) => ({ ...previous, q: searchText || undefined, ...patch }),
+    replace,
+  }), [navigate, searchText]);
+  const restartListing = useCallback((patch: Partial<CustomerRouteSearch> = {}) =>
+    updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
+
+  const listQ = useQuery(customersQuery({ q: q || undefined, status: status || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor }));
   const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
 
   const customers = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
 
   const changePage = (nextPage: number) => {
-    if (page === 0 && listQ.data?.cursor) setSnapshotCursor(listQ.data.cursor);
-    setPage(nextPage);
+    updateList({ page: nextPage || undefined, cursor: snapshotCursor ?? listQ.data?.cursor });
   };
-  const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
-  const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["customers"] }); restartListing(); };
+  const recoverFirstPage = useCallback(() => {
+    qc.removeQueries({ queryKey: ["customers"] });
+    updateList({ page: undefined, cursor: undefined }, true);
+  }, [qc, updateList]);
+  useRecoverOutOfRangePage({ ready: listQ.isSuccess, page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, recover: recoverFirstPage });
 
 
 
@@ -152,7 +169,7 @@ export function CustomerList() {
   const columns = useMemo<ColumnDef<CustomerResponse>[]>(() => [
     {
       accessorKey: "code", header: "CODE",
-      cell: ({ row }) => <Link to="/customers" search={{ id: row.original.id } as never} className="font-medium text-blue-600 hover:underline">{row.original.code}</Link>,
+      cell: ({ row }) => <Link to="/customers" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.code}</Link>,
     },
     { accessorKey: "name", header: "CUSTOMER NAME", cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { accessorKey: "taxCode", header: "TAX ID", cell: ({ row }) => <span className="text-sm">{row.original.taxCode ?? "—"}</span> },
@@ -171,7 +188,7 @@ export function CustomerList() {
       cell: ({ row }) => {
         const c = row.original;
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
-          { label: "View details", onClick: () => navigate({ to: "/customers", search: { id: c.id } as never }) },
+          { label: "View details", onClick: () => navigate({ to: "/customers", search: { ...search, q: searchText || undefined, id: c.id } }) },
           { label: "View contacts", onClick: () => setViewContactsId(c.id) },
         ];
         if (canWrite) items.push({ label: "Edit", onClick: () => onEdit(c) });
@@ -185,7 +202,7 @@ export function CustomerList() {
         );
       },
     },
-  ], [canReadContracts, canWrite, navigate]);
+  ], [canReadContracts, canWrite, navigate, search, searchText]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to customers.</CardContent></Card>;
 
@@ -199,16 +216,16 @@ export function CustomerList() {
               className="w-56 lg:w-72"
               label="Search customers"
               placeholder="Search code/name/tax..."
-              value={q}
-              onChange={(value) => { setQ(value); restartListing(); }}
+              value={searchText}
+              onChange={setSearchText}
             />
           {canWrite && <Button onClick={() => { reset({ name: "", shortName: "", taxCode: "", address: "", representativeName: "", representativePosition: "", segment: "", contacts: [{ fullName: "", title: "", email: "", phone: "", primary: true }] }); setOpenCreate(true); }}>+ New Customer</Button>}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <FilterBar>
-            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); restartListing(); }}>
-              <option value="All">Status: All</option><option value="ACTIVE">{statusLabel("ACTIVE")}</option><option value="SUSPENDED">{statusLabel("SUSPENDED")}</option>
+            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as CustomerRouteSearch["status"] })}>
+              <option value="">Status: All</option><option value="ACTIVE">{statusLabel("ACTIVE")}</option><option value="SUSPENDED">{statusLabel("SUSPENDED")}</option>
             </Select>
           </FilterBar>
           {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, onPageChange: changePage }} />}

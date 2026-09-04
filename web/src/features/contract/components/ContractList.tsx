@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { contractsQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { ContractResponse } from "../types/contractTypes";
@@ -30,6 +30,9 @@ import { SearchInput } from "@/shared/components/search-input";
 import { formatDate, formatMoney } from "@/shared/lib/format";
 import { isUserCancellableStatus, SERVICE_GROUPS } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
+import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import type { ContractRouteSearch } from "../contractSearchParams";
 
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
@@ -53,25 +56,37 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export function ContractList() {
+export function ContractList({ search }: { search: ContractRouteSearch }) {
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/contracts" });
   const canRead = useHasPermission("contract:read");
   const canWrite = useHasPermission("contract:write");
   const canCancelActive = useHasPermission("contract:cancel_active");
-  const [q, setQ] = useState("");
-  const [customerId, setCustomerId] = useState(() => new URLSearchParams(window.location.search).get("customerId") ?? "");
-  const [status, setStatus] = useState("");
-  const [serviceGroup, setServiceGroup] = useState("");
-  const [validFromFrom, setValidFromFrom] = useState("");
-  const [validToTo, setValidToTo] = useState("");
-  const [page, setPage] = useState(0);
-  const [snapshotCursor, setSnapshotCursor] = useState<string>();
+  const q = search.q ?? "";
+  const customerId = search.customerId ?? "";
+  const status = search.status ?? "";
+  const serviceGroup = search.serviceGroup ?? "";
+  const validFromFrom = search.validFromFrom ?? "";
+  const validToTo = search.validToTo ?? "";
+  const page = search.page ?? 0;
+  const snapshotCursor = search.cursor;
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVersion, setEditVersion] = useState<number | null>(null);
   const invalidFilterRange = isInvalidDateRange(validFromFrom, validToTo);
   const hasFilters = !!(q || customerId || status || serviceGroup || validFromFrom || validToTo);
+
+  const [searchText, setSearchText] = useDebouncedUrlValue(q, (value) => navigate({
+    to: "/contracts",
+    search: (previous) => ({ ...previous, q: value || undefined, page: undefined, cursor: undefined }),
+  }));
+  const updateList = useCallback((patch: Partial<ContractRouteSearch>, replace = false) => navigate({
+    to: "/contracts",
+    search: (previous) => ({ ...previous, q: searchText || undefined, ...patch }),
+    replace,
+  }), [navigate, searchText]);
+  const restartListing = useCallback((patch: Partial<ContractRouteSearch> = {}) =>
+    updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
 
   const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor };
   const listQ = useQuery({ ...contractsQuery(listParams), enabled: canRead && !invalidFilterRange });
@@ -80,11 +95,13 @@ export function ContractList() {
   const total = listQ.data?.totalElements ?? 0;
 
   const changePage = (nextPage: number) => {
-    if (page === 0 && listQ.data?.cursor) setSnapshotCursor(listQ.data.cursor);
-    setPage(nextPage);
+    updateList({ page: nextPage || undefined, cursor: snapshotCursor ?? listQ.data?.cursor });
   };
-  const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
-  const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["contracts"] }); restartListing(); };
+  const recoverFirstPage = useCallback(() => {
+    qc.removeQueries({ queryKey: ["contracts"] });
+    updateList({ page: undefined, cursor: undefined }, true);
+  }, [qc, updateList]);
+  useRecoverOutOfRangePage({ ready: listQ.isSuccess, page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, recover: recoverFirstPage });
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -129,7 +146,7 @@ export function ContractList() {
   const columns = useMemo<ColumnDef<ContractResponse>[]>(() => [
     {
       accessorKey: "contractNo", header: "CONTRACT NO.",
-      cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.id } as never} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
+      cell: ({ row }) => <Link to="/contracts" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
     },
     { accessorKey: "customerName", header: "CUSTOMER", cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span> },
     { accessorKey: "serviceGroup", header: "SERVICE GROUP", cell: ({ row }) => <span className="text-sm capitalize">{row.original.serviceGroup.toLowerCase().replace(/_/g, " ")}</span> },
@@ -144,8 +161,8 @@ export function ContractList() {
         const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
         const cancellable = isUserCancellableStatus(c.status) && (c.status !== "ACTIVE" || canCancelActive);
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
-          { label: "View details", onClick: () => navigate({ to: "/contracts", search: { id: c.id } as never }) },
-          { label: "Download", onClick: () => navigate({ to: "/contracts", search: { id: c.id, tab: "attachments" } as never }) },
+          { label: "View details", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id } }) },
+          { label: "Download", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id, tab: "attachments" } }) },
         ];
         if (canWrite && editable) items.push({ label: "Edit", onClick: () => onEdit(c) });
         if (canWrite && c.status === "DRAFT") items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
@@ -160,7 +177,7 @@ export function ContractList() {
         );
       },
     },
-  ], [canWrite, canCancelActive, navigate]);
+  ], [canWrite, canCancelActive, navigate, search, searchText]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to contracts.</CardContent></Card>;
 
@@ -174,8 +191,8 @@ export function ContractList() {
               className="w-56 lg:w-72"
               label="Search contracts"
               placeholder="Search no/description/customer..."
-              value={q}
-              onChange={(value) => { setQ(value); restartListing(); }}
+              value={searchText}
+              onChange={setSearchText}
             />
           {canWrite && <Button onClick={() => { reset({ customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
           </div>
@@ -187,12 +204,12 @@ export function ContractList() {
               label=""
               placeholder="All customers"
               value={customerId}
-              onChange={(id) => { setCustomerId(id); restartListing(); }}
+              onChange={(id) => restartListing({ customerId: id || undefined })}
             />
-            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); restartListing(); }}>
+            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as ContractRouteSearch["status"] })}>
               <option value="">Status: All</option>{STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </Select>
-            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); restartListing(); }}>
+            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => restartListing({ serviceGroup: e.target.value || undefined })}>
               <option value="">Group: All</option>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
             </Select>
             <DateRangeFields
@@ -201,10 +218,10 @@ export function ContractList() {
               to={validToTo}
               fromLabel="Effective from"
               toLabel="Expiry"
-              onFromChange={(value) => { setValidFromFrom(value); restartListing(); }}
-              onToChange={(value) => { setValidToTo(value); restartListing(); }}
+              onFromChange={(value) => restartListing({ validFromFrom: value || undefined })}
+              onToChange={(value) => restartListing({ validToTo: value || undefined })}
             />
-            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); restartListing(); }} />
+            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => restartListing({ q: undefined, customerId: undefined, status: undefined, serviceGroup: undefined, validFromFrom: undefined, validToTo: undefined })} />
           </FilterBar>
           <div className="text-xs text-muted-foreground">Date filters show contracts whose full term falls within the selected dates.</div>
           {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, onPageChange: changePage }} />}

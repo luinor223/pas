@@ -12,15 +12,15 @@ export function DetailBackButton({ to, label }: DetailBackButtonProps) {
   return (
     <Link
       to={to}
-      search={to === "/price-lists"
-        ? ((previous) => ({ ...previous, id: undefined, versionId: undefined }))
+      search={(to === "/price-lists"
+        ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined, versionId: undefined }))
         : to === "/customers"
-        ? { id: undefined }
+        ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined, tab: undefined, contractsPage: undefined, contractsCursor: undefined }))
         : to === "/contracts"
-          ? { id: undefined, tab: undefined, customerId: undefined }
+          ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined, tab: undefined, relatedPage: undefined, relatedCursor: undefined }))
           : to === "/addenda"
-            ? ((previous) => ({ ...previous, id: undefined }))
-          : { id: undefined, versionId: undefined }}
+            ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined }))
+          : { id: undefined, versionId: undefined }) as never}
       aria-label={label}
       title={label}
       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

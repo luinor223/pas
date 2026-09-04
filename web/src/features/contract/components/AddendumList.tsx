@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { addendaQuery, contractQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { AddendumResponse } from "../types/contractTypes";
@@ -28,6 +28,9 @@ import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
 import { humanize } from "@/shared/lib/text";
 import { ContractPicker } from "./ContractPicker";
+import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import type { AddendumRouteSearch } from "../contractSearchParams";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -55,9 +58,9 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export function AddendumList() {
+export function AddendumList({ search }: { search: AddendumRouteSearch }) {
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/addenda" });
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
   const canReadContracts = useHasPermission("contract:read");
@@ -65,14 +68,26 @@ export function AddendumList() {
   // Deep-link default for the create form (e.g. contract detail's Create addendum).
   // There is intentionally no contract filter: Figma has none, and contract-scoped
   // addenda live on the contract detail page.
-  const [defaultContractId] = useState(() => new URLSearchParams(window.location.search).get("contractId") ?? "");
-  const [status, setStatus] = useState("");
-  const [changeType, setChangeType] = useState(() => new URLSearchParams(window.location.search).get("changeType") ?? "");
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(0);
-  const [snapshotCursor, setSnapshotCursor] = useState<string>();
+  const defaultContractId = search.contractId ?? "";
+  const status = search.status ?? "";
+  const changeType = search.changeType ?? "";
+  const q = search.q ?? "";
+  const page = search.page ?? 0;
+  const snapshotCursor = search.cursor;
   const [openCreate, setOpenCreate] = useState(false);
   const hasFilters = !!(status || changeType || q);
+
+  const [searchText, setSearchText] = useDebouncedUrlValue(q, (value) => navigate({
+    to: "/addenda",
+    search: (previous) => ({ ...previous, q: value || undefined, page: undefined, cursor: undefined }),
+  }));
+  const updateList = useCallback((patch: Partial<AddendumRouteSearch>, replace = false) => navigate({
+    to: "/addenda",
+    search: (previous) => ({ ...previous, q: searchText || undefined, ...patch }),
+    replace,
+  }), [navigate, searchText]);
+  const restartListing = useCallback((patch: Partial<AddendumRouteSearch> = {}) =>
+    updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
 
   const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor }));
   const defaultContractQ = useQuery({ ...contractQuery(defaultContractId), enabled: canCreate && Boolean(defaultContractId) });
@@ -80,11 +95,13 @@ export function AddendumList() {
   const items = pageItems;
 
   const changePage = (nextPage: number) => {
-    if (page === 0 && listQ.data?.cursor) setSnapshotCursor(listQ.data.cursor);
-    setPage(nextPage);
+    updateList({ page: nextPage || undefined, cursor: snapshotCursor ?? listQ.data?.cursor });
   };
-  const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
-  const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["addenda"] }); restartListing(); };
+  const recoverFirstPage = useCallback(() => {
+    qc.removeQueries({ queryKey: ["addenda"] });
+    updateList({ page: undefined, cursor: undefined }, true);
+  }, [qc, updateList]);
+  useRecoverOutOfRangePage({ ready: listQ.isSuccess, page, totalPages: listQ.data?.totalPages ?? 0, totalItems: listQ.data?.totalElements ?? 0, recover: recoverFirstPage });
 
   const { register, handleSubmit, control, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -106,10 +123,8 @@ export function AddendumList() {
       setOpenCreate(false);
       navigate({
         to: "/addenda",
-        search: (previous) => ({
+        search: (previous) => ({ ...previous, q: searchText || undefined,
           id: created.id,
-          contractId: previous.contractId,
-          changeType: previous.changeType,
         }),
       });
     },
@@ -117,7 +132,7 @@ export function AddendumList() {
   const columns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
     {
       accessorKey: "addendumNo", header: "NO",
-      cell: ({ row }) => <Link to="/addenda" search={(previous) => ({ id: row.original.id, contractId: previous.contractId, changeType: previous.changeType })} className="font-medium text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
+      cell: ({ row }) => <Link to="/addenda" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
     },
     {
       accessorKey: "contractNo", header: "CONTRACT",
@@ -126,7 +141,7 @@ export function AddendumList() {
     { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
-  ], []);
+  ], [search, searchText]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to addenda.</CardContent></Card>;
 
@@ -140,21 +155,21 @@ export function AddendumList() {
               className="w-56 lg:w-72"
               label="Search addenda"
               placeholder="Search no/description..."
-              value={q}
-              onChange={(value) => { setQ(value); restartListing(); }}
+              value={searchText}
+              onChange={setSearchText}
             />
           {canCreate && <Button disabled={Boolean(defaultContractId) && defaultContractQ.isPending} onClick={() => { reset({ contractId: defaultContractQ.data?.canCreateAddendum ? defaultContractQ.data.id : "", changeType: changeType || CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <FilterBar>
-                        <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); restartListing(); }}>
+                        <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as AddendumRouteSearch["status"] })}>
               <option value="">Status: All</option>{["DRAFT","SUBMITTED","UNDER_REVIEW","APPROVED","ACTIVE","REJECTED","REVISION_REQUESTED","CANCELLED"].map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </Select>
-            <Select className="w-full sm:w-48" aria-label="Filter by change type" value={changeType} onChange={(e) => { setChangeType(e.target.value); restartListing(); }}>
+            <Select className="w-full sm:w-48" aria-label="Filter by change type" value={changeType} onChange={(e) => restartListing({ changeType: (e.target.value || undefined) as AddendumRouteSearch["changeType"] })}>
               <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
             </Select>
-            <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); restartListing(); }} />
+            <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => restartListing({ status: undefined, changeType: undefined, q: undefined })} />
           </FilterBar>
           {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: listQ.data?.totalElements ?? 0, onPageChange: changePage }} />}
         </CardContent>

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { contractQuery, contractProgressQuery, contractHistoryQuery, addendaQuery, attachmentsQuery, customerQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
@@ -10,13 +10,14 @@ import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { AddendumResponse } from "../types/contractTypes";
-import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useCallback, useMemo } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
 import { DocumentSigningPanel } from "./DocumentSigningPanel";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -27,15 +28,49 @@ const TABS: readonly TabItem<Tab>[] = [
   { value: "attachments", label: "Attachments" },
 ];
 
-export function ContractDetail({ id, initialTab }: { id: string; initialTab?: string }) {
+export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, relatedCursor }: {
+  id: string; tab?: Tab; relatedPage?: number; relatedCursor?: string;
+}) {
+  const navigate = useNavigate({ from: "/contracts" });
+  const queryClient = useQueryClient();
+  const tab = requestedTab ?? "overview";
   const q = useQuery(contractQuery(id));
   const progQ = useQuery(contractProgressQuery(id));
   const histQ = useQuery(contractHistoryQuery(id));
-  const addQ = useQuery(addendaQuery({ contractId: id, size: DEFAULT_PAGE_SIZE }));
+  const addQ = useQuery(addendaQuery({ contractId: id, page: relatedPage, size: DEFAULT_PAGE_SIZE, cursor: relatedCursor }));
   const attQ = useQuery(attachmentsQuery("CONTRACT", id));
-  const [tab, setTab] = useState<Tab>(
-    initialTab === "attachments" ? "attachments" : "overview",
-  );
+  const setTab = (next: Tab) => navigate({
+    to: "/contracts",
+    search: (previous) => ({
+      ...previous,
+      tab: next === "overview" ? undefined : next,
+      relatedPage: next === "addenda" ? previous.relatedPage : undefined,
+      relatedCursor: next === "addenda" ? previous.relatedCursor : undefined,
+    }),
+  });
+  const changeRelatedPage = (nextPage: number) => navigate({
+    to: "/contracts",
+    search: (previous) => ({
+      ...previous,
+      relatedPage: nextPage || undefined,
+      relatedCursor: previous.relatedCursor ?? addQ.data?.cursor,
+    }),
+  });
+  const recoverRelated = useCallback(() => {
+    queryClient.removeQueries({ queryKey: ["addenda"] });
+    navigate({
+      to: "/contracts",
+      search: (previous) => ({ ...previous, relatedPage: undefined, relatedCursor: undefined }),
+      replace: true,
+    });
+  }, [navigate, queryClient]);
+  useRecoverOutOfRangePage({
+    ready: addQ.isSuccess && tab === "addenda",
+    page: relatedPage,
+    totalPages: addQ.data?.totalPages ?? 0,
+    totalItems: addQ.data?.totalElements ?? 0,
+    recover: recoverRelated,
+  });
 
   const c = q.data;
   const custQ = useQuery(customerQuery(c?.customerId ?? ""));
@@ -136,7 +171,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
         <Card>
           <CardHeader><CardTitle className="text-base">Addenda for {c.contractNo}</CardTitle></CardHeader>
           <CardContent>
-            {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={DEFAULT_PAGE_SIZE} />}
+            {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : addQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">Failed to load addenda</div>{relatedCursor && <Button variant="outline" size="sm" onClick={recoverRelated}>Return to first page</Button>}</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={DEFAULT_PAGE_SIZE} serverPagination={{ page: addQ.data?.number ?? relatedPage, totalPages: addQ.data?.totalPages ?? 0, totalItems: addQ.data?.totalElements ?? 0, onPageChange: changeRelatedPage }} />}
           </CardContent>
         </Card>
       )}

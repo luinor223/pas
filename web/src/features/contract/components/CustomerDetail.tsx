@@ -7,13 +7,15 @@ import { ContactTable } from "./ContactTable";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ContractResponse } from "../types/contractTypes";
-import { useState } from "react";
+import { useCallback, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { formatDate, formatDecimalMoney, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
+import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 
 type Tab = "overview" | "contracts" | "contacts";
 
@@ -23,13 +25,23 @@ const TABS: readonly TabItem<Tab>[] = [
   { value: "contacts", label: "Contacts" },
 ];
 
-export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
+export function CustomerDetail({ id, onEdit, tab: requestedTab, contractsPage = 0, contractsCursor }: {
+  id: string; onEdit?: () => void; tab?: Tab; contractsPage?: number; contractsCursor?: string;
+}) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/customers" });
+  const currentUserQ = useCurrentUser();
   const canReadContracts = useHasPermission("contract:read");
-  const [tab, setTab] = useState<Tab>("overview");
-  const [contractsPage, setContractsPage] = useState(0);
-  const [contractsCursor, setContractsCursor] = useState<string>();
+  const tab: Tab = requestedTab === "contracts" && !canReadContracts ? "overview" : requestedTab ?? "overview";
+  useEffect(() => {
+    if (currentUserQ.isSuccess && requestedTab === "contracts" && !canReadContracts) {
+      navigate({
+        to: "/customers",
+        search: (previous) => ({ ...previous, tab: undefined, contractsPage: undefined, contractsCursor: undefined }),
+        replace: true,
+      });
+    }
+  }, [canReadContracts, currentUserQ.isSuccess, navigate, requestedTab]);
   const q = useQuery(customerQuery(id));
   const metricsQ = useQuery({ ...customerMetricsQuery(id), enabled: canReadContracts && !!id });
   const recentContractsQ = useQuery({
@@ -41,15 +53,40 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
     enabled: canReadContracts && tab === "contracts",
   });
   const tabs = canReadContracts ? TABS : TABS.filter((item) => item.value !== "contracts");
+  const setTab = (next: Tab) => navigate({
+    to: "/customers",
+    search: (previous) => ({
+      ...previous,
+      tab: next === "overview" ? undefined : next,
+      contractsPage: next === "contracts" ? previous.contractsPage : undefined,
+      contractsCursor: next === "contracts" ? previous.contractsCursor : undefined,
+    }),
+  });
   const changeContractsPage = (nextPage: number) => {
-    if (contractsPage === 0 && contractsQ.data?.cursor) setContractsCursor(contractsQ.data.cursor);
-    setContractsPage(nextPage);
+    navigate({
+      to: "/customers",
+      search: (previous) => ({
+        ...previous,
+        contractsPage: nextPage || undefined,
+        contractsCursor: previous.contractsCursor ?? contractsQ.data?.cursor,
+      }),
+    });
   };
-  const recoverContracts = () => {
+  const recoverContracts = useCallback(() => {
     queryClient.removeQueries({ queryKey: ["contracts"] });
-    setContractsCursor(undefined);
-    setContractsPage(0);
-  };
+    navigate({
+      to: "/customers",
+      search: (previous) => ({ ...previous, contractsPage: undefined, contractsCursor: undefined }),
+      replace: true,
+    });
+  }, [navigate, queryClient]);
+  useRecoverOutOfRangePage({
+    ready: contractsQ.isSuccess && tab === "contracts",
+    page: contractsPage,
+    totalPages: contractsQ.data?.totalPages ?? 0,
+    totalItems: contractsQ.data?.totalElements ?? 0,
+    recover: recoverContracts,
+  });
 
   const c = q.data;
   if (q.isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -152,7 +189,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
           {canReadContracts && <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Recent contracts</CardTitle>
-              <a href={`/contracts?customerId=${c.id}`} className="text-sm text-blue-600 hover:underline">View all</a>
+              <Link to="/contracts" search={{ customerId: c.id }} className="text-sm text-blue-600 hover:underline">View all</Link>
             </CardHeader>
             <CardContent>
               {recentContractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : recentContractsQ.isError ? <div className="text-sm text-destructive">Failed to load recent contracts</div> : <DataTable columns={recentColumns} data={recentContracts} emptyMessage="No contracts" pageSize={5} />}

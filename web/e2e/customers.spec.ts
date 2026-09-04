@@ -212,9 +212,11 @@ test("does not expose or request contract data with customer-only read access", 
       || url.pathname === "/api/v1/contracts") contractDataRequests += 1;
   }, { permissions: currentUser.permissions.filter((permission) => permission !== "contract:read") });
 
-  await page.goto(`/customers?id=${CUSTOMER_ID}`);
+  await page.goto(`/customers?id=${CUSTOMER_ID}&tab=contracts&contractsPage=1&contractsCursor=forbidden`);
 
   await expect(page.getByRole("heading", { name: customer.name })).toBeVisible();
+  await expect(page).not.toHaveURL(/tab=contracts|contractsPage|contractsCursor/);
+  await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Contracts" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "View contracts" })).toHaveCount(0);
   await expect(page.getByText("Recent contracts")).toHaveCount(0);
