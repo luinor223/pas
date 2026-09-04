@@ -1,10 +1,10 @@
 package com.abclogistics.pas.billing;
 
 import com.abclogistics.pas.billing.domain.PaymentStatement;
-import com.abclogistics.pas.billing.grpc.ContractGrpcClient;
-import com.abclogistics.pas.billing.grpc.OperationsGrpcClient;
-import com.abclogistics.pas.billing.grpc.PricingGrpcClient;
-import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
+import com.abclogistics.pas.billing.client.ContractGrpcClient;
+import com.abclogistics.pas.billing.client.OperationsGrpcClient;
+import com.abclogistics.pas.billing.client.PricingGrpcClient;
+import com.abclogistics.pas.billing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.StatementLineRepository;
 import com.abclogistics.pas.billing.repository.StatementLineVolumeRepository;

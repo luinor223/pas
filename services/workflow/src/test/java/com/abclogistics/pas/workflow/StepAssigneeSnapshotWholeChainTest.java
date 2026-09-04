@@ -1,11 +1,11 @@
 package com.abclogistics.pas.workflow;
 
 import com.abclogistics.pas.identity.grpc.UserRef;
+import com.abclogistics.pas.workflow.client.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.domain.WorkflowInstance;
 import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.repository.StepAssigneeRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
-import com.abclogistics.pas.workflow.service.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.service.WorkflowInstanceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;

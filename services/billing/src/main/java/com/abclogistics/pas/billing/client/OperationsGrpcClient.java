@@ -1,4 +1,4 @@
-package com.abclogistics.pas.billing.grpc;
+package com.abclogistics.pas.billing.client;
 
 import com.abclogistics.pas.operations.grpc.ListVolumesRequest;
 import com.abclogistics.pas.operations.grpc.ListVolumesResponse;

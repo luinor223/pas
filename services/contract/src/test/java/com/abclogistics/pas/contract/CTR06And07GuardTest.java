@@ -21,7 +21,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
-import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;

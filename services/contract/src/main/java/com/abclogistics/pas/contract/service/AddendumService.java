@@ -7,6 +7,7 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.AddendumServiceLine;
 import com.abclogistics.pas.contract.domain.ChangeType;

@@ -1,4 +1,4 @@
-package com.abclogistics.pas.contract.service;
+package com.abclogistics.pas.contract.client;
 
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.grpc.CancelInstanceRequest;

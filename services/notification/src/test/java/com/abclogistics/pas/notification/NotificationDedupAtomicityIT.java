@@ -1,11 +1,11 @@
 package com.abclogistics.pas.notification;
 
 import com.abclogistics.pas.common.events.MalformedEventException;
+import com.abclogistics.pas.notification.client.IdentityGrpcClient;
 import com.abclogistics.pas.notification.domain.NotificationCategory;
 import com.abclogistics.pas.notification.event.EventEnvelope;
 import com.abclogistics.pas.notification.repository.NotificationRepository;
 import com.abclogistics.pas.notification.repository.ProcessedEventRepository;
-import com.abclogistics.pas.notification.service.IdentityGrpcClient;
 import com.abclogistics.pas.notification.service.NotificationService;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Tag;

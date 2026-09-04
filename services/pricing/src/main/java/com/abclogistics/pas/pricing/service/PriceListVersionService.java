@@ -7,6 +7,7 @@ import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.pricing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.pricing.domain.PriceList;
 import com.abclogistics.pas.pricing.domain.PriceListVersion;
 import com.abclogistics.pas.pricing.domain.PriceListVersionStatus;

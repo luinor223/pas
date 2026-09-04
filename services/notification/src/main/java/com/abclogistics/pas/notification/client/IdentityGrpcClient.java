@@ -1,4 +1,4 @@
-package com.abclogistics.pas.notification.service;
+package com.abclogistics.pas.notification.client;
 
 import com.abclogistics.pas.identity.grpc.IdentityInternalGrpc;
 import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;

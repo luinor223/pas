@@ -1,4 +1,4 @@
-package com.abclogistics.pas.workflow.service;
+package com.abclogistics.pas.workflow.client;
 
 import com.abclogistics.pas.identity.grpc.IdentityInternalGrpc;
 import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;

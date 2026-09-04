@@ -37,7 +37,7 @@ import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.service.StatusTransitionService;
-import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
