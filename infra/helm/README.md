@@ -23,6 +23,25 @@ cluster must be able to reach:
   injects the `X-User-*` headers).
 - A **Secret** named `pas-jwt-private` holding `jwt-private.pem` (identity signs
   tokens with it), and the RS256 **public key** passed as `jwt.publicKey`.
+- A per-service **Secret** holding the app credentials, named `<name>-service-secret`
+  (override with `service.secretName`), with keys `db-password` and, for contract,
+  `pagination-cursor-secret`. The charts never carry credentials: store the values
+  in Secret Manager / Vault and let the External Secrets Operator sync them into a
+  k8s Secret of that name. The Deployment reads it by `secretKeyRef`.
+
+  ```yaml
+  # Managed by the platform, not this chart: ESO syncs GSM/Vault -> k8s Secret.
+  apiVersion: external-secrets.io/v1
+  kind: ExternalSecret
+  metadata:
+    name: identity-service-secret
+  spec:
+    secretStoreRef: { name: pas, kind: ClusterSecretStore }
+    target: { name: identity-service-secret }
+    data:
+      - secretKey: db-password
+        remoteRef: { key: pas/identity/db-password }
+  ```
 
 Point the charts at those endpoints with a shared values file, e.g.
 `values-staging.yaml`, applied to every install.
@@ -33,7 +52,7 @@ Point the charts at those endpoints with a shared values file, e.g.
 # Vendor the library chart into each chart (run once, or after editing it):
 helm dependency build services/identity/helm
 
-# Install one service:
+# Install one service (its Secret already provisioned in the namespace):
 helm install identity services/identity/helm \
   -f values-staging.yaml \
   --set jwt.publicKey="$(cat jwt-public.pem)"

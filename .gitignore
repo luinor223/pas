@@ -67,5 +67,5 @@ docker-compose.override.yml
 .playwright-cli/
 
 # Helm vendored dependencies (rebuild with: helm dependency build)
-*/helm/charts/
-*/helm/Chart.lock
+**/helm/charts/
+**/helm/Chart.lock

@@ -6,6 +6,16 @@ Workload/Service name. Kept as "<name>-service" so in-cluster gRPC peers
 {{- printf "%s-service" .Values.service.name -}}
 {{- end -}}
 
+{{/*
+Name of the externally provisioned Secret the Deployment reads db-password and
+secretEnv keys from. Defaults to "<fullname>-secret"; override with
+service.secretName. The chart never creates this Secret: provision it out of
+band from Secret Manager / Vault via the External Secrets Operator.
+*/}}
+{{- define "pas-common.secretName" -}}
+{{- .Values.service.secretName | default (printf "%s-secret" (include "pas-common.fullname" .)) -}}
+{{- end -}}
+
 {{- define "pas-common.labels" -}}
 app.kubernetes.io/name: {{ .Values.service.name }}
 app.kubernetes.io/instance: {{ .Release.Name }}

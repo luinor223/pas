@@ -36,7 +36,7 @@ service:
   database:
     name: pas_notification
     user: notification
-    password: notification   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env:
     IDENTITY_GRPC_HOST: "identity-service"
     IDENTITY_GRPC_PORT: "50051"

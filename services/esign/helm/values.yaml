@@ -37,7 +37,7 @@ service:
   database:
     name: pas_esign
     user: esign
-    password: esign   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env:
     CONTRACT_GRPC_HOST: "contract-service"
     CONTRACT_GRPC_PORT: "50052"

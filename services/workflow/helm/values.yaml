@@ -37,7 +37,7 @@ service:
   database:
     name: pas_workflow
     user: workflow
-    password: workflow   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env:
     IDENTITY_GRPC_HOST: "identity-service"
     IDENTITY_GRPC_PORT: "50051"

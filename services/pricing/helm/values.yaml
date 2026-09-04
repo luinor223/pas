@@ -37,7 +37,7 @@ service:
   database:
     name: pas_pricing
     user: pricing
-    password: pricing   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env:
     WORKFLOW_GRPC_HOST: "workflow-service"
     WORKFLOW_GRPC_PORT: "50056"

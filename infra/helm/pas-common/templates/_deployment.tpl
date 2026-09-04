@@ -32,7 +32,7 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pas-common.fullname" . }}-secret
+                  name: {{ include "pas-common.secretName" . }}
                   key: db-password
             {{- end }}
             {{- if not .Values.service.disableRedis }}
@@ -59,7 +59,7 @@ spec:
             - name: {{ $k }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pas-common.fullname" $ }}-secret
+                  name: {{ include "pas-common.secretName" $ }}
                   key: {{ $secretKey }}
             {{- end }}
           {{- if or .Values.service.signsJwt .Values.service.persistence }}

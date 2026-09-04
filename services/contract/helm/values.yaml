@@ -37,7 +37,7 @@ service:
   database:
     name: pas_contract
     user: contract
-    password: contract   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env:
     WORKFLOW_GRPC_HOST: "workflow-service"
     WORKFLOW_GRPC_PORT: "50056"
@@ -45,9 +45,8 @@ service:
     ESIGN_GRPC_PORT: "50057"
     ATTACHMENT_STORAGE_PATH: "/var/pas/attachments"
   secretEnv:
+    # env var -> key in the external Secret (service.secretName)
     PAGINATION_CURSOR_SECRET: "pagination-cursor-secret"
-  secrets:
-    pagination-cursor-secret: "local-development-pagination-cursor-secret"
   persistence:
     size: 1Gi
     mountPath: /var/pas/attachments

@@ -38,7 +38,7 @@ service:
   database:
     name: pas_identity
     user: identity
-    password: identity   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env: {}
   routes:
     - /api/v1/users

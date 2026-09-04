@@ -37,7 +37,7 @@ service:
   database:
     name: pas_audit
     user: audit
-    password: audit   # override per-environment
+    # db-password comes from the external Secret (service.secretName)
   env: {}
   routes:
     - /api/v1/audit-records
