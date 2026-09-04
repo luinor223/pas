@@ -42,3 +42,16 @@ export function formatMoney(value: number | null | undefined, currency = "VND"):
   const amount = value.toLocaleString("vi-VN");
   return `${amount} ${currency}`;
 }
+
+/** Current local date for an HTML date input (YYYY-MM-DD). */
+export function localDateInputValue(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Current local month for an HTML month input (YYYY-MM). */
+export function localMonthInputValue(date = new Date()): string {
+  return localDateInputValue(date).slice(0, 7);
+}

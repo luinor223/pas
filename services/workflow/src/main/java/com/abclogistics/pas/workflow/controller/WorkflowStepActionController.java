@@ -26,6 +26,6 @@ public class WorkflowStepActionController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAuthority('approval:act')")
     public void act(@PathVariable UUID stepInstanceId, @Valid @RequestBody StepActionRequest request) {
-        instanceService.actOnStep(stepInstanceId, request.action(), request.comment());
+        instanceService.actOnStep(stepInstanceId, request.action(), request.comment(), request.idempotencyKey());
     }
 }

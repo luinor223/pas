@@ -7,6 +7,7 @@ import com.abclogistics.pas.pricing.domain.StatusHistory;
 import com.abclogistics.pas.pricing.domain.TriggerKind;
 import com.abclogistics.pas.pricing.listener.WorkflowEventListener;
 import com.abclogistics.pas.pricing.repository.PriceListVersionRepository;
+import com.abclogistics.pas.pricing.repository.ProcessedEventRepository;
 import com.abclogistics.pas.pricing.repository.StatusHistoryRepository;
 import com.abclogistics.pas.pricing.service.EffectivePriceService;
 import com.abclogistics.pas.pricing.service.EffectivePriceService.ResolvedPriceList;
@@ -14,6 +15,7 @@ import com.abclogistics.pas.pricing.service.PriceListService;
 import com.abclogistics.pas.pricing.service.PriceListService.LineInput;
 import com.abclogistics.pas.pricing.service.PriceListVersionService;
 import com.abclogistics.pas.pricing.service.WorkflowGrpcClient;
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,6 +72,7 @@ class EffectivePricingIT {
     @Autowired WorkflowEventListener listener;
     @Autowired PriceListVersionRepository versions;
     @Autowired StatusHistoryRepository history;
+    @Autowired ProcessedEventRepository processed;
 
     private PriceListVersion version(UUID priceListId, LocalDate from, LocalDate to) {
         PriceListVersion v = lists.addVersion(priceListId, from, to, null);
@@ -146,5 +149,49 @@ class EffectivePricingIT {
         Optional<ResolvedPriceList> resolved =
                 effective.resolve(contractId, customerId, "CONTAINER_HANDLING", LocalDate.of(2026, 6, 1));
         assertThat(resolved).get().extracting(ResolvedPriceList::priceListNo).isEqualTo(contractList.getPriceListNo());
+    }
+
+    @Test
+    void emptyVersionCannotBeSubmitted() {
+        PriceList list = lists.create(null, UUID.randomUUID(), null, null);
+        PriceListVersion empty = lists.addVersion(
+                list.getId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), null);
+
+        assertThatThrownBy(() -> versionService.submit(empty.getId()))
+                .isInstanceOf(FailedPreconditionException.class)
+                .hasMessage("Add at least one price before submitting this version");
+        assertThat(versions.findById(empty.getId()).orElseThrow().getStatus())
+                .isEqualTo(PriceListVersionStatus.DRAFT);
+    }
+
+    @Test
+    void priceListsAreFilteredAndPagedOnTheServer() {
+        PriceList matching = lists.create(null, UUID.randomUUID(), null, "Annual terminal prices");
+        lists.create(null, null, "WAREHOUSING", "Different scope");
+
+        var result = lists.searchPage(null, null, null, "terminal", 0, 15);
+
+        assertThat(result.getContent()).extracting(PriceList::getId).containsExactly(matching.getId());
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void competingOverlappingApprovalIsRejectedWithoutPoisoningTheEvent() {
+        PriceList list = lists.create(null, UUID.randomUUID(), null, null);
+        PriceListVersion later = version(list.getId(), LocalDate.of(2026, 6, 1), LocalDate.of(2026, 12, 31));
+        PriceListVersion earlier = version(list.getId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 9, 30));
+        versionService.submit(later.getId());
+        versionService.submit(earlier.getId());
+
+        UUID firstEvent = UUID.randomUUID();
+        listener.onEvent("{\"instance_id\":\"" + UUID.randomUUID() + "\",\"outcome\":\"APPROVED\"}",
+                "workflow.completed", "PRICE_LIST", firstEvent.toString(), later.getId().toString());
+        UUID conflictingEvent = UUID.randomUUID();
+        listener.onEvent("{\"instance_id\":\"" + UUID.randomUUID() + "\",\"outcome\":\"APPROVED\"}",
+                "workflow.completed", "PRICE_LIST", conflictingEvent.toString(), earlier.getId().toString());
+
+        assertThat(versions.findById(later.getId()).orElseThrow().getStatus()).isEqualTo(PriceListVersionStatus.APPROVED);
+        assertThat(versions.findById(earlier.getId()).orElseThrow().getStatus()).isEqualTo(PriceListVersionStatus.REJECTED);
+        assertThat(processed.existsById(conflictingEvent)).isTrue();
     }
 }

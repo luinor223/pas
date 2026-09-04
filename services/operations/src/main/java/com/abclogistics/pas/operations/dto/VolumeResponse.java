@@ -9,6 +9,7 @@ public record VolumeResponse(
         String recordNo,
         String periodCode,
         UUID contractId,
+        String contractNo,
         String customerName,
         String serviceCode,
         String serviceName,

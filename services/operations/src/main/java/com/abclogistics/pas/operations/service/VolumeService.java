@@ -9,6 +9,7 @@ import com.abclogistics.pas.operations.domain.OperationPeriod;
 import com.abclogistics.pas.operations.domain.PeriodCode;
 import com.abclogistics.pas.operations.domain.VolumeRecord;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
+import com.abclogistics.pas.operations.dto.VolumePageResponse;
 import com.abclogistics.pas.operations.grpc.ContractClient;
 import com.abclogistics.pas.operations.grpc.PricingClient;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
@@ -25,9 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Locale;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 public class VolumeService {
@@ -59,6 +62,7 @@ public class VolumeService {
     // Sequence is race-free for sole writer, but restored dump may have record_no that collides with nextval
     // → catch 409 and regenerate once. Cost <5 loc, keeps save() path self-healing instead of bubbling 409.
     public VolumeResponse create(UUID contractId, String periodCode, String serviceCode, BigDecimal quantity, String note) {
+        requireWritePermission();
         if (quantity == null || quantity.compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("quantity must be >= 0");
         }
@@ -76,6 +80,7 @@ public class VolumeService {
         String serviceName = serviceItem.getName();
         String unit = serviceItem.getUnit();
         GetContractResponse contract = contractClient.getContract(contractId);
+        validateContractEligibility(contract, periodCheck);
         String customerName = contract.getCustomerName();
         UUID actor = SecurityUtils.currentUserId();
 
@@ -87,6 +92,7 @@ public class VolumeService {
             tmpCustomerId = null;
         }
         final UUID customerId = tmpCustomerId;
+        final String contractNoFinal = contract.getContractNo();
         final String serviceNameFinal = serviceName;
         final String unitFinal = unit;
         final String customerNameFinal = customerName;
@@ -101,25 +107,26 @@ public class VolumeService {
                 TransactionTemplate tt = new TransactionTemplate(txManager);
                 tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
                 return tt.execute(status -> {
-                    OperationPeriod period = periodRepo.findByPeriodCode(periodCode)
+                    OperationPeriod period = periodRepo.findByPeriodCodeForUpdate(periodCode)
                             .orElseThrow(() -> new NotFoundException("Period not found: " + periodCode));
-                    // P0-1 fix: re-validate isLocked inside new TX after period is re-read (TOCTOU)
+                    // Serialize with PeriodService.lock so a write cannot commit behind a completed lock.
                     if (period.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
                         throw new AccessDeniedException("Period is locked; volume:edit_locked required");
                     }
                     VolumeRecord record = VolumeRecord.create(
-                            period, currentRecNo, contractId, customerId, customerNameFinal,
+                            period, currentRecNo, contractId, contractNoFinal, customerId, customerNameFinal,
                             serviceCode, serviceNameFinal, unitFinal, quantityFinal, noteFinal, actorFinal);
                     volumeRepo.save(record);
                     Map<String, Object> changes = Map.of(
                             "contractId", contractId.toString(),
                             "periodCode", periodCode,
                             "serviceCode", serviceCode,
-                            "quantity", quantityFinal.toPlainString()
+                            "quantity", quantityFinal.toPlainString(),
+                            "periodLocked", period.isLocked()
                     );
                     audit.record("VOLUME_RECORD", record.getId(), currentRecNo, "volume.created",
                             null, null, null, changes);
-                    return toResponse(record);
+                    return toResponse(record, contractNoFinal);
                 });
             } catch (DataIntegrityViolationException e) {
                 String msg = e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "";
@@ -132,16 +139,13 @@ public class VolumeService {
     }
 
     @Transactional(readOnly = true)
-    public List<VolumeResponse> list(String periodCode, UUID contractId) {
-        List<VolumeRecord> records;
-        if (periodCode != null && contractId != null) {
-            records = volumeRepo.findByContractIdAndPeriod_PeriodCode(contractId, periodCode);
-        } else if (periodCode != null) {
-            records = volumeRepo.findByPeriod_PeriodCode(periodCode);
-        } else {
-            records = volumeRepo.findAll();
-        }
-        return records.stream().map(this::toResponse).toList();
+    public VolumePageResponse search(String periodCode, UUID contractId, String serviceCode, String q, int page, int size) {
+        String searchTerm = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
+        String service = serviceCode == null || serviceCode.isBlank() ? null : serviceCode;
+        var result = volumeRepo.searchPage(periodCode, contractId, service, searchTerm, PageRequest.of(page, size));
+        return new VolumePageResponse(
+                result.getContent().stream().map(this::toResponse).toList(),
+                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -153,13 +157,15 @@ public class VolumeService {
 
     @Transactional
     public VolumeResponse update(UUID id, BigDecimal quantity, String note) {
+        requireWritePermission();
         if (quantity == null || quantity.compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("quantity must be >= 0");
         }
         VolumeRecord record = volumeRepo.findById(id)
                 .orElseThrow(() -> new NotFoundException("Volume record not found: " + id));
 
-        OperationPeriod period = record.getPeriod();
+        OperationPeriod period = periodRepo.findByPeriodCodeForUpdate(record.getPeriod().getPeriodCode())
+                .orElseThrow(() -> new NotFoundException("Period not found: " + record.getPeriod().getPeriodCode()));
         // guard OPEN or volume:edit_locked + audit
         if (period.isLocked() && !SecurityUtils.hasPermission("volume:edit_locked")) {
             throw new AccessDeniedException("Period is locked; volume:edit_locked required to edit");
@@ -196,12 +202,47 @@ public class VolumeService {
         }
     }
 
+    private void requireWritePermission() {
+        if (!SecurityUtils.hasPermission("volume:write")) {
+            throw new AccessDeniedException("You do not have permission to change volume records");
+        }
+    }
+
+    private void validateContractEligibility(GetContractResponse contract, OperationPeriod period) {
+        if (!"ACTIVE".equals(contract.getStatus())) {
+            throw new FailedPreconditionException(
+                    "Contract %s cannot be used because its status is %s"
+                            .formatted(contract.getContractNo(), friendlyStatus(contract.getStatus())));
+        }
+
+        LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
+        LocalDate validTo = LocalDate.parse(contract.getValidTo());
+        if (period.getStartDate().isBefore(validFrom) || period.getEndDate().isAfter(validTo)) {
+            throw new FailedPreconditionException(
+                    "The selected period is outside contract %s's valid dates (%s to %s)"
+                            .formatted(contract.getContractNo(), validFrom, validTo));
+        }
+    }
+
+    private String friendlyStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "not available";
+        }
+        String normalized = status.toLowerCase().replace('_', ' ');
+        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+    }
+
     private VolumeResponse toResponse(VolumeRecord r) {
+        return toResponse(r, r.getContractNo());
+    }
+
+    private VolumeResponse toResponse(VolumeRecord r, String contractNo) {
         return new VolumeResponse(
                 r.getId(),
                 r.getRecordNo(),
                 r.getPeriod().getPeriodCode(),
                 r.getContractId(),
+                contractNo,
                 r.getCustomerName(),
                 r.getServiceCode(),
                 r.getServiceName(),

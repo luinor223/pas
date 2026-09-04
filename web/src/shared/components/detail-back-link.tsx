@@ -1,22 +1,29 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
-type DetailBackLinkProps = {
-  to: "/customers" | "/contracts";
-  children: string;
+type DetailBackButtonProps = {
+  to: "/customers" | "/contracts" | "/price-lists";
+  /** Names the destination for assistive tech, since the chevron carries no text. */
+  label: string;
 };
 
-export function DetailBackLink({ to, children }: DetailBackLinkProps) {
+/** Square chevron that sits beside a detail title and clears the row selection from the URL. */
+export function DetailBackButton({ to, label }: DetailBackButtonProps) {
   return (
     <Link
       to={to}
-      search={to === "/customers"
+      search={to === "/price-lists"
+        ? ((previous) => ({ ...previous, id: undefined, versionId: undefined }))
+        : to === "/customers"
         ? { id: undefined }
-        : { id: undefined, tab: undefined, customerId: undefined }}
-      className="inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+        : to === "/contracts"
+          ? { id: undefined, tab: undefined, customerId: undefined }
+          : { id: undefined, versionId: undefined }}
+      aria-label={label}
+      title={label}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
-      <ArrowLeft size={16} aria-hidden="true" />
-      {children}
+      <ChevronLeft size={18} aria-hidden="true" />
     </Link>
   );
 }

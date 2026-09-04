@@ -14,6 +14,8 @@ public interface PriceLineRepository extends JpaRepository<PriceLine, UUID> {
 
     List<PriceLine> findByVersionId(UUID versionId);
 
+    boolean existsByVersionId(UUID versionId);
+
     @Transactional
     void deleteByVersionId(UUID versionId);
 

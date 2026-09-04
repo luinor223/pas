@@ -8,6 +8,7 @@ import com.abclogistics.pas.workflow.domain.WorkflowInstance;
 import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
 import com.abclogistics.pas.workflow.service.WorkflowInstanceService;
+import com.abclogistics.pas.workflow.service.InboxService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -65,9 +67,11 @@ class WorkflowEventWireContractIT {
     }
 
     @Autowired WorkflowInstanceService instances;
+    @Autowired InboxService inbox;
     @Autowired WorkflowStepInstanceRepository steps;
     @Autowired OutboxRepository outbox;
     @Autowired StubIdentityGrpcClient identity;
+    @Autowired JdbcTemplate jdbc;
 
     private final ObjectMapper mapper = new ObjectMapper();
     private UUID requester;
@@ -84,7 +88,7 @@ class WorkflowEventWireContractIT {
                 "DIRECTOR", List.of(approver)));
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 new AuthenticatedUser(requester, "approver", REQUESTER_NAME, "LEGAL",
-                        List.of("LEGAL_REVIEWER")),
+                        List.of("SALES_MANAGER", "LEGAL_REVIEWER", "DIRECTOR")),
                 null, List.of(() -> "approval:act")));
     }
 
@@ -161,6 +165,98 @@ class WorkflowEventWireContractIT {
         assertThat(published()).extracting(OutboxEvent::topic).containsOnly("pas.events");
     }
 
+    @Test
+    void submittedInboxIsFilteredAndPagedWithItsCurrentStep() {
+        WorkflowInstance instance = startInstance();
+
+        var result = inbox.submittedByMe(
+                requester, 0, 15, "HD-2026", "CONTRACT", "NORMAL");
+
+        assertThat(result.totalItems()).isEqualTo(1);
+        assertThat(result.items()).singleElement().satisfies(item -> {
+            assertThat(item.instanceId()).isEqualTo(instance.getId());
+            assertThat(item.currentStepName()).isNotBlank();
+            assertThat(item.stepInstanceId()).isNotNull();
+        });
+    }
+
+    @Test
+    void inboxQueriesExecuteAgainstPostgresWithFiltersCountsAndTerminalRows() {
+        WorkflowInstance matching = startInstance();
+        instances.startInstance("PRICE_LIST", UUID.randomUUID(), "PRC-OTHER", "Other customer",
+                "HIGH", requester, REQUESTER_NAME, UUID.randomUUID());
+
+        var assigned = inbox.assignedToMe(requester, 0, 1, "ACME", "contract", "normal");
+        assertThat(assigned.totalItems()).isEqualTo(1);
+        assertThat(assigned.totalPages()).isEqualTo(1);
+        assertThat(assigned.items()).singleElement().satisfies(item -> {
+            assertThat(item.instanceId()).isEqualTo(matching.getId());
+            assertThat(item.stepInstanceId()).isNotNull();
+        });
+        assertThat(inbox.assignedToMe(requester, 0, 15, "Sales review", null, null).totalItems()).isGreaterThanOrEqualTo(1);
+        assertThat(inbox.submittedByMe(requester, 0, 15, REQUESTER_NAME, null, null).totalItems()).isGreaterThanOrEqualTo(2);
+
+        WorkflowStepInstance first = steps.findByInstance_IdAndStepOrder(matching.getId(), 1).orElseThrow();
+        instances.actOnStep(first.getId(), "APPROVE", null);
+        var completed = inbox.completed(requester, 0, 15, "HD-2026", "CONTRACT", "NORMAL");
+        assertThat(completed.totalItems()).isEqualTo(1);
+        assertThat(completed.items()).singleElement().extracting(item -> item.instanceId()).isEqualTo(matching.getId());
+
+        approveEveryStep(matching);
+        var submitted = inbox.submittedByMe(requester, 0, 15, "HD-2026", "CONTRACT", "NORMAL");
+        assertThat(submitted.items()).singleElement().satisfies(item -> {
+            assertThat(item.status()).isEqualTo("APPROVED");
+            assertThat(item.stepInstanceId()).isNull();
+        });
+    }
+
+    @Test
+    void finalApprovalEmitsOneCompletionAndNoDuplicateFinalStepNotificationEvent() {
+        approveEveryStep(startInstance());
+
+        assertThat(published()).filteredOn(event -> "workflow.completed".equals(event.getEventType())).hasSize(1);
+        assertThat(published()).filteredOn(event -> "workflow.step_actioned".equals(event.getEventType())).hasSize(2);
+    }
+
+    @Test
+    void workflowAuditRowsCarryTheBusinessDocumentNumber() {
+        WorkflowInstance instance = startInstance();
+        WorkflowStepInstance first = steps.findByInstance_IdAndStepOrder(instance.getId(), 1).orElseThrow();
+        instances.actOnStep(first.getId(), "APPROVE", "ok");
+
+        assertThat(auditPayloads())
+                .filteredOn(payload -> payload.get("action").asString().equals("workflow.instance_started")
+                        || payload.get("action").asString().equals("workflow.step_approved"))
+                .isNotEmpty()
+                .allSatisfy(payload -> assertThat(payload.get("entity_no").asString())
+                        .isEqualTo("HD-2026-0001"));
+        assertThat(auditPayloads())
+                .filteredOn(payload -> payload.get("action").asString().equals("workflow.step_approved"))
+                .singleElement()
+                .satisfies(payload -> {
+                    assertThat(payload.at("/changes/documentType").asString()).isEqualTo("CONTRACT");
+                    assertThat(payload.at("/changes/documentId").asString())
+                            .isEqualTo(instance.getDocumentId().toString());
+                });
+    }
+
+    @Test
+    void tiedInboxTimestampsRemainStableAcrossPages() {
+        for (int index = 0; index < 16; index++) {
+            instances.startInstance("CONTRACT", UUID.randomUUID(), "TIE-%02d".formatted(index), "Tie customer",
+                    "NORMAL", requester, REQUESTER_NAME, UUID.randomUUID());
+        }
+        jdbc.update("update workflow.workflow_instance set created_at = timestamp with time zone '2026-01-01 00:00:00Z' where requested_by = ?", requester);
+
+        var first = inbox.submittedByMe(requester, 0, 10, "TIE-", null, null);
+        var second = inbox.submittedByMe(requester, 1, 10, "TIE-", null, null);
+        var ids = java.util.stream.Stream.concat(first.items().stream(), second.items().stream())
+                .map(item -> item.instanceId()).collect(java.util.stream.Collectors.toSet());
+
+        assertThat(first.totalItems()).isEqualTo(16);
+        assertThat(ids).hasSize(16);
+    }
+
     private WorkflowInstance startInstance() {
         return instances.startInstance("CONTRACT", UUID.randomUUID(), "HD-2026-0001", "ACME Co",
                 "NORMAL", requester, REQUESTER_NAME, UUID.randomUUID());
@@ -183,6 +279,13 @@ class WorkflowEventWireContractIT {
     /** pas.events only — audit.recorded rows share the outbox but are a different contract. */
     private List<OutboxEvent> published() {
         return outbox.findAll().stream().filter(e -> "pas.events".equals(e.topic())).toList();
+    }
+
+    private List<JsonNode> auditPayloads() {
+        return outbox.findAll().stream()
+                .filter(e -> "audit.recorded".equals(e.getEventType()))
+                .map(e -> mapper.readTree(e.getPayload()))
+                .toList();
     }
 
     private JsonNode payloadOf(String eventType) {

@@ -25,6 +25,9 @@ public final class PriceListDtos {
         }
     }
 
+    public record PriceListPageResponse(List<PriceListResponse> items, int page, int size,
+                                        long totalItems, int totalPages) {}
+
     public record CreateVersionRequest(@NotNull LocalDate validFrom, @NotNull LocalDate validTo, UUID addendumId) {}
 
     public record VersionResponse(UUID id, UUID priceListId, int versionNo, String status,

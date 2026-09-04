@@ -5,6 +5,7 @@ import com.abclogistics.pas.billing.dto.*;
 import com.abclogistics.pas.billing.error.UnprocessableEntityException;
 import com.abclogistics.pas.billing.grpc.*;
 import com.abclogistics.pas.billing.repository.*;
+import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
@@ -44,7 +45,7 @@ public class StatementService {
     private final OperationsGrpcClient operationsClient;
     private final WorkflowGrpcClient workflowClient;
     private final EsignGrpcClient esignClient;
-    private final com.abclogistics.pas.common.audit.AuditRecorder auditRecorder;
+    private final AuditRecorder auditRecorder;
     private final StatusTransitionService transitions;
     private final tools.jackson.databind.ObjectMapper objectMapper;
 
@@ -57,7 +58,7 @@ public class StatementService {
                             OperationsGrpcClient operationsClient,
                             WorkflowGrpcClient workflowClient,
                             EsignGrpcClient esignClient,
-                            com.abclogistics.pas.common.audit.AuditRecorder auditRecorder,
+                            AuditRecorder auditRecorder,
                             StatusTransitionService transitions,
                             tools.jackson.databind.ObjectMapper objectMapper) {
         this.statementRepo = statementRepo;
@@ -670,7 +671,7 @@ public class StatementService {
         transitions.transition(statement, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
 
-        auditOutbox(statement, "statement.cancelled", oldStatus.name());
+        auditOutbox(statement, "statement.cancelled", oldStatus.name(), reason);
         return toResponse(statement);
     }
 
@@ -771,9 +772,13 @@ public class StatementService {
     }
 
     private void auditOutbox(PaymentStatement statement, String action, String beforeStatus) {
+        auditOutbox(statement, action, beforeStatus, null);
+    }
+
+    private void auditOutbox(PaymentStatement statement, String action, String beforeStatus, String note) {
         // Serialized by AuditRecorder: no hand-built JSON, no "null"-string actor ids (finding 8).
         auditRecorder.record("PAYMENT_STATEMENT", statement.getId(), statement.getStatementNo(), action,
-            beforeStatus, statement.getStatus().name(), null, Map.of());
+            beforeStatus, statement.getStatus().name(), note, Map.of());
     }
 
 

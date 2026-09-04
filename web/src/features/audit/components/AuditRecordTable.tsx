@@ -1,6 +1,6 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowRight, ChevronRight, RefreshCw } from "lucide-react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
@@ -24,18 +24,24 @@ import { departmentLabel, permissionLabel, roleLabel } from "@/shared/lib/labels
 import { AUDIT_MODULES, SERVICE_LABELS } from "@/shared/lib/modules";
 import { formatDateTime } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
+import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import { auditRecordTarget } from "@/shared/lib/document-links";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export function AuditRecordTable() {
   const canView = useHasPermission("audit:view_all");
-  const [sourceService, setSourceService] = useState("");
-  const [entityType, setEntityType] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [action, setAction] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [page, setPage] = useState(0);
+  const navigate = useNavigate({ from: "/audit-log" });
+  const routeSearch = useSearch({ from: "/audit-log" });
+  const sourceService = routeSearch.sourceService ?? "";
+  const entityType = routeSearch.entityType ?? "";
+  const searchQuery = routeSearch.q ?? "";
+  const action = routeSearch.action ?? "";
+  const from = routeSearch.from ?? "";
+  const to = routeSearch.to ?? "";
+  const page = routeSearch.page ?? 0;
+  const debouncedSearch = useDebouncedSearch(searchQuery);
   const [selected, setSelected] = useState<AuditRecordResponse | null>(null);
   const invalidDateRange = isInvalidDateRange(from, to);
   const hasFilters = !!(sourceService || entityType || searchQuery || action || from || to);
@@ -46,13 +52,12 @@ export function AuditRecordTable() {
     ...auditRecordsQuery({
       sourceService: sourceService || undefined,
       entityType: entityType || undefined,
-      query: searchQuery.trim() || undefined,
+      query: debouncedSearch || undefined,
       action: action || undefined,
       from: toDayBoundary(from, false),
       to: toDayBoundary(to, true),
       page,
       size: PAGE_SIZE,
-      sort: "occurredAt,desc",
     }),
     enabled: canView && !invalidDateRange,
     // Audit records arrive asynchronously through Kafka. Check the unfiltered
@@ -63,18 +68,34 @@ export function AuditRecordTable() {
 
   const rows = listQ.data?.content ?? [];
   const totalPages = listQ.data?.totalPages ?? 1;
+  const recoverFirstPage = useCallback(
+    () => navigate({ search: (previous) => ({ ...previous, page: undefined }), replace: true }),
+    [navigate],
+  );
+  useRecoverOutOfRangePage({
+    ready: listQ.isSuccess,
+    page,
+    totalPages: listQ.data?.totalPages ?? 0,
+    totalItems: listQ.data?.totalElements ?? 0,
+    recover: recoverFirstPage,
+  });
   const visibleRecordTypes = sourceService
     ? AUDIT_RECORD_TYPES.filter((type) => type.module === sourceService)
     : AUDIT_RECORD_TYPES;
 
   function clear() {
-    setSourceService("");
-    setEntityType("");
-    setSearchQuery("");
-    setAction("");
-    setFrom("");
-    setTo("");
-    setPage(0);
+    navigate({
+      search: {
+        sourceService: undefined,
+        entityType: undefined,
+        q: undefined,
+        action: undefined,
+        from: undefined,
+        to: undefined,
+        page: undefined,
+      },
+      replace: true,
+    });
   }
 
   // Server is fail-closed on audit:view_all; gate the page rather than render a 403.
@@ -97,7 +118,10 @@ export function AuditRecordTable() {
             label="Search audit records"
             placeholder="Record, username or person"
             value={searchQuery}
-            onChange={(value) => { setSearchQuery(value); setPage(0); }}
+            onChange={(value) => navigate({
+              search: (previous) => ({ ...previous, q: value || undefined, page: undefined }),
+              replace: true,
+            })}
           />
         <Button
           type="button"
@@ -117,7 +141,14 @@ export function AuditRecordTable() {
             className="w-full sm:w-44"
             aria-label="Filter by module"
             value={sourceService}
-            onChange={(e) => { setSourceService(e.target.value); setEntityType(""); setPage(0); }}
+            onChange={(e) => navigate({
+              search: (previous) => ({
+                ...previous,
+                sourceService: e.target.value || undefined,
+                entityType: undefined,
+                page: undefined,
+              }),
+            })}
           >
             <option value="">All modules</option>
             {AUDIT_MODULES.map((module) => (
@@ -128,7 +159,9 @@ export function AuditRecordTable() {
             className="w-full sm:w-44"
             aria-label="Filter by record type"
             value={entityType}
-            onChange={(e) => { setEntityType(e.target.value); setPage(0); }}
+            onChange={(e) => navigate({
+              search: (previous) => ({ ...previous, entityType: e.target.value || undefined, page: undefined }),
+            })}
           >
             <option value="">All record types</option>
             {visibleRecordTypes.map((type) => (
@@ -139,7 +172,9 @@ export function AuditRecordTable() {
             className="w-full sm:w-48"
             aria-label="Filter by activity"
             value={action}
-            onChange={(e) => { setAction(e.target.value); setPage(0); }}
+            onChange={(e) => navigate({
+              search: (previous) => ({ ...previous, action: e.target.value || undefined, page: undefined }),
+            })}
           >
             <option value="">All activities</option>
             {AUDIT_ACTIVITIES.map((activity) => (
@@ -151,8 +186,12 @@ export function AuditRecordTable() {
             type="date"
             from={from}
             to={to}
-            onFromChange={(value) => { setFrom(value); setPage(0); }}
-            onToChange={(value) => { setTo(value); setPage(0); }}
+            onFromChange={(value) => navigate({
+              search: (previous) => ({ ...previous, from: value || undefined, page: undefined }),
+            })}
+            onToChange={(value) => navigate({
+              search: (previous) => ({ ...previous, to: value || undefined, page: undefined }),
+            })}
           />
           <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={clear} />
         </FilterBar>
@@ -196,7 +235,9 @@ export function AuditRecordTable() {
             totalPages={totalPages}
             pageSize={PAGE_SIZE}
             totalItems={listQ.data.totalElements}
-            onPageChange={setPage}
+            onPageChange={(nextPage) => navigate({
+              search: (previous) => ({ ...previous, page: nextPage === 0 ? undefined : nextPage }),
+            })}
           />
         )}
       </CardContent>
@@ -353,13 +394,13 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
 
 function AffectedRecordLink({ record }: { record: AuditRecordResponse }) {
   const className = "ml-2 inline-block text-primary hover:underline";
-  if (record.entityType === "CONTRACT") {
-    return <Link to="/contracts" search={{ id: record.entityId } as never} className={className}>Open contract</Link>;
-  }
-  if (record.entityType === "CUSTOMER") {
-    return <Link to="/customers" search={{ id: record.entityId } as never} className={className}>Open customer</Link>;
-  }
-  return null;
+  const target = auditRecordTarget(record.entityType, record.entityId, record.entityNo, record.changes);
+  if (!target) return null;
+  return (
+    <Link to={target.to} search={target.search as never} className={className}>
+      Open record
+    </Link>
+  );
 }
 
 function StatusTransition({ before, after }: { before: string | null; after: string | null }) {

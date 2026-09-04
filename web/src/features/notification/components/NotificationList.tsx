@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useCallback, type MouseEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { BellOff, CheckCheck, RefreshCw } from "lucide-react";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
@@ -12,14 +12,16 @@ import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { cn } from "@/shared/lib/cn";
 import { formatDateTime, formatRelative } from "@/shared/lib/format";
 import { PaginationControls } from "@/shared/components/pagination-controls";
+import { TabBar } from "@/shared/components/tab-bar";
 import { inboxQuery } from "../hooks/notificationQueries";
 import { notificationApi } from "../services/notificationApi";
 import type { NotificationCategory, NotificationResponse } from "../types/notificationTypes";
+import { documentTarget } from "@/shared/lib/document-links";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
-// Tabs and their counters come from InboxResponse.counts, which is computed
-// unfiltered - so a tab shows its total even while another tab is displayed.
+// Every counter represents unread work, including category counters.
 type Tab = { key: string; label: string; countKey: string; unread?: boolean; category?: NotificationCategory };
 
 const TABS: Tab[] = [
@@ -41,8 +43,10 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
 export function NotificationList() {
   const qc = useQueryClient();
   const canRead = useHasPermission("notification:read");
-  const [tabKey, setTabKey] = useState("all");
-  const [page, setPage] = useState(0);
+  const navigate = useNavigate({ from: "/notifications" });
+  const routeSearch = useSearch({ from: "/notifications" });
+  const tabKey = routeSearch.tab ?? "all";
+  const page = routeSearch.page ?? 0;
 
   const tab = TABS.find((t) => t.key === tabKey) ?? TABS[0];
   // enabled: the early Forbidden return below does not stop the hook, so an
@@ -53,7 +57,6 @@ export function NotificationList() {
       category: tab.category,
       page,
       size: PAGE_SIZE,
-      sort: "createdAt,desc",
     }),
     enabled: canRead,
     // Keep the newest page current without making every historical page poll.
@@ -64,24 +67,44 @@ export function NotificationList() {
   const inbox = listQ.data;
   const items = inbox?.items ?? [];
   const totalPages = Math.max(1, Math.ceil((inbox?.total ?? 0) / PAGE_SIZE));
+  const recoverFirstPage = useCallback(
+    () => navigate({ search: (previous) => ({ ...previous, page: undefined }), replace: true }),
+    [navigate],
+  );
+  useRecoverOutOfRangePage({
+    ready: listQ.isSuccess,
+    page,
+    totalPages: inbox ? Math.ceil(inbox.total / PAGE_SIZE) : 0,
+    totalItems: inbox?.total ?? 0,
+    recover: recoverFirstPage,
+  });
 
 
   const markRead = useMutation({
     mutationFn: (id: string) => notificationApi.markRead(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["inbox"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["notification-unread-count"] });
+    },
   });
   const markAllRead = useMutation({
     mutationFn: () => notificationApi.markAllRead(),
     onSuccess: () => {
       // The unread tab empties, so any page past the first no longer exists.
-      setPage(0);
+      navigate({ search: (previous) => ({ ...previous, page: undefined }), replace: true });
       qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["notification-unread-count"] });
     },
   });
 
   function selectTab(key: string) {
-    setTabKey(key);
-    setPage(0);
+    navigate({
+      search: (previous) => ({
+        ...previous,
+        tab: key === "all" ? undefined : key,
+        page: undefined,
+      }),
+    });
   }
 
   if (!canRead) {
@@ -125,32 +148,19 @@ export function NotificationList() {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-1 border-b border-border">
-          {TABS.map((t) => {
-            const active = t.key === tab.key;
-            const count = inbox?.counts?.[t.countKey];
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => selectTab(t.key)}
-                className={cn(
-                  "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-                  active
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {t.label}
-                {count !== undefined && count > 0 && (
-                  <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground">
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        <TabBar
+          tabs={TABS.map((item) => ({
+            value: item.key,
+            label: item.label,
+            count: item.key !== "all" && (inbox?.counts?.[item.countKey] ?? 0) > 0
+              ? inbox?.counts?.[item.countKey]
+              : undefined,
+          }))}
+          value={tab.key}
+          onChange={selectTab}
+          panelId="notification-panel"
+          className="gap-4"
+        />
 
         {(markAllRead.isError || markRead.isError) && (
           <div className="text-sm text-destructive">
@@ -161,6 +171,7 @@ export function NotificationList() {
           </div>
         )}
 
+        <div id="notification-panel" role="tabpanel">
         {listQ.isLoading ? (
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : listQ.isError ? (
@@ -175,18 +186,25 @@ export function NotificationList() {
         ) : (
           <div className="divide-y divide-border">
             {items.map((n) => (
-              <NotificationRow key={n.id} n={n} onOpen={() => markRead.mutate(n.id)} />
+              <NotificationRow
+                key={n.id}
+                n={n}
+                onOpen={() => markRead.mutateAsync(n.id).then(() => true).catch(() => false)}
+              />
             ))}
           </div>
         )}
+        </div>
 
-        {inbox && (
+        {inbox && inbox.total > 0 && (
           <PaginationControls
             page={page}
             totalPages={totalPages}
             pageSize={PAGE_SIZE}
             totalItems={inbox.total}
-            onPageChange={setPage}
+            onPageChange={(nextPage) => navigate({
+              search: (previous) => ({ ...previous, page: nextPage === 0 ? undefined : nextPage }),
+            })}
           />
         )}
       </CardContent>
@@ -194,17 +212,19 @@ export function NotificationList() {
   );
 }
 
-// Routes that accept a document id today. Price lists, statements and volume
-// records are still placeholders, so those notifications stay unlinked.
-const DOCUMENT_ROUTES: Record<string, string> = {
-  CONTRACT: "/contracts",
-};
-
-function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () => void }) {
+function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () => Promise<boolean> }) {
+  const navigate = useNavigate();
   const unread = n.readAt === null;
-  const route = n.documentType ? DOCUMENT_ROUTES[n.documentType] : undefined;
-  const linked = !!route && !!n.documentId;
-  const handleOpen = () => { if (unread) onOpen(); };
+  const target = documentTarget(n.documentType, n.documentId);
+  const linked = Boolean(target);
+
+  const handleLinkedOpen = async (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!unread || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (await onOpen()) {
+      await navigate({ to: target!.to, search: target!.search as never });
+    }
+  };
 
   const content = (
     <>
@@ -241,16 +261,16 @@ function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () =>
     (linked || unread) && "hover:bg-muted/50",
   );
 
-  if (linked) {
+  if (target) {
     return (
-      <Link to={route} search={{ id: n.documentId } as never} className={rowClassName} onClick={handleOpen}>
+      <Link to={target.to} search={target.search as never} className={rowClassName} onClick={handleLinkedOpen}>
         {content}
       </Link>
     );
   }
 
   if (unread) {
-    return <button type="button" className={rowClassName} onClick={handleOpen}>{content}</button>;
+    return <button type="button" className={rowClassName} onClick={() => void onOpen()}>{content}</button>;
   }
 
   return <div className={rowClassName}>{content}</div>;

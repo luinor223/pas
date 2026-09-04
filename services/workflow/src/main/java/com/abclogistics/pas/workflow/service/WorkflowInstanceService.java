@@ -179,8 +179,9 @@ public class WorkflowInstanceService {
                 "customer_name", customerName != null ? customerName : ""
         ));
 
-        audit.record("WORKFLOW_INSTANCE", instance.getId(), "workflow.instance_started",
-                null, Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
+        audit.record("WORKFLOW_INSTANCE", instance.getId(), instance.getDocumentNo(),
+                "workflow.instance_started", null, null, null,
+                Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
 
         return instance;
     }
@@ -197,10 +198,10 @@ public class WorkflowInstanceService {
             throw new FailedPreconditionException("Workflow instance not in progress, cannot cancel: " + instance.getStatus());
         }
         // succeed only while no step has been actioned — use exists query, not counting all rows (review: why counting every row)
-        List<WorkflowStepInstance> steps = stepInstanceRepo.findByInstance_IdOrderByStepOrderAsc(instance.getId());
         if (actionRepo.existsByStepInstance_Instance_Id(instance.getId())) {
             throw new FailedPreconditionException("Cannot cancel workflow instance after a step has been actioned");
         }
+        List<WorkflowStepInstance> steps = stepInstanceRepo.findByInstance_IdOrderByStepOrderAsc(instance.getId());
 
         // cancel ACTIVE step via version-guarded update (close approve-vs-cancel race) — do not touch managed entity after bulk update (avoid double-update)
         for (WorkflowStepInstance s : steps) {
@@ -220,8 +221,9 @@ public class WorkflowInstanceService {
         instanceRepo.save(instance);
 
         // No workflow.completed for CANCELLED per db-workflow.md:11 (inbox reflects state immediately) and registry §4 (only APPROVED/REJECTED/REVISION_REQUESTED)
-        audit.record("WORKFLOW_INSTANCE", instance.getId(), "workflow.instance_cancelled",
-                null, Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
+        audit.record("WORKFLOW_INSTANCE", instance.getId(), instance.getDocumentNo(),
+                "workflow.instance_cancelled", null, null, null,
+                Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
     }
 
     @Transactional(readOnly = true)
@@ -236,8 +238,26 @@ public class WorkflowInstanceService {
 
     @Transactional
     public void actOnStep(UUID stepInstanceId, String action, String comment) {
+        actOnStep(stepInstanceId, action, comment, UUID.randomUUID());
+    }
+
+    @Transactional
+    public void actOnStep(UUID stepInstanceId, String action, String comment, UUID idempotencyKey) {
+        // This makes sequential retries idempotent (for example, after a lost HTTP response).
+        // Two requests with the same key that overlap before either commits still race through
+        // approveIfActive; one succeeds and the other receives the normal concurrent-action error.
         AuthenticatedUser actor = SecurityUtils.currentUser()
                 .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Authentication required"));
+        var replay = actionRepo.findByIdempotencyKey(idempotencyKey);
+        if (replay.isPresent()) {
+            WorkflowAction previous = replay.get();
+            if (previous.getStepInstance().getId().equals(stepInstanceId)
+                    && previous.getAction().equals(action)
+                    && actor.userId().equals(previous.getActorId())) {
+                return;
+            }
+            throw new FailedPreconditionException("Idempotency key was already used for a different workflow action");
+        }
         WorkflowStepInstance step = stepInstanceRepo.findById(stepInstanceId)
                 .orElseThrow(() -> new NotFoundException("Workflow step not found: " + stepInstanceId));
         WorkflowInstance instance = step.getInstance();
@@ -254,6 +274,10 @@ public class WorkflowInstanceService {
         if (!isAssignee) {
             throw new org.springframework.security.access.AccessDeniedException("User not assignee of this step");
         }
+        // The assignee table is a candidate snapshot; current role membership remains the authority.
+        if (actor.roles() == null || !actor.roles().contains(step.getApproverRole())) {
+            throw new org.springframework.security.access.AccessDeniedException("User no longer holds the approver role for this step");
+        }
         // APR-03 comment check
         if (!"APPROVE".equals(action) && (comment == null || comment.isBlank())) {
             throw new FailedPreconditionException("Comment required for action: " + action);
@@ -269,7 +293,7 @@ public class WorkflowInstanceService {
                 throw new AbortedException("Step was concurrently modified (ABORTED)");
             }
             // record action (step reference still valid, status updated via bulk)
-            WorkflowAction wa = new WorkflowAction(step, "APPROVE", actor.userId(), actor.fullName(), comment);
+            WorkflowAction wa = new WorkflowAction(step, "APPROVE", actor.userId(), actor.fullName(), comment, idempotencyKey);
             actionRepo.save(wa);
 
             // check if last step
@@ -282,15 +306,6 @@ public class WorkflowInstanceService {
                 emit(instance.getDocumentId(), "workflow.completed", instance.getDocumentTypeCode(), Map.of(
                         "instance_id", instance.getId().toString(),
                         "outcome", "APPROVED",
-                        "document_no", instance.getDocumentNo(),
-                        "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
-                        "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
-                ));
-                emit(instance.getDocumentId(), "workflow.step_actioned", instance.getDocumentTypeCode(), Map.of(
-                        "instance_id", instance.getId().toString(),
-                        "step_no", step.getStepOrder(),
-                        "action", action,
-                        "comment", comment != null ? comment : "",
                         "document_no", instance.getDocumentNo(),
                         "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
                         "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
@@ -326,8 +341,9 @@ public class WorkflowInstanceService {
                         "customer_name", instance.getCustomerName() != null ? instance.getCustomerName() : ""
                 ));
             }
-            audit.record("WORKFLOW_STEP", step.getId(), "workflow.step_approved",
-                    null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
+            audit.record("WORKFLOW_STEP", step.getId(), instance.getDocumentNo(),
+                    "workflow.step_approved", null, null, null,
+                    workflowAuditChanges(instance, step));
 
         } else if ("REJECT".equals(action) || "REQUEST_REVISION".equals(action)) {
             // merged: REJECT and REQUEST_REVISION share same flow, only status/audit differ (review)
@@ -335,7 +351,7 @@ public class WorkflowInstanceService {
             String auditName = "REJECT".equals(action) ? "workflow.step_rejected" : "workflow.step_revision_requested";
             int updated = stepInstanceRepo.approveIfActive(step.getId(), step.getVersion(), newStatus, now, actor.userId(), actor.fullName());
             if (updated == 0) throw new AbortedException("Step concurrently modified");
-            WorkflowAction wa = new WorkflowAction(step, action, actor.userId(), actor.fullName(), comment);
+            WorkflowAction wa = new WorkflowAction(step, action, actor.userId(), actor.fullName(), comment, idempotencyKey);
             actionRepo.save(wa);
             instance.setStatus(newStatus);
             instance.setCompletedAt(now);
@@ -364,9 +380,19 @@ public class WorkflowInstanceService {
                     "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
                     "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
             ));
-            audit.record("WORKFLOW_STEP", step.getId(), auditName,
-                    null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
+            audit.record("WORKFLOW_STEP", step.getId(), instance.getDocumentNo(), auditName,
+                    null, null, null,
+                    workflowAuditChanges(instance, step));
         }
+    }
+
+    private static Map<String, Object> workflowAuditChanges(WorkflowInstance instance,
+                                                             WorkflowStepInstance step) {
+        return Map.of(
+                "instanceId", instance.getId().toString(),
+                "stepOrder", step.getStepOrder(),
+                "documentType", instance.getDocumentTypeCode(),
+                "documentId", instance.getDocumentId().toString());
     }
 
     private void emit(UUID aggregateId, String eventType, String aggregateType, Map<String, Object> payloadMap) {

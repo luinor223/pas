@@ -1,10 +1,10 @@
 package com.abclogistics.pas.contract.scheduler;
 
+import com.abclogistics.pas.common.events.DirectEventRecord;
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.ContractService;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -149,13 +149,8 @@ public class ContractStatusScheduler {
         UUID eventId = eventId(warning);
 
         // value is the bare payload, exactly as OutboxRelay#kafkaRecord publishes every outboxe
-        ProducerRecord<String, String> record = new ProducerRecord<>(EVENTS_TOPIC,
+        return DirectEventRecord.create(eventId, DOCUMENT_EXPIRING, DOCUMENT_TYPE,
                 warning.contractId().toString(), objectMapper.writeValueAsString(payload));
-        record.headers().add(header("event_type", DOCUMENT_EXPIRING));
-        record.headers().add(header("document_type", DOCUMENT_TYPE));
-        // where consumers read their dedup key, as OutboxRelay#kafkaRecord does for every event
-        record.headers().add(header("event_id", eventId.toString()));
-        return record;
     }
 
     /**
@@ -170,7 +165,4 @@ public class ContractStatusScheduler {
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static RecordHeader header(String name, String value) {
-        return new RecordHeader(name, value.getBytes(StandardCharsets.UTF_8));
-    }
 }

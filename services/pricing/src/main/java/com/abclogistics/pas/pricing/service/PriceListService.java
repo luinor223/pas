@@ -20,6 +20,11 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Locale;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 /** Price list + version + line editing (DRAFT-only edits, PRC-05). */
 @Service
@@ -42,18 +47,21 @@ public class PriceListService {
 
     @Transactional
     public PriceList create(UUID customerId, UUID contractId, String serviceGroup, String note) {
-        if (customerId == null && contractId == null && serviceGroup == null) {
-            throw new IllegalArgumentException("A price list needs a customer, contract or service group (PRC-01)");
-        }
+        String normalizedGroup = serviceGroup == null || serviceGroup.isBlank() ? null : serviceGroup.trim();
+        PriceList.validateScope(customerId, contractId, normalizedGroup);
         String no = "PRC-%04d".formatted(lists.nextPriceListNo());
-        PriceList list = lists.save(new PriceList(no, customerId, contractId, serviceGroup, note));
-        audit.record("PRICE_LIST", list.getId(), "CREATE", null, list.getPriceListNo(), null, Map.of());
+        PriceList list = lists.save(new PriceList(no, customerId, contractId, normalizedGroup, note));
+        audit.record("PRICE_LIST", list.getId(), list.getPriceListNo(), "CREATE",
+                null, null, note, Map.of());
         return list;
     }
 
     @Transactional(readOnly = true)
-    public List<PriceList> search(UUID customerId, UUID contractId, String serviceGroup) {
-        return lists.search(customerId, contractId, serviceGroup);
+    public Page<PriceList> searchPage(UUID customerId, UUID contractId, String serviceGroup,
+                                      String q, int page, int size) {
+        String searchTerm = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
+        String group = serviceGroup == null || serviceGroup.isBlank() ? null : serviceGroup;
+        return lists.searchPage(customerId, contractId, group, searchTerm, PageRequest.of(page, size));
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +77,15 @@ public class PriceListService {
     @Transactional(readOnly = true)
     public PriceListVersion getVersion(UUID versionId) {
         return versions.findById(versionId).orElseThrow(() -> new NotFoundException("No price list version " + versionId));
+    }
+
+    @Transactional(readOnly = true)
+    public PriceListVersion getVersion(UUID priceListId, UUID versionId) {
+        PriceListVersion version = getVersion(versionId);
+        if (!version.getPriceListId().equals(priceListId)) {
+            throw new NotFoundException("No price list version " + versionId + " for price list " + priceListId);
+        }
+        return version;
     }
 
     @Transactional(readOnly = true)
@@ -92,26 +109,41 @@ public class PriceListService {
         int nextNo = versions.maxVersionNo(priceListId) + 1;
         PriceListVersion version = versions.save(new PriceListVersion(
                 priceListId, nextNo, list.getScopeKey(), validFrom, validTo, addendumId));
-        audit.record("PRICE_LIST_VERSION", version.getId(), "CREATE", null,
-                PriceListVersionStatus.DRAFT.name(), null, Map.<String, Object>of("versionNo", nextNo));
+        audit.record("PRICE_LIST_VERSION", version.getId(), versionEntityNo(list, nextNo), "CREATE",
+                null, PriceListVersionStatus.DRAFT.name(), null,
+                Map.<String, Object>of("versionNo", nextNo));
         return version;
     }
 
     /** Replaces the lines of a DRAFT version (PRC-05: no edits past DRAFT). */
     @Transactional
     public void replaceLines(UUID versionId, List<LineInput> inputs) {
-        PriceListVersion version = getVersion(versionId);
+        PriceListVersion version = versions.findByIdForUpdate(versionId)
+                .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
         if (version.getStatus() != PriceListVersionStatus.DRAFT) {
             throw new ConflictException("A " + version.getStatus() + " version is read-only; create a new version (PRC-05)");
         }
         lines.deleteByVersionId(versionId);
+        Map<String, ServiceItem> itemsByCode = items.findByCodeIn(
+                        inputs.stream().map(LineInput::serviceCode).distinct().toList())
+                .stream()
+                .collect(Collectors.toMap(ServiceItem::getCode, Function.identity()));
         for (LineInput in : inputs) {
-            ServiceItem item = items.findByCode(in.serviceCode())
-                    .orElseThrow(() -> new NotFoundException("No service item with code " + in.serviceCode()));
+            ServiceItem item = itemsByCode.get(in.serviceCode());
+            if (item == null) {
+                throw new NotFoundException("No service item with code " + in.serviceCode());
+            }
             lines.save(new PriceLine(versionId, item.getId(), in.unitPrice()));
         }
-        audit.record("PRICE_LIST_VERSION", versionId, "EDIT_LINES", null, Map.<String, Object>of("lineCount", inputs.size()));
+        PriceList list = get(version.getPriceListId());
+        audit.record("PRICE_LIST_VERSION", versionId, versionEntityNo(list, version.getVersionNo()),
+                "EDIT_LINES", null, null, null,
+                Map.<String, Object>of("lineCount", inputs.size()));
     }
 
     public record LineInput(String serviceCode, BigDecimal unitPrice) {}
+
+    private static String versionEntityNo(PriceList list, int versionNo) {
+        return list.getPriceListNo() + " v" + versionNo;
+    }
 }

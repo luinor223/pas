@@ -15,7 +15,7 @@ export type NotificationResponse = {
   readAt: string | null;
 };
 
-// Not a Page: total is the page total, and counts are computed unfiltered.
+// Not a Page: total is the filtered list total, while counts are unread totals per tab.
 export type InboxResponse = {
   items: NotificationResponse[];
   total: number;

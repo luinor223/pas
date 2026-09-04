@@ -1,5 +1,7 @@
 package com.abclogistics.pas.pricing;
 
+import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.pricing.controller.ServiceItemController;
 import com.abclogistics.pas.pricing.domain.ServiceItem;
 import com.abclogistics.pas.pricing.repository.ServiceItemRepository;
 import com.abclogistics.pas.pricing.service.ServiceCatalogService;
@@ -8,6 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -15,6 +21,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,6 +53,7 @@ class ServiceCatalogIT {
 
     @Autowired ServiceItemRepository items;
     @Autowired ServiceCatalogService catalog;
+    @Autowired ServiceItemController controller;
 
     @Test
     void seedsLoadedAndActive() {
@@ -57,5 +67,21 @@ class ServiceCatalogIT {
     void codeIsUnique() {
         assertThatThrownBy(() -> items.saveAndFlush(new ServiceItem("LIFT_ON_OFF", "dup", "TEU")))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void volumeReadersCanUseTheSharedCatalogButUnrelatedUsersCannot() {
+        var user = new AuthenticatedUser(UUID.randomUUID(), "ops", "Ops Officer", "OPERATIONS", List.of("OPS_OFFICER"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                user, null, List.of(new SimpleGrantedAuthority("volume:read"))));
+
+        assertThat(controller.list(true)).hasSize(6);
+        assertThat(controller.get("LIFT_ON_OFF").code()).isEqualTo("LIFT_ON_OFF");
+
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                user, null, List.of(new SimpleGrantedAuthority("contract:read"))));
+        assertThatThrownBy(() -> controller.list(true)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> controller.get("LIFT_ON_OFF")).isInstanceOf(AccessDeniedException.class);
+        SecurityContextHolder.clearContext();
     }
 }

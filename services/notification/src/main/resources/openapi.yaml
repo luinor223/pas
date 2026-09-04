@@ -55,6 +55,19 @@ paths:
         '404': { description: No such notification for this recipient }
       security: [{ bearerAuth: [] }]
 
+  /notifications/unread-count:
+    get:
+      summary: The caller's unread notification count
+      description: Lightweight count used by the application header badge and refreshed periodically.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UnreadCountResponse' }
+        '403': { description: Requires notification:read }
+      security: [{ bearerAuth: [] }]
+
   /notifications/read-all:
     patch:
       summary: Mark every unread notification read ("Mark all as read")
@@ -82,6 +95,11 @@ components:
           type: object
           additionalProperties: { type: integer, format: int64 }
           description: "tab counters: all, unread, APPROVAL, ESIGN, EXPIRY, SYSTEM"
+    UnreadCountResponse:
+      type: object
+      required: [unreadCount]
+      properties:
+        unreadCount: { type: integer, format: int64, minimum: 0 }
     NotificationResponse:
       type: object
       properties:

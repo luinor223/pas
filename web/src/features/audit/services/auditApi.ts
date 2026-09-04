@@ -13,7 +13,6 @@ export type AuditParams = {
   to?: string;
   page?: number;
   size?: number;
-  sort?: string;
 };
 
 export const auditApi = {

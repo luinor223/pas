@@ -99,5 +99,4 @@ public class WorkflowInstance {
     public void setStatus(String status) { this.status = status; }
     public void setCurrentStepOrder(Integer currentStepOrder) { this.currentStepOrder = currentStepOrder; }
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
-    public void setId(UUID id) { this.id = id; }
 }

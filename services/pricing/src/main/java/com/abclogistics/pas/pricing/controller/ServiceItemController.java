@@ -22,13 +22,13 @@ public class ServiceItemController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('pricelist:read')")
+    @PreAuthorize("hasAuthority('pricelist:read') or hasAuthority('volume:read')")
     public List<ServiceItemResponse> list(@RequestParam(defaultValue = "false") boolean activeOnly) {
         return catalog.list(activeOnly).stream().map(ServiceItemResponse::of).toList();
     }
 
     @GetMapping("/{code}")
-    @PreAuthorize("hasAuthority('pricelist:read')")
+    @PreAuthorize("hasAuthority('pricelist:read') or hasAuthority('volume:read')")
     public ServiceItemResponse get(@PathVariable String code) {
         return ServiceItemResponse.of(catalog.getByCode(code));
     }

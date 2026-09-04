@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { Button } from "@/shared/components/button";
+import { Button, type ButtonProps } from "@/shared/components/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/dialog";
 import { Label } from "@/shared/components/label";
 import { Textarea } from "@/shared/components/textarea";
 import { getApiErrorMessage } from "@/shared/api/errors";
 
-type ReasonField = { label: string; placeholder?: string; required?: boolean };
+type ReasonField = { label: string; placeholder?: string; required?: boolean; description?: string };
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -17,6 +17,8 @@ type ConfirmDialogProps = {
   pendingLabel?: string;
   pending?: boolean;
   error?: unknown;
+  cancelLabel?: string;
+  confirmVariant?: ButtonProps["variant"];
   /** Captures a reason; it is stored on the record's history, so it is worth asking for. */
   reason?: ReasonField;
   onConfirm: (reason?: string) => void;
@@ -32,9 +34,11 @@ export function ConfirmDialog({ open, ...props }: ConfirmDialogProps) {
 }
 
 function ConfirmDialogBody({
-  title, body, confirmLabel, pendingLabel, pending = false, error, reason, onConfirm, onCancel,
+  title, body, confirmLabel, pendingLabel, pending = false, error, cancelLabel = "Keep",
+  confirmVariant = "destructive", reason, onConfirm, onCancel,
 }: Omit<ConfirmDialogProps, "open">) {
   const [text, setText] = useState("");
+  const reasonId = useId();
   const missingReason = reason?.required && text.trim() === "";
 
   return (
@@ -42,7 +46,7 @@ function ConfirmDialogBody({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle size={18} className="text-destructive" />
+            {confirmVariant === "destructive" && <AlertTriangle size={18} className="text-destructive" />}
             {title}
           </DialogTitle>
         </DialogHeader>
@@ -51,11 +55,13 @@ function ConfirmDialogBody({
           <div>{body}</div>
           {reason && (
             <div>
-              <Label>
+              <Label htmlFor={reasonId}>
                 {reason.label}{reason.required ? " *" : ""}
                 {!reason.required && <span className="font-normal text-muted-foreground"> (optional)</span>}
               </Label>
               <Textarea
+                data-autofocus
+                id={reasonId}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={reason.placeholder}
@@ -63,6 +69,7 @@ function ConfirmDialogBody({
                 required={reason.required}
                 aria-required={reason.required || undefined}
               />
+              {reason.description && <p className="mt-2 text-xs text-muted-foreground">{reason.description}</p>}
             </div>
           )}
           {/* Keep the dialog open on failure: closing it would hide the reason why. */}
@@ -72,9 +79,9 @@ function ConfirmDialogBody({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onCancel}>Keep</Button>
+          <Button data-autofocus={reason ? undefined : true} variant="outline" disabled={pending} onClick={onCancel}>{cancelLabel}</Button>
           <Button
-            variant="destructive"
+            variant={confirmVariant}
             disabled={pending || missingReason}
             onClick={() => onConfirm(text.trim() || undefined)}
           >

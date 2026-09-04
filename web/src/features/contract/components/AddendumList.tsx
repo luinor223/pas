@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { addendaQuery, contractsQuery } from "../hooks/contractQueries";
+import { addendaQuery, addendumQuery, contractsQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { AddendumResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
@@ -21,7 +21,7 @@ import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
 import { FilterBar } from "@/shared/components/filter-bar";
@@ -57,6 +57,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export function AddendumList() {
+  const { id: linkedAddendumId } = useSearch({ from: "/addenda" });
   const qc = useQueryClient();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
@@ -76,7 +77,11 @@ export function AddendumList() {
 
   const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
-  const items = listQ.data?.content ?? [];
+  const linkedAddendum = useQuery({ ...addendumQuery(linkedAddendumId ?? ""), enabled: Boolean(linkedAddendumId) });
+  const pageItems = listQ.data?.content ?? [];
+  const items = linkedAddendum.data && !pageItems.some((item) => item.id === linkedAddendum.data.id)
+    ? [linkedAddendum.data, ...pageItems]
+    : pageItems;
 
   const { register, handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -175,7 +180,7 @@ export function AddendumList() {
             </Select>
             <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }} />
           </FilterBar>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} />}
+          {listQ.isLoading || linkedAddendum.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError || linkedAddendum.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error ?? linkedAddendum.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} rowClassName={(item) => item.id === linkedAddendumId ? "bg-primary/5" : undefined} />}
           <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={listQ.data?.totalElements ?? 0} onPageChange={setPage} />
         </CardContent>
       </Card>

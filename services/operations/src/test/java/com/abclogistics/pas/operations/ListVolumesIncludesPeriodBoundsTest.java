@@ -62,6 +62,7 @@ class ListVolumesIncludesPeriodBoundsTest {
     @Autowired PeriodService periodService;
     @Autowired VolumeService volumeService;
     @Autowired OperationsInternalGrpcService grpcService;
+    @Autowired StubContractGrpcClient contractClient;
 
     @BeforeEach
     void setAuth() {
@@ -151,6 +152,9 @@ class ListVolumesIncludesPeriodBoundsTest {
         String periodCode = "2027-01";
         UUID contractId = UUID.randomUUID();
         try { periodService.create(periodCode); } catch (Exception ignored) {}
+        contractClient.setContract(contractId, contractClient.getContract(contractId).toBuilder()
+                .setValidTo("2027-12-31")
+                .build());
         volumeService.create(contractId, periodCode, "CONT_LIFT", new BigDecimal("1"), null);
         periodService.lock(periodCode);
 
