@@ -102,12 +102,8 @@ public class SigningSessionService {
         }
 
         // Status history (D17)
-        StatusHistory history = StatusHistory.create(
-            session, null, "PENDING_SEND",
-            StatusHistory.TriggerKind.U, null,
-            requestedBy, requestedByName, "Session created"
-        );
-        session.addStatusHistory(history);
+        addHistory(session, null, "PENDING_SEND", StatusHistory.TriggerKind.U,
+            requestedBy, requestedByName, "Session created");
         sessionRepo.save(session);
 
         // D16: the send to the external provider is dispatched from the outbox (atomic with the row,
@@ -131,12 +127,8 @@ public class SigningSessionService {
         session.setAttempts(attempts);
         session.setStatus(SigningSession.SessionStatus.SIGNING);
         session.setSentAt(Instant.now());
-        StatusHistory history = StatusHistory.create(
-            session, "PENDING_SEND", "SIGNING",
-            StatusHistory.TriggerKind.S, null,
-            null, "System", "Sent to provider"
-        );
-        session.addStatusHistory(history);
+        addHistory(session, "PENDING_SEND", "SIGNING", StatusHistory.TriggerKind.S,
+            null, "System", "Sent to provider");
         sessionRepo.save(session);
     }
 
@@ -152,12 +144,8 @@ public class SigningSessionService {
         session.setLastError(error);
         session.setStatus(SigningSession.SessionStatus.FAILED);
         session.setCompletedAt(Instant.now());
-        StatusHistory history = StatusHistory.create(
-            session, "PENDING_SEND", "FAILED",
-            StatusHistory.TriggerKind.S, null,
-            null, "System", error
-        );
-        session.addStatusHistory(history);
+        addHistory(session, "PENDING_SEND", "FAILED", StatusHistory.TriggerKind.S,
+            null, "System", error);
         sessionRepo.save(session);
         emitSessionCompleted(session, SigningSession.SessionStatus.FAILED, error);
     }
@@ -212,13 +200,9 @@ public class SigningSessionService {
         session.setStatus(newStatus);
         session.setCompletedAt(Instant.now());
 
-        StatusHistory history = StatusHistory.create(
-            session, fromStatus, newStatus.name(),
-            StatusHistory.TriggerKind.E, null,
+        addHistory(session, fromStatus, newStatus.name(), StatusHistory.TriggerKind.E,
             session.getRequestedBy(), session.getRequestedByName(),
-            error != null ? error : "Provider callback: " + result
-        );
-        session.addStatusHistory(history);
+            error != null ? error : "Provider callback: " + result);
         sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
@@ -244,12 +228,8 @@ public class SigningSessionService {
         session.setStatus(SigningSession.SessionStatus.CANCELLED);
         session.setCompletedAt(Instant.now());
 
-        StatusHistory history = StatusHistory.create(
-            session, fromStatus, "CANCELLED",
-            StatusHistory.TriggerKind.U, null,
-            actorId, actorName, reason
-        );
-        session.addStatusHistory(history);
+        addHistory(session, fromStatus, "CANCELLED", StatusHistory.TriggerKind.U,
+            actorId, actorName, reason);
         sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
@@ -293,6 +273,14 @@ public class SigningSessionService {
         return sessionRepo.findAllByDocument(documentType, documentId).stream()
             .map(this::toResponse)
             .toList();
+    }
+
+    /** Append the single status_history row for a transition (D17), so the column and the timeline
+     *  never part company. trigger_ref is unused on this aggregate. */
+    private void addHistory(SigningSession session, String fromStatus, String toStatus,
+                            StatusHistory.TriggerKind kind, UUID actorId, String actorName, String note) {
+        session.addStatusHistory(StatusHistory.create(session, fromStatus, toStatus, kind, null,
+            actorId, actorName, note));
     }
 
     private void emitSessionCompleted(SigningSession session, SigningSession.SessionStatus result, String error) {
