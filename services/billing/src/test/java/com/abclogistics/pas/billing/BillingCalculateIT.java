@@ -294,6 +294,22 @@ class BillingCalculateIT {
         assertThat(statements.findByStatementNo(statementNo).orElseThrow().getStatus().name()).isEqualTo("APPROVED");
     }
 
+    @Test
+    void listReturnsLinesAndVolumeLinks() {
+        String a = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-07")).statementNo();
+        String b = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-08")).statementNo();
+
+        List<StatementResponse> mine = service.list(0, 50).getContent().stream()
+                .filter(s -> s.statementNo().equals(a) || s.statementNo().equals(b))
+                .toList();
+
+        assertThat(mine).hasSize(2);
+        assertThat(mine).allSatisfy(s -> {
+            assertThat(s.lines()).hasSize(1);
+            assertThat(s.lines().get(0).volumeLinks()).hasSize(2);
+        });
+    }
+
     private static ListVolumesResponse lockedVolumes(String periodCode) {
         LocalDate start = LocalDate.parse(periodCode + "-01");
         LocalDate end = start.plusMonths(1).minusDays(1);
