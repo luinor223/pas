@@ -3,8 +3,10 @@ package com.abclogistics.pas.esign.client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -48,8 +50,9 @@ public class MockProviderClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-            baseUrl + "/sign", request, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+            baseUrl + "/sign", HttpMethod.POST, request,
+            new ParameterizedTypeReference<Map<String, Object>>() {});
 
         if (response.getBody() == null || !response.getBody().containsKey("provider_ref")) {
             throw new RuntimeException("Mock provider did not return a provider_ref");

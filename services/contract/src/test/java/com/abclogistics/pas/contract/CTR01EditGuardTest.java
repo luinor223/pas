@@ -2,7 +2,6 @@ package com.abclogistics.pas.contract;
 
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.contract.domain.Contract;
-import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.dto.ContractRequest;

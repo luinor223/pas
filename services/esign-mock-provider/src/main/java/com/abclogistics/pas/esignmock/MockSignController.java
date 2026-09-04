@@ -30,7 +30,6 @@ public class MockSignController {
         String sessionNo = (String) request.getOrDefault("session_no", "unknown");
         String documentNo = (String) request.getOrDefault("document_no", "");
         String signerName = (String) request.getOrDefault("signer_name", "");
-        String signerEmail = (String) request.getOrDefault("signer_email", "");
         String callbackUrl = (String) request.getOrDefault("callback_url", "");
 
         String providerRef = "MOCK-" + UUID.randomUUID().toString().substring(0, 8);
