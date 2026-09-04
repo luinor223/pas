@@ -94,17 +94,31 @@ export function AddendumEditDialog({ addendum, onClose, onSaved }: { addendum: A
             {changeType === "PAYMENT_TERMS" && <div><RequirementLabel htmlFor={`${fieldId}-payment`} kind="draft">Payment term</RequirementLabel><Input id={`${fieldId}-payment`} aria-required="true" {...form.register("paymentTermOverride")} />{form.formState.errors.paymentTermOverride ? <p className="text-xs text-destructive">{form.formState.errors.paymentTermOverride.message}</p> : <EmptyFieldHint show={!values.paymentTermOverride?.trim()}>Enter the replacement payment term, for example NET30.</EmptyFieldHint>}</div>}
           </div>
           {changeType === "ADDED_SERVICE" && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between"><RequirementLabel kind="draft">Services</RequirementLabel><Button type="button" size="sm" variant="outline" onClick={() => services.append({ serviceItemId: null, serviceCode: "", serviceName: "", unit: "", scopeNote: "" })}>+ Service</Button></div>
+            <div className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <RequirementLabel kind="draft">Services being added</RequirementLabel>
+                  <p className="mt-1 text-xs text-muted-foreground">Describe each new business service covered by this addendum. Pricing is managed separately in the price list.</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" className="shrink-0 self-start" onClick={() => services.append({ serviceItemId: null, serviceCode: "", serviceName: "", unit: "", scopeNote: "" })}>+ Add service</Button>
+              </div>
               <EmptyFieldHint show={services.fields.length === 0}>Add at least one service included by this addendum.</EmptyFieldHint>
               {services.fields.map((field, index) => (
-                <div key={field.id} className="grid grid-cols-1 items-end gap-2 rounded border p-2 sm:grid-cols-5">
-                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-code`} kind="draft">Code</RequirementLabel><Input id={`${fieldId}-service-${index}-code`} aria-label={`Service ${index + 1} code`} aria-required="true" {...form.register(`services.${index}.serviceCode`)} /><EmptyFieldHint show={!values.services[index]?.serviceCode?.trim()}>Service identifier.</EmptyFieldHint></div>
-                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-name`} kind="draft">Name</RequirementLabel><Input id={`${fieldId}-service-${index}-name`} aria-label={`Service ${index + 1} name`} aria-required="true" {...form.register(`services.${index}.serviceName`)} /><EmptyFieldHint show={!values.services[index]?.serviceName?.trim()}>Business name of the service.</EmptyFieldHint></div>
-                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-unit`}>Unit</RequirementLabel><Input id={`${fieldId}-service-${index}-unit`} aria-label={`Service ${index + 1} unit`} {...form.register(`services.${index}.unit`)} /><EmptyFieldHint show={!values.services[index]?.unit?.trim()}>Optional billing unit.</EmptyFieldHint></div>
-                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-scope`}>Scope</RequirementLabel><Input id={`${fieldId}-service-${index}-scope`} aria-label={`Service ${index + 1} scope`} {...form.register(`services.${index}.scopeNote`)} /><EmptyFieldHint show={!values.services[index]?.scopeNote?.trim()}>Optional service boundaries.</EmptyFieldHint></div>
-                  <Button type="button" size="sm" variant="ghost" aria-label={`Remove service ${index + 1}`} onClick={() => services.remove(index)}>Remove</Button>
-                </div>
+                <fieldset key={field.id} className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                  <legend className="sr-only">Service {index + 1}</legend>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold">Service {index + 1}</div>
+                    <Button type="button" size="sm" variant="ghost" aria-label={`Remove service ${index + 1}`} onClick={() => services.remove(index)}>Remove</Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-code`} kind="draft">Service code</RequirementLabel><Input id={`${fieldId}-service-${index}-code`} aria-label={`Service ${index + 1} code`} aria-required="true" placeholder="e.g. WH-COLD" {...form.register(`services.${index}.serviceCode`)} /><EmptyFieldHint show={!values.services[index]?.serviceCode?.trim()}>A short, unique reference used by your business.</EmptyFieldHint></div>
+                    <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-name`} kind="draft">Service name</RequirementLabel><Input id={`${fieldId}-service-${index}-name`} aria-label={`Service ${index + 1} name`} aria-required="true" placeholder="e.g. Cold storage" {...form.register(`services.${index}.serviceName`)} /><EmptyFieldHint show={!values.services[index]?.serviceName?.trim()}>The business-facing name shown on records.</EmptyFieldHint></div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                    <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-unit`}>Unit</RequirementLabel><Input id={`${fieldId}-service-${index}-unit`} aria-label={`Service ${index + 1} unit`} placeholder="e.g. pallet/day" {...form.register(`services.${index}.unit`)} /><EmptyFieldHint show={!values.services[index]?.unit?.trim()}>Optional measurement or billing unit.</EmptyFieldHint></div>
+                    <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-scope`}>Scope</RequirementLabel><Textarea id={`${fieldId}-service-${index}-scope`} className="min-h-20" aria-label={`Service ${index + 1} scope`} placeholder="e.g. Zone A only" {...form.register(`services.${index}.scopeNote`)} /><EmptyFieldHint show={!values.services[index]?.scopeNote?.trim()}>Optional boundaries, locations, or conditions.</EmptyFieldHint></div>
+                  </div>
+                </fieldset>
               ))}
               {form.formState.errors.services?.root?.message && <p className="text-xs text-destructive">{form.formState.errors.services.root.message}</p>}
             </div>

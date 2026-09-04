@@ -205,20 +205,33 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
             <div><RequirementLabel htmlFor={`${formId}-description`}>Description</RequirementLabel><Textarea id={`${formId}-description`} {...register("description")} /><EmptyFieldHint show={!formValues.description?.trim()}>Optional: summarize why this change is needed.</EmptyFieldHint></div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><RequirementLabel htmlFor={`${formId}-effective-from`} kind="draft">Effective from</RequirementLabel><Input id={`${formId}-effective-from`} type="date" aria-required="true" {...register("effectiveFrom")} />{errors.effectiveFrom ? <p className="text-xs text-destructive">{errors.effectiveFrom.message}</p> : <EmptyFieldHint show={!formValues.effectiveFrom}>Set the date this change takes effect.</EmptyFieldHint>}</div>{watchedType==="TERM_EXTENSION" && <div><RequirementLabel htmlFor={`${formId}-new-valid-to`} kind="draft">New valid to</RequirementLabel><Input id={`${formId}-new-valid-to`} type="date" aria-required="true" {...register("newValidTo")} />{errors.newValidTo ? <p className="text-xs text-destructive">{String(errors.newValidTo.message)}</p> : <EmptyFieldHint show={!formValues.newValidTo}>Enter a date later than the contract's current end date.</EmptyFieldHint>}</div>}{watchedType==="PAYMENT_TERMS" && <div><RequirementLabel htmlFor={`${formId}-payment-term-override`} kind="draft">Payment term override</RequirementLabel><Input id={`${formId}-payment-term-override`} aria-required="true" {...register("paymentTermOverride")} />{errors.paymentTermOverride ? <p className="text-xs text-destructive">{String(errors.paymentTermOverride.message)}</p> : <EmptyFieldHint show={!formValues.paymentTermOverride?.trim()}>Enter the replacement payment term, for example NET30.</EmptyFieldHint>}</div>}</div>
             {watchedType==="ADDED_SERVICE" && (
-              <div>
-                <RequirementLabel kind="draft">Services</RequirementLabel>
+              <div className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <RequirementLabel kind="draft">Services being added</RequirementLabel>
+                    <p className="mt-1 text-xs text-muted-foreground">Describe each new business service covered by this addendum. Pricing is managed separately in the price list.</p>
+                  </div>
+                  <Button type="button" size="sm" variant="outline" className="shrink-0 self-start" onClick={() => append({ serviceCode:"", serviceName:"", unit:"", scopeNote:""})}>+ Add service</Button>
+                </div>
                 <EmptyFieldHint show={fields.length === 0}>Add at least one service included by this addendum.</EmptyFieldHint>
-                <div className="space-y-1 border rounded p-2">
+                <div className="space-y-3">
                   {fields.map((f,i) => (
-                    <div key={f.id} className="grid grid-cols-1 items-end gap-1 sm:grid-cols-12">
-                      <div className="sm:col-span-3"><RequirementLabel htmlFor={`${formId}-service-${i}-code`} kind="draft">Service {i + 1} code</RequirementLabel><Input id={`${formId}-service-${i}-code`} aria-label={`Service ${i + 1} code`} aria-required="true" {...register(`services.${i}.serviceCode` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.serviceCode?.trim()}>Service identifier.</EmptyFieldHint></div>
-                      <div className="sm:col-span-4"><RequirementLabel htmlFor={`${formId}-service-${i}-name`} kind="draft">Service {i + 1} name</RequirementLabel><Input id={`${formId}-service-${i}-name`} aria-label={`Service ${i + 1} name`} aria-required="true" {...register(`services.${i}.serviceName` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.serviceName?.trim()}>Business name of the service.</EmptyFieldHint></div>
-                      <div className="sm:col-span-2"><RequirementLabel htmlFor={`${formId}-service-${i}-unit`}>Unit</RequirementLabel><Input id={`${formId}-service-${i}-unit`} aria-label={`Service ${i + 1} unit`} {...register(`services.${i}.unit` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.unit?.trim()}>Optional billing unit.</EmptyFieldHint></div>
-                      <div className="sm:col-span-2"><RequirementLabel htmlFor={`${formId}-service-${i}-scope`}>Scope</RequirementLabel><Input id={`${formId}-service-${i}-scope`} aria-label={`Service ${i + 1} scope`} {...register(`services.${i}.scopeNote` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.scopeNote?.trim()}>Optional service boundaries.</EmptyFieldHint></div>
-                      <Button type="button" variant="ghost" size="sm" className="sm:col-span-1" aria-label={`Remove service ${i + 1}`} onClick={() => remove(i)}>×</Button>
-                    </div>
+                    <fieldset key={f.id} className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                      <legend className="sr-only">Service {i + 1}</legend>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold">Service {i + 1}</div>
+                        <Button type="button" variant="ghost" size="sm" aria-label={`Remove service ${i + 1}`} onClick={() => remove(i)}>Remove</Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div><RequirementLabel htmlFor={`${formId}-service-${i}-code`} kind="draft">Service code</RequirementLabel><Input id={`${formId}-service-${i}-code`} aria-label={`Service ${i + 1} code`} aria-required="true" placeholder="e.g. WH-COLD" {...register(`services.${i}.serviceCode` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.serviceCode?.trim()}>A short, unique reference used by your business.</EmptyFieldHint></div>
+                        <div><RequirementLabel htmlFor={`${formId}-service-${i}-name`} kind="draft">Service name</RequirementLabel><Input id={`${formId}-service-${i}-name`} aria-label={`Service ${i + 1} name`} aria-required="true" placeholder="e.g. Cold storage" {...register(`services.${i}.serviceName` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.serviceName?.trim()}>The business-facing name shown on records.</EmptyFieldHint></div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                        <div><RequirementLabel htmlFor={`${formId}-service-${i}-unit`}>Unit</RequirementLabel><Input id={`${formId}-service-${i}-unit`} aria-label={`Service ${i + 1} unit`} placeholder="e.g. pallet/day" {...register(`services.${i}.unit` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.unit?.trim()}>Optional measurement or billing unit.</EmptyFieldHint></div>
+                        <div><RequirementLabel htmlFor={`${formId}-service-${i}-scope`}>Scope</RequirementLabel><Textarea id={`${formId}-service-${i}-scope`} className="min-h-20" aria-label={`Service ${i + 1} scope`} placeholder="e.g. Zone A only" {...register(`services.${i}.scopeNote` as const)} /><EmptyFieldHint show={!formValues.services?.[i]?.scopeNote?.trim()}>Optional boundaries, locations, or conditions.</EmptyFieldHint></div>
+                      </div>
+                    </fieldset>
                   ))}
-                  <Button type="button" size="sm" variant="outline" onClick={() => append({ serviceCode:"", serviceName:"", unit:"", scopeNote:""})}>+ Service</Button>
                 </div>
               </div>
             )}

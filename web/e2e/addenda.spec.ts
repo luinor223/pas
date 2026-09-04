@@ -387,7 +387,8 @@ test("supports keyboard addendum creation with named service controls and restor
 
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
   await dialog.getByLabel("Change type *").selectOption("ADDED_SERVICE");
-  const addService = dialog.getByRole("button", { name: "+ Service" });
+  await expect(dialog.getByText("Pricing is managed separately in the price list.")).toBeVisible();
+  const addService = dialog.getByRole("button", { name: "+ Add service" });
   await addService.focus();
   await page.keyboard.press("Enter");
 
