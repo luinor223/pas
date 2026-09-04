@@ -14,6 +14,6 @@ export function useRecoverOutOfRangePage({
   recover: () => void;
 }) {
   useEffect(() => {
-    if (ready && page > 0 && totalItems > 0 && page >= totalPages) recover();
+    if (ready && page > 0 && (totalItems === 0 || totalPages === 0 || page >= totalPages)) recover();
   }, [page, ready, recover, totalItems, totalPages]);
 }
