@@ -12,7 +12,9 @@ export function DetailBackButton({ to, label }: DetailBackButtonProps) {
   return (
     <Link
       to={to}
-      search={to === "/customers"
+      search={to === "/price-lists"
+        ? ((previous) => ({ ...previous, id: undefined, versionId: undefined }))
+        : to === "/customers"
         ? { id: undefined }
         : to === "/contracts"
           ? { id: undefined, tab: undefined, customerId: undefined }

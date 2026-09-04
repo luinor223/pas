@@ -6,7 +6,7 @@ export function VolumeRecordsRoute() {
   const navigate = useNavigate({ from: "/volume-records" });
 
   function changeTab(next: VolumeRecordsTabValue) {
-    navigate({ search: { tab: next === "PERIODS" ? "periods" : undefined } });
+    navigate({ search: (previous) => ({ ...previous, tab: next === "PERIODS" ? "periods" : undefined }) });
   }
 
   return <VolumeRecordsPage tab={tab === "periods" ? "PERIODS" : "RECORDS"} onTabChange={changeTab} />;

@@ -35,11 +35,12 @@ export function PriceListPage() {
   const canRead = useHasPermission("pricelist:read");
   const canWrite = useHasPermission("pricelist:write");
   const navigate = useNavigate({ from: "/price-lists" });
-  const { id: selectedId, versionId: initialVersionId } = useSearch({ from: "/price-lists" });
-  const [search, setSearch] = useState("");
+  const routeSearch = useSearch({ from: "/price-lists" });
+  const { id: selectedId, versionId: initialVersionId } = routeSearch;
+  const search = routeSearch.q ?? "";
   const debouncedSearch = useDebouncedSearch(search);
-  const [serviceGroup, setServiceGroup] = useState("");
-  const [page, setPage] = useState(0);
+  const serviceGroup = routeSearch.serviceGroup ?? "";
+  const page = routeSearch.page ?? 0;
   const [openCreate, setOpenCreate] = useState(false);
   const listsQuery = useQuery({ ...priceListsQuery({
     serviceGroup: serviceGroup || undefined,
@@ -63,7 +64,7 @@ export function PriceListPage() {
       accessorKey: "priceListNo",
       header: "PRICE LIST",
       cell: ({ row }) => (
-        <button type="button" className="font-semibold text-primary hover:underline" onClick={() => navigate({ search: { id: row.original.id, versionId: undefined } })}>
+        <button type="button" className="font-semibold text-primary hover:underline" onClick={() => navigate({ search: (previous) => ({ ...previous, id: row.original.id, versionId: undefined }) })}>
           {row.original.priceListNo}
         </button>
       ),
@@ -88,7 +89,7 @@ export function PriceListPage() {
       enableSorting: false,
       cell: ({ row }) => (
         <div className="text-right">
-          <Button size="sm" variant="outline" onClick={() => navigate({ search: { id: row.original.id, versionId: undefined } })}>View versions</Button>
+          <Button size="sm" variant="outline" onClick={() => navigate({ search: (previous) => ({ ...previous, id: row.original.id, versionId: undefined }) })}>View versions</Button>
         </div>
       ),
     },
@@ -105,7 +106,7 @@ export function PriceListPage() {
         priceList={selected}
         canWrite={canWrite}
         initialVersionId={initialVersionId ?? ""}
-        onVersionChange={(versionId) => navigate({ search: { id: selected.id, versionId } })}
+        onVersionChange={(versionId) => navigate({ search: (previous) => ({ ...previous, id: selected.id, versionId }) })}
       />
     );
   }
@@ -133,13 +134,13 @@ export function PriceListPage() {
               label="Search price lists"
               placeholder="Search number, note, or group"
               value={search}
-              onChange={(value) => { setSearch(value); setPage(0); }}
+              onChange={(value) => navigate({ search: (previous) => ({ ...previous, q: value || undefined, page: undefined }), replace: true })}
             />
-            <Select className="w-full sm:w-52" aria-label="Filter by service group" value={serviceGroup} onChange={(event) => { setServiceGroup(event.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-52" aria-label="Filter by service group" value={serviceGroup} onChange={(event) => navigate({ search: (previous) => ({ ...previous, serviceGroup: event.target.value || undefined, page: undefined }), replace: true })}>
               <option value="">Service group: All</option>
               {SERVICE_GROUPS.map((group) => <option key={group} value={group}>{humanize(group)}</option>)}
             </Select>
-            <ClearFiltersButton className="ml-auto" disabled={!search && !serviceGroup} onClick={() => { setSearch(""); setServiceGroup(""); setPage(0); }} />
+            <ClearFiltersButton className="ml-auto" disabled={!search && !serviceGroup} onClick={() => navigate({ search: (previous) => ({ ...previous, q: undefined, serviceGroup: undefined, page: undefined }), replace: true })} />
           </FilterBar>
 
           {listsQuery.isLoading ? (
@@ -156,14 +157,14 @@ export function PriceListPage() {
                 page,
                 totalPages: listsQuery.data?.totalPages ?? 0,
                 totalItems: listsQuery.data?.totalItems ?? 0,
-                onPageChange: setPage,
+                onPageChange: (nextPage) => navigate({ search: (previous) => ({ ...previous, page: nextPage || undefined }), replace: true }),
               }}
             />
           )}
         </CardContent>
       </Card>
 
-      <CreatePriceListDialog open={openCreate} onClose={() => setOpenCreate(false)} onCreated={(list) => { setOpenCreate(false); navigate({ search: { id: list.id, versionId: undefined } }); }} />
+      <CreatePriceListDialog open={openCreate} onClose={() => setOpenCreate(false)} onCreated={(list) => { setOpenCreate(false); navigate({ search: (previous) => ({ ...previous, id: list.id, versionId: undefined }) }); }} />
     </>
   );
 }
@@ -212,8 +213,8 @@ function CreatePriceListDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label>Applies to</Label>
-            <Select value={scopeType} onChange={(event) => changeScope(event.target.value as ScopeType)}>
+            <Label htmlFor="create-price-list-scope">Applies to</Label>
+            <Select id="create-price-list-scope" value={scopeType} onChange={(event) => changeScope(event.target.value as ScopeType)}>
               <option value="CONTRACT">One contract</option>
               <option value="CUSTOMER_GROUP">One customer and service group</option>
               <option value="CUSTOMER">All services for one customer</option>
@@ -238,8 +239,8 @@ function CreatePriceListDialog({
 
           {(scopeType === "SERVICE_GROUP" || scopeType === "CUSTOMER_GROUP") && (
             <div>
-              <Label>Service group *</Label>
-              <Select value={serviceGroup} onChange={(event) => setServiceGroup(event.target.value)}>
+              <Label htmlFor="create-price-list-service-group">Service group *</Label>
+              <Select id="create-price-list-service-group" value={serviceGroup} onChange={(event) => setServiceGroup(event.target.value)}>
                 <option value="">Select a service group</option>
                 {SERVICE_GROUPS.map((group) => <option key={group} value={group}>{humanize(group)}</option>)}
               </Select>
@@ -247,8 +248,8 @@ function CreatePriceListDialog({
           )}
 
           <div>
-            <Label>Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Describe when or why this price list is used..." />
+            <Label htmlFor="create-price-list-note">Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Textarea id="create-price-list-note" rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Describe when or why this price list is used..." />
           </div>
           {createMutation.isError && <p role="alert" className="text-sm text-destructive">{getApiErrorMessage(createMutation.error, "Could not create the price list")}</p>}
         </div>

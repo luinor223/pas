@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/shared/components/button";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
@@ -34,12 +34,14 @@ export function VolumeRecordsTab({
   canWrite: boolean;
   canEditLocked: boolean;
 }) {
-  const [search, setSearch] = useState("");
+  const navigate = useNavigate({ from: "/volume-records" });
+  const routeSearch = useSearch({ from: "/volume-records" });
+  const search = routeSearch.q ?? "";
   const debouncedSearch = useDebouncedSearch(search);
-  const [periodCode, setPeriodCode] = useState("");
-  const [contractId, setContractId] = useState("");
-  const [serviceCode, setServiceCode] = useState("");
-  const [page, setPage] = useState(0);
+  const periodCode = routeSearch.periodCode ?? "";
+  const contractId = routeSearch.contractId ?? "";
+  const serviceCode = routeSearch.serviceCode ?? "";
+  const page = routeSearch.page ?? 0;
   const [openCreate, setOpenCreate] = useState(false);
   const [editTarget, setEditTarget] = useState<VolumeResponse | null>(null);
   const volumes = useQuery(volumesQuery({
@@ -61,11 +63,7 @@ export function VolumeRecordsTab({
   const referencesLoading = periodsLoading || serviceItems.isLoading;
 
   function clearFilters() {
-    setSearch("");
-    setPeriodCode("");
-    setContractId("");
-    setServiceCode("");
-    setPage(0);
+    navigate({ search: (previous) => ({ ...previous, q: undefined, periodCode: undefined, contractId: undefined, serviceCode: undefined, page: undefined }), replace: true });
   }
 
   return (
@@ -88,9 +86,9 @@ export function VolumeRecordsTab({
           label="Search volume records"
           placeholder="Search record, customer, or service"
           value={search}
-          onChange={(value) => { setSearch(value); setPage(0); }}
+          onChange={(value) => navigate({ search: (previous) => ({ ...previous, q: value || undefined, page: undefined }), replace: true })}
         />
-        <Select className="w-full sm:w-48" aria-label="Filter by period" value={periodCode} onChange={(event) => { setPeriodCode(event.target.value); setPage(0); }}>
+        <Select className="w-full sm:w-48" aria-label="Filter by period" value={periodCode} onChange={(event) => navigate({ search: (previous) => ({ ...previous, periodCode: event.target.value || undefined, page: undefined }), replace: true })}>
           <option value="">Period: All</option>
           {periods.map((period) => <option key={period.id} value={period.periodCode}>{formatPeriod(period.periodCode)}</option>)}
         </Select>
@@ -99,9 +97,9 @@ export function VolumeRecordsTab({
           label=""
           placeholder="All contracts"
           value={contractId}
-          onChange={(value) => { setContractId(value); setPage(0); }}
+          onChange={(value) => navigate({ search: (previous) => ({ ...previous, contractId: value || undefined, page: undefined }), replace: true })}
         />
-        <Select className="w-full sm:w-52" aria-label="Filter by service" value={serviceCode} onChange={(event) => { setServiceCode(event.target.value); setPage(0); }}>
+        <Select className="w-full sm:w-52" aria-label="Filter by service" value={serviceCode} onChange={(event) => navigate({ search: (previous) => ({ ...previous, serviceCode: event.target.value || undefined, page: undefined }), replace: true })}>
           <option value="">Service: All</option>
           {(serviceItems.data ?? []).map((service) => <option key={service.code} value={service.code}>{service.name}</option>)}
         </Select>
@@ -171,7 +169,7 @@ export function VolumeRecordsTab({
       )}
 
       {!volumes.isLoading && !volumes.isError && (volumes.data?.totalPages ?? 0) > 0 && (
-        <PaginationControls page={page} totalPages={totalPages} pageSize={DEFAULT_PAGE_SIZE} totalItems={totalItems} onPageChange={setPage} />
+        <PaginationControls page={page} totalPages={totalPages} pageSize={DEFAULT_PAGE_SIZE} totalItems={totalItems} onPageChange={(nextPage) => navigate({ search: (previous) => ({ ...previous, page: nextPage || undefined }), replace: true })} />
       )}
 
       {openCreate && (
@@ -252,8 +250,8 @@ function CreateVolumeDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label>Period *</Label>
-            <Select value={periodCode} onChange={(event) => setPeriodCode(event.target.value)}>
+            <Label htmlFor="create-volume-period">Period *</Label>
+            <Select id="create-volume-period" value={periodCode} onChange={(event) => setPeriodCode(event.target.value)}>
               <option value="">Select a period</option>
               {eligiblePeriods.map((period) => (
                 <option key={period.id} value={period.periodCode}>
@@ -272,19 +270,19 @@ function CreateVolumeDialog({
             allowClear={false}
           />
           <div>
-            <Label>Service *</Label>
-            <Select value={serviceCode} onChange={(event) => setServiceCode(event.target.value)}>
+            <Label htmlFor="create-volume-service">Service *</Label>
+            <Select id="create-volume-service" value={serviceCode} onChange={(event) => setServiceCode(event.target.value)}>
               <option value="">Select a service</option>
               {services.map((service) => <option key={service.code} value={service.code}>{service.name} · {service.unit}</option>)}
             </Select>
           </div>
           <div>
-            <Label>Quantity{selectedService ? ` (${selectedService.unit})` : ""} *</Label>
-            <Input type="number" min="0" step="0.001" inputMode="decimal" value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(""); }} placeholder="0" />
+            <Label htmlFor="create-volume-quantity">Quantity{selectedService ? ` (${selectedService.unit})` : ""} *</Label>
+            <Input id="create-volume-quantity" type="number" min="0" step="0.001" inputMode="decimal" value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(""); }} placeholder="0" />
           </div>
           <div>
-            <Label>Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add useful operational context..." />
+            <Label htmlFor="create-volume-note">Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Textarea id="create-volume-note" rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add useful operational context..." />
           </div>
           {selectedPeriod?.status === "LOCKED" && (
             <div className="rounded-md border border-st-review bg-st-review-bg px-3 py-2 text-sm text-st-review">
@@ -347,8 +345,8 @@ function EditVolumeDialog({ volume, period, onClose }: { volume: VolumeResponse;
             <Input id="edit-volume-quantity" autoFocus type="number" min="0" step="0.001" inputMode="decimal" value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(""); }} />
           </div>
           <div>
-            <Label>Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Explain any relevant adjustment..." />
+            <Label htmlFor="edit-volume-note">Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Textarea id="edit-volume-note" rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Explain any relevant adjustment..." />
           </div>
           {(validationError || updateMutation.isError) && (
             <p role="alert" className="text-sm text-destructive">{validationError || getApiErrorMessage(updateMutation.error, "Could not update this volume record")}</p>
