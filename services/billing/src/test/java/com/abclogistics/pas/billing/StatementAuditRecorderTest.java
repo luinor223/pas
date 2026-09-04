@@ -42,7 +42,10 @@ class StatementAuditRecorderTest {
                 operations,
                 mock(WorkflowGrpcClient.class),
                 mock(EsignGrpcClient.class),
-                audit);
+                audit,
+                new com.abclogistics.pas.billing.service.StatusTransitionService(
+                        mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class)),
+                mock(tools.jackson.databind.ObjectMapper.class));
 
         UUID statementId = UUID.randomUUID();
         UUID contractId = UUID.randomUUID();
@@ -61,7 +64,7 @@ class StatementAuditRecorderTest {
 
         verify(audit).record(
                 eq("PAYMENT_STATEMENT"), eq(statementId), eq("PMT-2026-0042"),
-                eq("statement.reconciled"), eq(null), eq("RECONCILED"), eq(null), eq(Map.of()));
+                eq("statement.reconciled"), eq("CALCULATED"), eq("RECONCILED"), eq(null), eq(Map.of()));
     }
 
     private static void setId(PaymentStatement statement, UUID id) throws Exception {

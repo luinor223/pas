@@ -27,7 +27,9 @@ public class EsignGrpcClient {
 
     public CreateSigningSessionResponse createSigningSession(String documentType, String documentId,
                                                               String documentNo, String signerName,
-                                                              String signerEmail, String idempotencyKey) {
+                                                              String signerEmail, String idempotencyKey,
+                                                              String customerName, String requestedBy,
+                                                              String requestedByName) {
         log.debug("Calling EsignInternal.CreateSigningSession(docType={}, docId={})", documentType, documentId);
         return stub.withDeadlineAfter(5, TimeUnit.SECONDS)
             .createSigningSession(CreateSigningSessionRequest.newBuilder()
@@ -37,6 +39,9 @@ public class EsignGrpcClient {
                 .setSignerName(signerName != null ? signerName : "")
                 .setSignerEmail(signerEmail != null ? signerEmail : "")
                 .setIdempotencyKey(idempotencyKey)
+                .setCustomerName(customerName != null ? customerName : "")
+                .setRequestedBy(requestedBy != null ? requestedBy : "")
+                .setRequestedByName(requestedByName != null ? requestedByName : "")
                 .build());
     }
 

@@ -286,7 +286,7 @@ public class ContractService {
         Contract contract = get(id);
         if (contract.getStatus() != DocumentStatus.DRAFT) {
             throw new ConflictException(
-                    "Contract %s is %s; only a DRAFT can be submitted (registry §9)"
+                    "Contract %s is %s; only a DRAFT can be submitted"
                             .formatted(contract.getContractNo(), contract.getStatus()));
         }
         return contract;
@@ -410,7 +410,8 @@ public class ContractService {
                 // generated once, here: every retry of this row reuses it, so a re-dispatch after
                 // a timeout cannot create a second signing session (§M2)
                 UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),
-                signer.getFullName(), signer.getEmail());
+                signer.getFullName(), signer.getEmail(),
+                contract.getCustomer().getName(), SecurityUtils.currentUserIdOrSystem(), SecurityUtils.currentUserNameOrSystem());
         outbox.save(OutboxEvent.event(EsignSessionRequested.EVENT_TYPE,
                 EntityType.CONTRACT.name(), contract.getId(),
                 objectMapper.writeValueAsString(payload)));

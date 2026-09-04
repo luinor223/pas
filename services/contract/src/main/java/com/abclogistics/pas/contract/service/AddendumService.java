@@ -176,7 +176,7 @@ public class AddendumService {
         Addendum addendum = get(id);
         if (addendum.getStatus() != DocumentStatus.DRAFT) {
             throw new ConflictException(
-                    "Addendum %s is %s; only a DRAFT can be submitted (registry §9)"
+                    "Addendum %s is %s; only a DRAFT can be submitted"
                             .formatted(addendum.getAddendumNo(), addendum.getStatus()));
         }
         return addendum;
@@ -248,7 +248,7 @@ public class AddendumService {
         // asserted, not just annotated: the proxy does not see calls from inside this class
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
-                    "applyEffectsToParent must run in the addendum's own transaction (registry §9²)");
+                    "applyEffectsToParent must run in the addendum's own transaction");
         }
         Contract parent = addendum.getContract();
         // re-checked: a contract cancelled or expired mid-approval must not be rewritten
@@ -361,7 +361,7 @@ public class AddendumService {
             throw new UnprocessableEntityException(
                     ("effectiveFrom (%s) is after the contract's current validTo (%s); the "
                             + "contract would already have expired, and renewing an EXPIRED "
-                            + "contract is not a registry §9 edge")
+                            + "contract is not an allowed transition")
                             .formatted(effectiveFrom, parent.getValidTo()));
         }
     }

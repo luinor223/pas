@@ -71,7 +71,7 @@ class ContractOutboxRelayTest {
         // transaction boundaries are pinned by libs:common's OutboxRelayDatabaseTest.
         relay = new ContractOutboxRelay(outbox, new OutboxRelayProperties(), kafka, workflow,
                 esign, MAPPER, audit, directTransactions());
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(UUID.randomUUID());
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
@@ -200,12 +200,12 @@ class ContractOutboxRelayTest {
         UUID key = UUID.randomUUID();
         UUID documentId = UUID.randomUUID();
         queued(sessionRequested(new EsignSessionRequested(key, "CONTRACT", documentId,
-                "HD-2026-0001", "Tran Thi B", "b@acme.vn")));
+                "HD-2026-0001", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
 
         relay.pollAndDispatch();
 
         verify(esign).createSigningSession(key, "CONTRACT", documentId, "HD-2026-0001",
-                "Tran Thi B", "b@acme.vn");
+                "Tran Thi B", "b@acme.vn", "ACME Corp", null, null);
         verify(kafka, never()).send(any(ProducerRecord.class));
     }
 
@@ -215,8 +215,8 @@ class ContractOutboxRelayTest {
         // already exists, not open a second one against the provider (APR-07).
         UUID key = UUID.randomUUID();
         OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(key, "CONTRACT",
-                UUID.randomUUID(), "HD-2026-0002", "Tran Thi B", "b@acme.vn")));
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                UUID.randomUUID(), "HD-2026-0002", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE))
                 .thenReturn(UUID.randomUUID());
 
@@ -227,15 +227,15 @@ class ContractOutboxRelayTest {
         relay.pollAndDispatch();
 
         verify(esign, times(2)).createSigningSession(eq(key), anyString(), any(), anyString(),
-                any(), any());
+                any(), any(), any(), any(), any());
         assertThat(event.getPublishedAt()).isNotNull();
     }
 
     @Test
     void anUnreachableEsignServiceNeverFallsBackToKafka() {
         queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(), "CONTRACT",
-                UUID.randomUUID(), "HD-2026-0003", "Tran Thi B", "b@acme.vn")));
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                UUID.randomUUID(), "HD-2026-0003", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
         relay.pollAndDispatch();
@@ -251,8 +251,8 @@ class ContractOutboxRelayTest {
         // every poll. At a five-second interval, retrying is a row re-claimed for the life of the
         // deployment and a log line every five seconds saying the same thing.
         OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
-                "CONTRACT", UUID.randomUUID(), "CTR-2026-0006", "Tran Thi B", "b@acme.vn")));
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0006", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(
                         Status.FAILED_PRECONDITION.withDescription("session already exists")));
 
@@ -274,8 +274,8 @@ class ContractOutboxRelayTest {
     void anOutageIsStillRetried() {
         // The distinction the classification exists for: UNAVAILABLE is what the outbox is FOR.
         OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
-                "CONTRACT", UUID.randomUUID(), "CTR-2026-0007", "Tran Thi B", "b@acme.vn")));
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0007", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
         relay.pollAndDispatch();
@@ -291,8 +291,8 @@ class ContractOutboxRelayTest {
         // row. Parking them would abandon every pending dispatch over one bad credential, when a
         // config fix or a redeploy recovers all of them at once.
         OutboxEvent event = queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(),
-                "CONTRACT", UUID.randomUUID(), "CTR-2026-0010", "Tran Thi B", "b@acme.vn")));
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                "CONTRACT", UUID.randomUUID(), "CTR-2026-0010", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(
                         Status.PERMISSION_DENIED.withDescription("caller not allowed")));
 
@@ -328,8 +328,8 @@ class ContractOutboxRelayTest {
     void anOutageIsNotAudited() {
         // Only abandonment is news. Auditing every retry would bury the one entry that matters.
         queued(sessionRequested(new EsignSessionRequested(UUID.randomUUID(), "CONTRACT",
-                UUID.randomUUID(), "CTR-2026-0009", "Tran Thi B", "b@acme.vn")));
-        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any()))
+                UUID.randomUUID(), "CTR-2026-0009", "Tran Thi B", "b@acme.vn", "ACME Corp", null, null)));
+        when(esign.createSigningSession(any(), anyString(), any(), anyString(), any(), any(), any(), any(), any()))
                 .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
 
         relay.pollAndDispatch();

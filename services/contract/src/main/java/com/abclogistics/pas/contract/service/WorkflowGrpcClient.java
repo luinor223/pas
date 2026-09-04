@@ -69,7 +69,7 @@ public class WorkflowGrpcClient {
                 .setDocumentNo(documentNo)
                 .setCustomerName(customerName == null ? "" : customerName)
                 .setPriority(priority == null ? "" : priority)
-                .setRequestedById(requestedById.toString())
+                .setRequestedBy(requestedById.toString())
                 .setRequestedByName(requestedByName == null ? "" : requestedByName)
                 .build();
         return UUID.fromString(deadlined().startInstance(request).getInstanceId());

@@ -7,7 +7,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -101,7 +103,31 @@ public class PaymentStatement extends BaseEntity {
     public PaymentStatement() {}
 
     public enum StatementStatus {
-        DRAFT, CALCULATED, RECONCILED, SUBMITTED, APPROVED, SIGNING, SIGNED, ISSUED, REJECTED, REVISION, CANCELLED
+        DRAFT, CALCULATED, RECONCILED, SUBMITTED, APPROVED, SIGNING, SIGNED, ISSUED, REJECTED, REVISION, CANCELLED;
+
+        private record Edge(StatementStatus from, StatementStatus to, Set<StatusHistory.TriggerKind> triggers) { }
+
+        private static final List<Edge> TABLE = List.of(
+                new Edge(DRAFT, CALCULATED, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(CALCULATED, DRAFT, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(CALCULATED, RECONCILED, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(RECONCILED, SUBMITTED, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(REJECTED, DRAFT, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(REVISION, DRAFT, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(APPROVED, SIGNING, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(SIGNED, ISSUED, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(APPROVED, CANCELLED, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(SIGNED, CANCELLED, EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(SUBMITTED, APPROVED, EnumSet.of(StatusHistory.TriggerKind.W)),
+                new Edge(SUBMITTED, REJECTED, EnumSet.of(StatusHistory.TriggerKind.W)),
+                new Edge(SUBMITTED, REVISION, EnumSet.of(StatusHistory.TriggerKind.W)),
+                new Edge(SIGNING, SIGNED, EnumSet.of(StatusHistory.TriggerKind.E)),
+                new Edge(SIGNING, REVISION, EnumSet.of(StatusHistory.TriggerKind.E)));
+
+        public boolean canTransitionTo(StatementStatus to, StatusHistory.TriggerKind trigger) {
+            return TABLE.stream().anyMatch(
+                    e -> e.from() == this && e.to() == to && e.triggers().contains(trigger));
+        }
     }
 
     public UUID getId() { return id; }

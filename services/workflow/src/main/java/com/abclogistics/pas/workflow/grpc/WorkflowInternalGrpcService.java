@@ -70,7 +70,7 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             UUID idemKey = UUID.fromString(request.getIdempotencyKey());
             String priority = request.getPriority().isBlank() ? "NORMAL" : request.getPriority();
             String customerName = request.getCustomerName();
-            UUID requestedBy = requestedById(request);
+            UUID requestedBy = requireRequestedBy(request);
             String requestedByName = request.getRequestedByName().isBlank()
                     ? null : request.getRequestedByName();
 
@@ -136,15 +136,15 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
     }
 
     /** Required: every start comes from an authenticated submitter, and audit reads the id back. */
-    private static UUID requestedById(StartInstanceRequest request) {
-        if (request.getRequestedById().isBlank()) {
-            throw new IllegalArgumentException("requested_by_id is required");
+    private static UUID requireRequestedBy(StartInstanceRequest request) {
+        if (request.getRequestedBy().isBlank()) {
+            throw new IllegalArgumentException("requested_by is required");
         }
         try {
-            return UUID.fromString(request.getRequestedById());
+            return UUID.fromString(request.getRequestedBy());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(
-                    "requested_by_id is not a uuid: " + request.getRequestedById());
+                    "requested_by is not a uuid: " + request.getRequestedBy());
         }
     }
 

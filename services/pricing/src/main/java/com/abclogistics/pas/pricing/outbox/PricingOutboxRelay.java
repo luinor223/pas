@@ -56,7 +56,7 @@ public class PricingOutboxRelay extends OutboxRelay {
 
     private void dispatchStartInstance(OutboxEvent event) {
         JsonNode p = objectMapper.readTree(event.getPayload());
-        String requestedById = text(p, "requested_by_id");
+        String requestedById = text(p, "requested_by");
         try {
             workflow.startInstance(
                     UUID.fromString(p.get("idempotency_key").asString()),

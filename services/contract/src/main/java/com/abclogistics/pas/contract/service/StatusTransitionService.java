@@ -2,7 +2,6 @@ package com.abclogistics.pas.contract.service;
 
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
-import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.ApprovableDocument;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
@@ -40,7 +39,7 @@ public class StatusTransitionService {
         DocumentStatus from = document.getStatus();
         if (!from.canTransitionTo(to, trigger)) {
             throw new FailedPreconditionException(
-                    "%s %s cannot move %s -> %s under trigger %s (registry §9)"
+                    "%s %s cannot move %s -> %s under trigger %s"
                             .formatted(document.entityType(), document.getDocumentNo(),
                                     from, to, trigger));
         }
@@ -59,7 +58,7 @@ public class StatusTransitionService {
         if (document.getStatus() == DocumentStatus.SUBMITTED) {
             // filled in, not skipped: §9 has no SUBMITTED -> APPROVED row to apply directly
             transition(document, DocumentStatus.UNDER_REVIEW, TriggerKind.W, instanceId,
-                    "Approval instance started (applied out of order, registry §9 footnote 1)");
+                    "Approval instance started (applied out of order)");
         }
         transition(document, outcome, TriggerKind.W, instanceId,
                 "Approval %s".formatted(outcome.name().toLowerCase(Locale.ROOT)));
@@ -73,10 +72,9 @@ public class StatusTransitionService {
     private void record(EntityType entityType, UUID entityId, String entityNo,
                         DocumentStatus from, DocumentStatus to,
                         TriggerKind trigger, UUID triggerRef, String note) {
-        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         history.save(StatusHistory.of(entityType, entityId, from, to, trigger, triggerRef,
-                actor == null ? null : actor.userId(),
-                actor == null ? "system" : actor.fullName(),
+                SecurityUtils.currentUserIdOrSystem(),
+                SecurityUtils.currentUserNameOrSystem(),
                 note));
         audit.record(entityType.name(), entityId, entityNo, "STATUS_CHANGE",
                 from == null ? null : from.name(), to.name(), note,
