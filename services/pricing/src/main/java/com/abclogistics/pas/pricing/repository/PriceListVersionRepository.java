@@ -3,7 +3,9 @@ package com.abclogistics.pas.pricing.repository;
 import com.abclogistics.pas.pricing.domain.PriceListVersion;
 import com.abclogistics.pas.pricing.domain.PriceListVersionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
@@ -11,6 +13,14 @@ import java.util.List;
 import java.util.UUID;
 
 public interface PriceListVersionRepository extends JpaRepository<PriceListVersion, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v from PriceListVersion v where v.id = :id")
+    java.util.Optional<PriceListVersion> findByIdForUpdate(@Param("id") UUID id);
+
+    /** Serializes approval decisions for every version sharing a normalized pricing scope. */
+    @Query(value = "select pg_advisory_xact_lock(hashtextextended(cast(:scopeKey as text), 0))", nativeQuery = true)
+    void lockScope(@Param("scopeKey") String scopeKey);
 
     List<PriceListVersion> findByPriceListIdOrderByVersionNo(UUID priceListId);
 

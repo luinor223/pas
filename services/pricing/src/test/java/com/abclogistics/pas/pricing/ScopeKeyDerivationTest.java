@@ -28,6 +28,7 @@ class ScopeKeyDerivationTest {
     @Test
     void customerOnlyThenGroupOnly() {
         assertThat(PriceList.deriveScopeKey(cust, null, null)).isEqualTo("CUSTOMER:" + cust);
+        assertThat(PriceList.deriveScopeKey(cust, null, "  ")).isEqualTo("CUSTOMER:" + cust);
         assertThat(PriceList.deriveScopeKey(null, null, "TRANSPORTATION")).isEqualTo("GROUP:TRANSPORTATION");
     }
 

@@ -47,9 +47,10 @@ public class PriceListService {
 
     @Transactional
     public PriceList create(UUID customerId, UUID contractId, String serviceGroup, String note) {
-        PriceList.validateScope(customerId, contractId, serviceGroup);
+        String normalizedGroup = serviceGroup == null || serviceGroup.isBlank() ? null : serviceGroup.trim();
+        PriceList.validateScope(customerId, contractId, normalizedGroup);
         String no = "PRC-%04d".formatted(lists.nextPriceListNo());
-        PriceList list = lists.save(new PriceList(no, customerId, contractId, serviceGroup, note));
+        PriceList list = lists.save(new PriceList(no, customerId, contractId, normalizedGroup, note));
         audit.record("PRICE_LIST", list.getId(), "CREATE", null, list.getPriceListNo(), null, Map.of());
         return list;
     }
@@ -115,7 +116,8 @@ public class PriceListService {
     /** Replaces the lines of a DRAFT version (PRC-05: no edits past DRAFT). */
     @Transactional
     public void replaceLines(UUID versionId, List<LineInput> inputs) {
-        PriceListVersion version = getVersion(versionId);
+        PriceListVersion version = versions.findByIdForUpdate(versionId)
+                .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
         if (version.getStatus() != PriceListVersionStatus.DRAFT) {
             throw new ConflictException("A " + version.getStatus() + " version is read-only; create a new version (PRC-05)");
         }

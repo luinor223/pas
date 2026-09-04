@@ -82,7 +82,7 @@ public class PriceListVersionService {
 
         AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         tx.executeWithoutResult(status -> {
-            PriceListVersion version = versions.findById(versionId)
+            PriceListVersion version = versions.findByIdForUpdate(versionId)
                     .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
             requireStatus(version, PriceListVersionStatus.DRAFT, "submit");
             requirePriceLines(versionId);
@@ -110,7 +110,7 @@ public class PriceListVersionService {
     /** Applies a workflow.completed outcome (SUBMITTED → APPROVED/REJECTED). Runs in the consumer's
      *  transaction. Order-tolerant: a non-SUBMITTED version means it was already applied — skip. */
     public void applyWorkflowOutcome(UUID versionId, String outcome, UUID instanceId) {
-        PriceListVersion version = versions.findById(versionId).orElse(null);
+        PriceListVersion version = versions.findByIdForUpdate(versionId).orElse(null);
         if (version == null) {
             log.warn("workflow.completed for unknown price list version {}", versionId);
             return;
@@ -120,6 +120,14 @@ public class PriceListVersionService {
             return;
         }
         if ("APPROVED".equals(outcome)) {
+            versions.lockScope(version.getScopeKey());
+            try {
+                assertNoBlockingOverlap(version);
+            } catch (ConflictException conflict) {
+                transition(version, PriceListVersionStatus.REJECTED, TriggerKind.W, instanceId,
+                        "Approval could not be applied because its validity overlaps another approved version");
+                return;
+            }
             truncateOverlappingPredecessors(version);   // §9³, before the APPROVED flip trips EXCLUDE
             transition(version, PriceListVersionStatus.APPROVED, TriggerKind.W, instanceId, "Workflow outcome APPROVED");
         } else {

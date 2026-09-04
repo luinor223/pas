@@ -58,9 +58,10 @@ public class PriceList extends BaseEntity {
     public static java.util.List<String> scopeKeyCandidates(UUID customerId, UUID contractId, String serviceGroup) {
         java.util.List<String> keys = new java.util.ArrayList<>();
         if (contractId != null) keys.add("CONTRACT:" + contractId);
-        if (customerId != null && serviceGroup != null) keys.add("CUSTOMER:" + customerId + ":GROUP:" + serviceGroup);
+        boolean hasGroup = serviceGroup != null && !serviceGroup.isBlank();
+        if (customerId != null && hasGroup) keys.add("CUSTOMER:" + customerId + ":GROUP:" + serviceGroup);
         if (customerId != null) keys.add("CUSTOMER:" + customerId);
-        if (serviceGroup != null) keys.add("GROUP:" + serviceGroup);
+        if (hasGroup) keys.add("GROUP:" + serviceGroup);
         return keys;
     }
 
