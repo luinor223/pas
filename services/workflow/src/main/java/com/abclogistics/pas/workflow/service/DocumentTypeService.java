@@ -39,7 +39,7 @@ public class DocumentTypeService {
 
     /**
      * Updates the mutable fields of a document type. {@code code} and
-     * {@code numberPrefix} are immutable — numbering depends on them.
+     * {@code numberPrefix} are immutable · numbering depends on them.
      * Serializes concurrent edits on the type row, like the activation swap.
      */
     @Transactional

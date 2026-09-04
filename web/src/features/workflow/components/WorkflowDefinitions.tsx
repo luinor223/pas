@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -90,6 +90,16 @@ export function WorkflowDefinitions() {
     defaultValues: { documentTypeCode: "", name: "" },
   });
 
+  // Preselect the doc-type filter in the wizard. Reset on the open transition
+  // (after mount) — same pattern as UserList's edit dialog.
+  const wasOpenCreate = useRef(false);
+  useEffect(() => {
+    if (openCreate && !wasOpenCreate.current) {
+      resetCreate({ documentTypeCode: docType === "All" ? "" : docType, name: "" });
+    }
+    wasOpenCreate.current = openCreate;
+  }, [openCreate, docType, resetCreate]);
+
   const columns = useMemo<ColumnDef<WorkflowDefinitionResponse>[]>(() => [
     {
       accessorKey: "versionNo",
@@ -161,10 +171,13 @@ export function WorkflowDefinitions() {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Workflow definitions ({defs.length})</CardTitle>
-          <Button onClick={() => setOpenCreate(true)}>+ New version</Button>
+          <Button onClick={() => {
+            createMut.reset();
+            setOpenCreate(true);
+          }}>+ New version</Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <FilterBar>
+          <FilterBar className="items-center [&_input]:bg-card [&_select]:bg-card">
             <Select className="w-full sm:w-64" aria-label="Filter by document type" value={docType} onChange={(e) => setDocType(e.target.value)}>
               <option value="All">Document type: All</option>
               {docTypesQ.isLoading
@@ -182,7 +195,7 @@ export function WorkflowDefinitions() {
           ) : defsQ.isError ? (
             <div className="text-sm text-destructive">Failed to load definitions: {getApiErrorMessage(defsQ.error, "")}</div>
           ) : (
-            <DataTable columns={columns} data={defs} emptyMessage="No definitions yet — create the first version." />
+              <DataTable columns={columns} data={defs} emptyMessage="No definitions yet · create the first version." />
           )}
         </CardContent>
       </Card>
@@ -229,7 +242,7 @@ export function WorkflowDefinitions() {
       {/* Read-only step viewer */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{detailDef?.name} — steps</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{detailDef?.name} · steps</DialogTitle></DialogHeader>
           {detailDef && (
             <ol className="space-y-2">
               {detailDef.steps.length === 0 && <p className="text-sm text-muted-foreground">No steps defined yet.</p>}
@@ -323,7 +336,7 @@ function StepEditorDialog({ definition, roleCodes, rolesLoading, onClose, onSave
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl overflow-hidden p-0">
         <DialogHeader className="shrink-0 px-6 pt-6">
-          <DialogTitle>Edit steps — {definition.name} (v{definition.versionNo}, draft)</DialogTitle>
+          <DialogTitle>Edit steps · {definition.name} (v{definition.versionNo}, draft)</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
           {steps.map((s, i) => (
@@ -352,7 +365,7 @@ function StepEditorDialog({ definition, roleCodes, rolesLoading, onClose, onSave
           ))}
           <Button type="button" variant="outline" onClick={() => setSteps((prev) => [...prev, emptyStep(defaultRole || (prev[prev.length - 1]?.approverRole ?? ""))])}>+ Add step</Button>
           {fieldErrors && <div className="text-sm text-destructive">{fieldErrors}</div>}
-          {saveMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(saveMut.error, "Save failed — the definition may have been activated meanwhile")}</div>}
+          {saveMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(saveMut.error, "Save failed · the definition may have been activated meanwhile")}</div>}
         </div>
         <DialogFooter className="mt-0 shrink-0 border-t bg-card px-6 py-4">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>

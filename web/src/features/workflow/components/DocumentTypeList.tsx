@@ -109,7 +109,7 @@ export function DocumentTypeList() {
         <CardHeader><CardTitle>Document types ({types.length})</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Code and number prefix are immutable — document numbering depends on them.
+            Code and number prefix are immutable · document numbering depends on them.
             The e-signature card maps here: available after final approval, started manually by the document owner.
           </p>
           {typesQ.isLoading ? (

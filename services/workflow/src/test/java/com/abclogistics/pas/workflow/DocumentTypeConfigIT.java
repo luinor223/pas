@@ -108,7 +108,7 @@ class DocumentTypeConfigIT {
             assertThat(updated.name()).isEqualTo("Price List (edited)");
             assertThat(updated.esignEnabled()).isTrue();
             assertThat(updated.esignProvider()).isEqualTo("mock");
-            // code + prefix are immutable — the response still carries the originals
+            // code + prefix are immutable · the response still carries the originals
             assertThat(updated.code()).isEqualTo("PRICE_LIST");
             assertThat(updated.numberPrefix()).isEqualTo("PRC");
 
