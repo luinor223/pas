@@ -1,9 +1,8 @@
 package com.abclogistics.pas.esign.grpc;
 
-import com.abclogistics.pas.common.error.FailedPreconditionException;
+import com.abclogistics.pas.common.error.GrpcStatusMapper;
 import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.service.SigningSessionService;
-import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +43,7 @@ public class EsignInternalGrpcService extends EsignInternalGrpc.EsignInternalImp
             responseObserver.onCompleted();
         } catch (Exception e) {
             log.error("CreateSigningSession failed: {}", e.getMessage(), e);
-            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(GrpcStatusMapper.toStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -56,9 +55,4 @@ public class EsignInternalGrpcService extends EsignInternalGrpc.EsignInternalImp
         return s == null || s.isBlank() ? null : UUID.fromString(s);
     }
 
-    private static Status mapToStatus(Exception e) {
-        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
-        if (e instanceof FailedPreconditionException) return Status.FAILED_PRECONDITION;
-        return Status.INTERNAL;
-    }
 }

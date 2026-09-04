@@ -2,9 +2,7 @@ package com.abclogistics.pas.billing.grpc;
 
 import com.abclogistics.pas.billing.service.StatementService;
 import com.abclogistics.pas.billing.service.StatementService.SigningPayload;
-import com.abclogistics.pas.common.error.FailedPreconditionException;
-import com.abclogistics.pas.common.error.NotFoundException;
-import io.grpc.Status;
+import com.abclogistics.pas.common.error.GrpcStatusMapper;
 import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
 
@@ -31,14 +29,7 @@ public class BillingInternalGrpcService extends BillingInternalGrpc.BillingInter
                 .build());
             responseObserver.onCompleted();
         } catch (Exception e) {
-            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(GrpcStatusMapper.toStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
-    }
-
-    private Status mapToStatus(Exception e) {
-        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
-        if (e instanceof NotFoundException) return Status.NOT_FOUND;
-        if (e instanceof FailedPreconditionException) return Status.FAILED_PRECONDITION;
-        return Status.INTERNAL;
     }
 }

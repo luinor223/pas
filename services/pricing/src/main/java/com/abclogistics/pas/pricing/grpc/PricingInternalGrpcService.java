@@ -1,6 +1,6 @@
 package com.abclogistics.pas.pricing.grpc;
 
-import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.common.error.GrpcStatusMapper;
 import com.abclogistics.pas.pricing.domain.ServiceItem;
 import com.abclogistics.pas.pricing.dto.PriceLineView;
 import com.abclogistics.pas.pricing.service.EffectivePriceService;
@@ -41,7 +41,7 @@ public class PricingInternalGrpcService extends PricingInternalGrpc.PricingInter
                     .build());
             responseObserver.onCompleted();
         } catch (Exception e) {
-            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(GrpcStatusMapper.toStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -64,7 +64,7 @@ public class PricingInternalGrpcService extends PricingInternalGrpc.PricingInter
             responseObserver.onNext(toResponse(resolved.get()));
             responseObserver.onCompleted();
         } catch (Exception e) {
-            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+            responseObserver.onError(GrpcStatusMapper.toStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -94,9 +94,4 @@ public class PricingInternalGrpcService extends PricingInternalGrpc.PricingInter
         return s == null || s.isBlank() ? null : s;
     }
 
-    private Status mapToStatus(Exception e) {
-        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
-        if (e instanceof NotFoundException) return Status.NOT_FOUND;
-        return Status.INTERNAL;
-    }
 }

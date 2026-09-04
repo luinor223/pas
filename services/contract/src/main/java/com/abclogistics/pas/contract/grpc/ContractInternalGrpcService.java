@@ -1,6 +1,6 @@
 package com.abclogistics.pas.contract.grpc;
 
-import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.common.error.GrpcStatusMapper;
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.ApprovableDocument;
 import com.abclogistics.pas.contract.domain.Attachment;
@@ -9,14 +9,12 @@ import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.storage.AttachmentStorage;
 import com.google.protobuf.ByteString;
-import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -76,7 +74,7 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
             observer.onNext(tx.execute(s -> readContract(request)));
             observer.onCompleted();
         } catch (Exception e) {
-            observer.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+            observer.onError(GrpcStatusMapper.toStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -110,7 +108,7 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
             observer.onNext(tx.execute(s -> readSigningPayload(request)));
             observer.onCompleted();
         } catch (Exception e) {
-            observer.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+            observer.onError(GrpcStatusMapper.toStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
     }
 
@@ -217,11 +215,4 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
         return value == null ? "" : value;
     }
 
-    private Status mapToStatus(Exception e) {
-        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
-        if (e instanceof NotFoundException) return Status.NOT_FOUND;
-        if (e instanceof FailedPreconditionException) return Status.FAILED_PRECONDITION;
-        if (e instanceof UnprocessableEntityException) return Status.FAILED_PRECONDITION;
-        return Status.INTERNAL;
-    }
 }
