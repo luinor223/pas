@@ -45,7 +45,7 @@ public class StatementService {
     private final WorkflowGrpcClient workflowClient;
     private final EsignGrpcClient esignClient;
     private final com.abclogistics.pas.common.audit.AuditRecorder auditRecorder;
-    private final StatusHistoryRepository historyRepo;
+    private final StatusTransitionService transitions;
     private final tools.jackson.databind.ObjectMapper objectMapper;
 
     public StatementService(PaymentStatementRepository statementRepo,
@@ -58,7 +58,7 @@ public class StatementService {
                             WorkflowGrpcClient workflowClient,
                             EsignGrpcClient esignClient,
                             com.abclogistics.pas.common.audit.AuditRecorder auditRecorder,
-                            StatusHistoryRepository historyRepo,
+                            StatusTransitionService transitions,
                             tools.jackson.databind.ObjectMapper objectMapper) {
         this.statementRepo = statementRepo;
         this.lineRepo = lineRepo;
@@ -70,7 +70,7 @@ public class StatementService {
         this.workflowClient = workflowClient;
         this.esignClient = esignClient;
         this.auditRecorder = auditRecorder;
-        this.historyRepo = historyRepo;
+        this.transitions = transitions;
         this.objectMapper = objectMapper;
     }
 
@@ -218,7 +218,7 @@ public class StatementService {
         statementRepo.saveAndFlush(statement);
 
         // 8. Status history (D17)
-        recordHistory(statement, null, PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
+        transitions.open(statement);
 
         // 9. Audit outbox
         auditOutbox(statement, "statement.calculated", null);
@@ -230,10 +230,6 @@ public class StatementService {
     public StatementResponse reconcile(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
-
-        if (statement.getStatus() != PaymentStatement.StatementStatus.CALCULATED) {
-            throw new FailedPreconditionException("Only CALCULATED statements can be reconciled");
-        }
 
         if (statement.getAdjustsStatementId() == null) {
             // seq-06 m24 reconciliation re-checks: period still LOCKED, contract still in force
@@ -282,12 +278,11 @@ public class StatementService {
         }
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
-        statement.setStatus(PaymentStatement.StatementStatus.RECONCILED);
+        transitions.transition(statement, PaymentStatement.StatementStatus.RECONCILED, StatusHistory.TriggerKind.U, null);
         statement.setReconciledAt(Instant.now());
         statement.setReconciledBy(SecurityUtils.currentUserId());
         statementRepo.saveAndFlush(statement);
 
-        recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.RECONCILED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.reconciled", oldStatus.name());
         return toResponse(statement);
     }
@@ -296,10 +291,6 @@ public class StatementService {
     public StatementResponse submit(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
-
-        if (statement.getStatus() != PaymentStatement.StatementStatus.RECONCILED) {
-            throw new FailedPreconditionException("Only RECONCILED statements can be submitted");
-        }
 
         // PAY-04 checks
         if (statement.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
@@ -330,10 +321,8 @@ public class StatementService {
 
         // ValidateStartable pre-check (registry §5, seq-06 m27)
         workflowClient.validateStartable("PAYMENT_STATEMENT");
-        statement.setStatus(PaymentStatement.StatementStatus.SUBMITTED);
+        transitions.transition(statement, PaymentStatement.StatementStatus.SUBMITTED, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
-
-        recordHistory(statement, PaymentStatement.StatementStatus.RECONCILED, PaymentStatement.StatementStatus.SUBMITTED, StatusHistory.TriggerKind.U, null);
 
         // Submit wiring: write workflow.start_requested to outbox (D4)
         UUID idempotencyKey = UUID.randomUUID();
@@ -390,9 +379,7 @@ public class StatementService {
 
         // If CALCULATED, flip back to DRAFT (D14f)
         if (status == PaymentStatement.StatementStatus.CALCULATED) {
-            PaymentStatement.StatementStatus oldStatus = statement.getStatus();
-            statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
-            recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
+            transitions.transition(statement, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         }
 
         statementRepo.saveAndFlush(statement);
@@ -428,8 +415,7 @@ public class StatementService {
         recomputeTotals(statement);
 
         if (status == PaymentStatement.StatementStatus.CALCULATED) {
-            statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
-            recordHistory(statement, status, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
+            transitions.transition(statement, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         }
 
         statementRepo.saveAndFlush(statement);
@@ -521,7 +507,6 @@ public class StatementService {
             }
         }
         recomputeTotals(statement);
-        statement.setStatus(PaymentStatement.StatementStatus.CALCULATED);
         statementRepo.saveAndFlush(statement);
     }
 
@@ -530,22 +515,17 @@ public class StatementService {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
-        if (statement.getStatus() != PaymentStatement.StatementStatus.DRAFT) {
-            throw new FailedPreconditionException("Only DRAFT statements can be recalculated");
-        }
-
         if (statement.getAdjustsStatementId() != null) {
             // Adjustment statements are MANUAL-only deltas (PAY-05, seq-06 m39): there are no
             // volume pulls to refresh, so recalculation just recomputes totals over kept lines.
             recomputeTotals(statement);
-            statement.setStatus(PaymentStatement.StatementStatus.CALCULATED);
             statementRepo.saveAndFlush(statement);
         } else {
             recalculateCalculatedLines(statement);
         }
 
-        recordHistory(statement, PaymentStatement.StatementStatus.DRAFT,
-            PaymentStatement.StatementStatus.CALCULATED, StatusHistory.TriggerKind.U, null);
+        transitions.transition(statement, PaymentStatement.StatementStatus.CALCULATED,
+            StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.recalculated",
             PaymentStatement.StatementStatus.DRAFT.name());
         return toResponse(statement);
@@ -556,13 +536,8 @@ public class StatementService {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
-        if (oldStatus != PaymentStatement.StatementStatus.REJECTED
-            && oldStatus != PaymentStatement.StatementStatus.REVISION) {
-            throw new FailedPreconditionException("Only REJECTED or REVISION statements can be revised");
-        }
-        statement.setStatus(PaymentStatement.StatementStatus.DRAFT);
+        transitions.transition(statement, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
-        recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.revised", oldStatus.name());
         return toResponse(statement);
     }
@@ -571,13 +546,8 @@ public class StatementService {
     public StatementResponse sendForSigning(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
-        if (statement.getStatus() != PaymentStatement.StatementStatus.APPROVED) {
-            throw new FailedPreconditionException("Only APPROVED statements can be sent for signing (PAY-06)");
-        }
-        statement.setStatus(PaymentStatement.StatementStatus.SIGNING);
+        transitions.transition(statement, PaymentStatement.StatementStatus.SIGNING, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
-        recordHistory(statement, PaymentStatement.StatementStatus.APPROVED,
-            PaymentStatement.StatementStatus.SIGNING, StatusHistory.TriggerKind.U, null);
 
         UUID esignKey = UUID.randomUUID();
         Map<String, String> esignPayload = new java.util.LinkedHashMap<>();
@@ -607,15 +577,10 @@ public class StatementService {
     public StatementResponse publish(String statementNo) {
         PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
-        if (statement.getStatus() != PaymentStatement.StatementStatus.SIGNED) {
-            throw new FailedPreconditionException("Only SIGNED statements can be published");
-        }
-        statement.setStatus(PaymentStatement.StatementStatus.ISSUED);
+        transitions.transition(statement, PaymentStatement.StatementStatus.ISSUED, StatusHistory.TriggerKind.U, null);
         statement.setIssuedAt(Instant.now());
         statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
         statementRepo.saveAndFlush(statement);
-        recordHistory(statement, PaymentStatement.StatementStatus.SIGNED,
-            PaymentStatement.StatementStatus.ISSUED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.published",
             PaymentStatement.StatementStatus.SIGNED.name());
         return toResponse(statement);
@@ -686,7 +651,7 @@ public class StatementService {
         }
         statementRepo.saveAndFlush(adjustment);
 
-        recordHistory(adjustment, null, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
+        transitions.open(adjustment);
         auditOutbox(adjustment, "statement.adjustment_created", null);
         return toResponse(adjustment);
     }
@@ -697,19 +662,14 @@ public class StatementService {
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
-        if (oldStatus != PaymentStatement.StatementStatus.APPROVED
-            && oldStatus != PaymentStatement.StatementStatus.SIGNED) {
-            throw new FailedPreconditionException("Only APPROVED or SIGNED statements can be cancelled");
-        }
         // seq-06 m42: abandoning the document always traces why
         if (reason == null || reason.isBlank()) {
             throw new UnprocessableEntityException("Cancel reason is required (PAY-05)");
         }
 
-        statement.setStatus(PaymentStatement.StatementStatus.CANCELLED);
+        transitions.transition(statement, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
 
-        recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
         auditOutbox(statement, "statement.cancelled", oldStatus.name());
         return toResponse(statement);
     }
@@ -742,25 +702,6 @@ public class StatementService {
             }
             throw e;
         }
-    }
-
-    private void recordHistory(PaymentStatement statement,
-                               PaymentStatement.StatementStatus fromStatus,
-                               PaymentStatement.StatementStatus toStatus,
-                               StatusHistory.TriggerKind kind,
-                               String triggerRef) {
-        StatusHistory history = new StatusHistory();
-        history.setStatement(statement);
-        history.setFromStatus(fromStatus != null ? fromStatus.name() : null);
-        history.setToStatus(toStatus.name());
-        history.setTriggerKind(kind);
-        history.setTriggerRef(triggerRef);
-        history.setActorId(SecurityUtils.currentUserIdOrSystem());
-        history.setActorName(SecurityUtils.currentUserNameOrSystem());
-        history.setOccurredAt(Instant.now());
-        // Explicit save (listeners do the same): never rely on commit-flush cascading alone.
-        historyRepo.save(history);
-        statement.getStatusHistory().add(history);
     }
 
     /** PAY-01 window check shared by calculate and reconcile. */

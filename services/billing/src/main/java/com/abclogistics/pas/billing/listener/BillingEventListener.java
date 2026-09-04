@@ -5,9 +5,8 @@ import com.abclogistics.pas.billing.domain.ProcessedEvent;
 import com.abclogistics.pas.billing.domain.StatusHistory;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
-import com.abclogistics.pas.billing.repository.StatusHistoryRepository;
+import com.abclogistics.pas.billing.service.StatusTransitionService;
 import com.abclogistics.pas.common.audit.AuditRecorder;
-import com.abclogistics.pas.common.security.SystemActor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -19,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -45,18 +43,18 @@ public class BillingEventListener {
 
     private final PaymentStatementRepository statements;
     private final ProcessedEventRepository processed;
-    private final StatusHistoryRepository history;
+    private final StatusTransitionService transitions;
     private final AuditRecorder audit;
     private final ObjectMapper objectMapper;
 
     public BillingEventListener(PaymentStatementRepository statements,
                                 ProcessedEventRepository processed,
-                                StatusHistoryRepository history,
+                                StatusTransitionService transitions,
                                 AuditRecorder audit,
                                 ObjectMapper objectMapper) {
         this.statements = statements;
         this.processed = processed;
-        this.history = history;
+        this.transitions = transitions;
         this.audit = audit;
         this.objectMapper = objectMapper;
     }
@@ -118,10 +116,9 @@ public class BillingEventListener {
 
         processed.save(ProcessedEvent.of(id));
         PaymentStatement.StatementStatus oldStatus = stmt.getStatus();
-        stmt.setStatus(newStatus);
+        transitions.transition(stmt, newStatus, StatusHistory.TriggerKind.W, text(root, "instance_id"));
         statements.save(stmt);
 
-        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.W, text(root, "instance_id")));
         audit.record("PAYMENT_STATEMENT", stmt.getId(), stmt.getStatementNo(), "WORKFLOW_COMPLETED",
             oldStatus.name(), newStatus.name(), "Approval " + outcome.toLowerCase(java.util.Locale.ROOT),
             Map.of("trigger", "W", "event_id", id.toString()));
@@ -151,10 +148,9 @@ public class BillingEventListener {
 
         processed.save(ProcessedEvent.of(id));
         PaymentStatement.StatementStatus oldStatus = stmt.getStatus();
-        stmt.setStatus(newStatus);
+        transitions.transition(stmt, newStatus, StatusHistory.TriggerKind.E, text(root, "session_id"));
         statements.save(stmt);
 
-        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.E, text(root, "session_id")));
         audit.record("PAYMENT_STATEMENT", stmt.getId(), stmt.getStatementNo(), "ESIGN_SESSION_COMPLETED",
             oldStatus.name(), newStatus.name(), "Signing " + result.toLowerCase(java.util.Locale.ROOT),
             Map.of("trigger", "E", "event_id", id.toString()));
@@ -188,23 +184,6 @@ public class BillingEventListener {
         } catch (IllegalArgumentException e) {
             return null;
         }
-    }
-
-    private StatusHistory transitionOf(PaymentStatement stmt,
-                                       PaymentStatement.StatementStatus from,
-                                       PaymentStatement.StatementStatus to,
-                                       StatusHistory.TriggerKind kind,
-                                       String triggerRef) {
-        StatusHistory h = new StatusHistory();
-        h.setStatement(stmt);
-        h.setFromStatus(from.name());
-        h.setToStatus(to.name());
-        h.setTriggerKind(kind);
-        h.setTriggerRef(triggerRef);
-        h.setActorId(SystemActor.ID);
-        h.setActorName(SystemActor.NAME);
-        h.setOccurredAt(Instant.now());
-        return h;
     }
 
     private static String text(JsonNode root, String field) {

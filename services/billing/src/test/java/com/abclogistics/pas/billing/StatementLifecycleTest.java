@@ -56,7 +56,7 @@ class StatementLifecycleTest {
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
                 mock(EsignGrpcClient.class), audit,
-                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class),
+                new com.abclogistics.pas.billing.service.StatusTransitionService(mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class)),
                 mock(tools.jackson.databind.ObjectMapper.class, org.mockito.Mockito.RETURNS_DEEP_STUBS));
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -82,7 +82,7 @@ class StatementLifecycleTest {
 
         assertThatThrownBy(() -> service.revise("PMT-2026-0007"))
                 .isInstanceOf(FailedPreconditionException.class)
-                .hasMessageContaining("REJECTED or REVISION");
+                .hasMessageContaining("cannot move");
     }
 
     @Test
@@ -110,7 +110,7 @@ class StatementLifecycleTest {
 
         assertThatThrownBy(() -> service.sendForSigning("PMT-2026-0009"))
                 .isInstanceOf(FailedPreconditionException.class)
-                .hasMessageContaining("PAY-06");
+                .hasMessageContaining("cannot move");
     }
 
     @Test
@@ -133,7 +133,7 @@ class StatementLifecycleTest {
 
         assertThatThrownBy(() -> service.publish("PMT-2026-0011"))
                 .isInstanceOf(FailedPreconditionException.class)
-                .hasMessageContaining("SIGNED");
+                .hasMessageContaining("cannot move");
     }
 
     @Test

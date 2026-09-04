@@ -64,7 +64,7 @@ class StatementRecalculateTest {
                 mock(StatementLineVolumeRepository.class), mock(OutboxRepository.class),
                 contractClient, pricingClient, operationsClient, workflowClient,
                 mock(EsignGrpcClient.class), mock(AuditRecorder.class),
-                mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class),
+                new com.abclogistics.pas.billing.service.StatusTransitionService(mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class)),
                 mock(tools.jackson.databind.ObjectMapper.class, org.mockito.Mockito.RETURNS_DEEP_STUBS));
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }

@@ -42,7 +42,7 @@ class BillingListenersTest {
         processed = mock(ProcessedEventRepository.class);
         history = mock(StatusHistoryRepository.class);
         audit = mock(AuditRecorder.class);
-        listener = new BillingEventListener(statements, processed, history, audit, new ObjectMapper());
+        listener = new BillingEventListener(statements, processed, new com.abclogistics.pas.billing.service.StatusTransitionService(history), audit, new ObjectMapper());
     }
 
     @Test
