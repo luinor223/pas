@@ -27,7 +27,7 @@ export function CustomerPicker({ value, onChange, label = "Customer", placeholde
         <div className="flex items-center gap-1">
           <Input id={combo.inputId} readOnly aria-label={accessibleLabel} className="cursor-pointer"
             value={selected ? `${selected.code} · ${selected.name}` : selectedQuery.isError ? "Customer unavailable" : "Loading customer..."}
-            title="Click to choose another customer" onFocus={combo.startSelecting} onClick={combo.startSelecting} {...combo.comboboxProps} />
+            title="Click to choose another customer" onClick={combo.startSelecting} {...combo.comboboxProps} />
           <button type="button" aria-label="Clear customer" className="px-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => combo.select("")}>×</button>
         </div>
       ) : (

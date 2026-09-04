@@ -67,7 +67,8 @@ export function useEntityCombobox({
       close();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setOpen(true);
+      // focus alone no longer opens the list, so arrows are the keyboard way in
+      if (!editing) startSelecting(); else setOpen(true);
       if (ids.length === 0) return;
       setActiveIndex((current) => event.key === "ArrowDown"
         ? current >= ids.length - 1 ? 0 : current + 1

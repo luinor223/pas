@@ -38,7 +38,7 @@ export function ContractPicker({ value, onChange, label = "Contract", placeholde
         <div className="flex items-center gap-1">
           <Input id={combo.inputId} readOnly aria-label={accessibleLabel} className="cursor-pointer"
             value={selected ? `${selected.contractNo} · ${selected.customerName}` : selectedQuery.isError ? "Contract unavailable" : "Loading contract..."}
-            title="Click to choose another contract" onClick={combo.startSelecting} onFocus={combo.startSelecting} {...combo.comboboxProps} />
+            title="Click to choose another contract" onClick={combo.startSelecting} {...combo.comboboxProps} />
           {allowClear && <button type="button" aria-label="Clear contract" className="px-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => combo.select("")}>×</button>}
         </div>
       ) : (

@@ -114,13 +114,14 @@ test("selects and closes the contract picker with the keyboard", async ({ page }
   await page.goto("/price-lists");
   await page.getByRole("button", { name: "New price list" }).click();
   const picker = page.getByRole("combobox", { name: "Approved or active contract *" });
-  await picker.focus();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await picker.click();
   await expect(page.getByRole("option", { name: /CTR-2026-0001/ })).toBeVisible();
   await picker.press("ArrowDown");
   await picker.press("Enter");
   await expect(picker).toHaveValue(/CTR-2026-0001/);
 
-  await picker.focus();
+  await picker.click();
   await expect(page.getByRole("listbox")).toBeVisible();
   await picker.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
