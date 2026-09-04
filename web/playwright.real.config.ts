@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const authState = "test-results/.auth/real-user.json";
+const authState = "playwright/.auth/real-user.json";
 
 export default defineConfig({
   testDir: "./e2e-real",

@@ -22,17 +22,32 @@ test("loads recipient-isolated notification counts from the real service", async
   await expect(page.getByText(new RegExp(`Notifications \\(${payload.unreadCount} unread\\)`))).toBeVisible();
 });
 
+test("loads the lightweight header count from the real service", async ({ page }) => {
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/v1/notifications/unread-count"
+      && response.request().method() === "GET";
+  });
+
+  await page.reload();
+  const response = await responsePromise;
+  await expectApiSuccess(response, "GET /api/v1/notifications/unread-count");
+  const payload = (await response.json()).data;
+  expect(payload).toEqual({ unreadCount: expect.any(Number) });
+  expect(payload.unreadCount).toBeGreaterThanOrEqual(0);
+});
+
 test("requests the expiry category independently", async ({ page }) => {
   await openNotifications(page);
   const response = page.waitForResponse((item) => item.url().includes("category=EXPIRY"));
-  await page.getByRole("button", { name: /Expiring/ }).click();
+  await page.getByRole("tab", { name: /Expiring/ }).click();
   expect((await response).ok()).toBe(true);
 });
 
 test("requests unread notifications independently", async ({ page }) => {
   await openNotifications(page);
   const response = page.waitForResponse((item) => item.url().includes("unread=true"));
-  await page.getByRole("button", { name: /Unread/ }).click();
+  await page.getByRole("tab", { name: /Unread/ }).click();
   const payload = (await response).ok();
   expect(payload).toBe(true);
 });
