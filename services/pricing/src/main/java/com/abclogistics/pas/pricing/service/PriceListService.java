@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Locale;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
@@ -50,11 +52,6 @@ public class PriceListService {
         PriceList list = lists.save(new PriceList(no, customerId, contractId, serviceGroup, note));
         audit.record("PRICE_LIST", list.getId(), "CREATE", null, list.getPriceListNo(), null, Map.of());
         return list;
-    }
-
-    @Transactional(readOnly = true)
-    public List<PriceList> search(UUID customerId, UUID contractId, String serviceGroup) {
-        return lists.search(customerId, contractId, serviceGroup);
     }
 
     @Transactional(readOnly = true)
@@ -123,9 +120,15 @@ public class PriceListService {
             throw new ConflictException("A " + version.getStatus() + " version is read-only; create a new version (PRC-05)");
         }
         lines.deleteByVersionId(versionId);
+        Map<String, ServiceItem> itemsByCode = items.findByCodeIn(
+                        inputs.stream().map(LineInput::serviceCode).distinct().toList())
+                .stream()
+                .collect(Collectors.toMap(ServiceItem::getCode, Function.identity()));
         for (LineInput in : inputs) {
-            ServiceItem item = items.findByCode(in.serviceCode())
-                    .orElseThrow(() -> new NotFoundException("No service item with code " + in.serviceCode()));
+            ServiceItem item = itemsByCode.get(in.serviceCode());
+            if (item == null) {
+                throw new NotFoundException("No service item with code " + in.serviceCode());
+            }
             lines.save(new PriceLine(versionId, item.getId(), in.unitPrice()));
         }
         audit.record("PRICE_LIST_VERSION", versionId, "EDIT_LINES", null, Map.<String, Object>of("lineCount", inputs.size()));

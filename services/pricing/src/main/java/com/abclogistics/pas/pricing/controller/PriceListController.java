@@ -49,8 +49,8 @@ public class PriceListController {
                                           @RequestParam(required = false) String q,
                                           @RequestParam(defaultValue = "0") int page,
                                           @RequestParam(defaultValue = "15") int size) {
-        if (page < 0) throw new IllegalArgumentException("Page cannot be negative");
-        var result = lists.searchPage(customerId, contractId, serviceGroup, q, page, Math.max(1, Math.min(size, 100)));
+        var result = lists.searchPage(customerId, contractId, serviceGroup, q,
+                Math.max(0, page), Math.max(1, Math.min(size, 100)));
         return new PriceListPageResponse(
                 result.getContent().stream().map(PriceListResponse::of).toList(),
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());

@@ -10,6 +10,8 @@ import java.util.UUID;
 public interface ServiceItemRepository extends JpaRepository<ServiceItem, UUID> {
     Optional<ServiceItem> findByCode(String code);
 
+    List<ServiceItem> findByCodeIn(List<String> codes);
+
     List<ServiceItem> findAllByActiveTrueOrderByCode();
 
     List<ServiceItem> findAllByOrderByCode();
