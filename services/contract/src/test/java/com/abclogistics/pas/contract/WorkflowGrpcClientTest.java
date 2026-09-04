@@ -153,7 +153,7 @@ class WorkflowGrpcClientTest {
         assertThat(sent.getDocumentNo()).isEqualTo("CTR-2026-0001");
         assertThat(sent.getCustomerName()).isEqualTo("ACME Logistics");
         assertThat(sent.getPriority()).isEqualTo("NORMAL");
-        assertThat(sent.getRequestedById()).isEqualTo(actorId.toString());
+        assertThat(sent.getRequestedBy()).isEqualTo(actorId.toString());
         assertThat(sent.getRequestedByName()).isEqualTo("Nguyen Thi Lan");
     }
 

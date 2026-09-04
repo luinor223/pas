@@ -37,7 +37,7 @@ public class WorkflowGrpcClient {
             .setDocumentNo(documentNo)
             .setCustomerName(customerName != null ? customerName : "")
             .setPriority(priority != null ? priority : "NORMAL");
-        if (requestedById != null) req.setRequestedById(requestedById.toString());
+        if (requestedById != null) req.setRequestedBy(requestedById.toString());
         if (requestedByName != null) req.setRequestedByName(requestedByName);
 
         StartInstanceResponse resp = stub.withDeadlineAfter(5, TimeUnit.SECONDS)

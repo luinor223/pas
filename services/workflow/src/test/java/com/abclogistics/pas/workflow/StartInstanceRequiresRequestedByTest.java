@@ -23,10 +23,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * {@code requested_by_id} is required (registry §5): the instance records who asked for it, and
+ * {@code requested_by} is required (registry §5): the instance records who asked for it, and
  * audit reads that id back. A start with no submitter is rejected rather than stored as null.
  */
-class StartInstanceRequiresRequestedByIdTest {
+class StartInstanceRequiresRequestedByTest {
 
     private final WorkflowInstanceService instances = mock(WorkflowInstanceService.class);
     private final WorkflowInternalGrpcService service = new WorkflowInternalGrpcService(
@@ -34,15 +34,15 @@ class StartInstanceRequiresRequestedByIdTest {
             mock(StepAssigneeRepository.class), mock(WorkflowActionRepository.class));
 
     @Test
-    void aBlankRequestedByIdIsInvalidArgument() {
+    void aBlankRequestedByIsInvalidArgument() {
         StatusRuntimeException error = startWith("");
 
         assertThat(error.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT);
-        assertThat(error.getStatus().getDescription()).contains("requested_by_id is required");
+        assertThat(error.getStatus().getDescription()).contains("requested_by is required");
     }
 
     @Test
-    void aMalformedRequestedByIdIsInvalidArgument() {
+    void aMalformedRequestedByIsInvalidArgument() {
         StatusRuntimeException error = startWith("not-a-uuid");
 
         assertThat(error.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT);
@@ -67,7 +67,7 @@ class StartInstanceRequiresRequestedByIdTest {
                 .setDocumentId(UUID.randomUUID().toString())
                 .setDocumentNo("HD-2026-0001")
                 .setIdempotencyKey(UUID.randomUUID().toString())
-                .setRequestedById(requestedById)
+                .setRequestedBy(requestedById)
                 .setRequestedByName("Nguyen Thi Lan")
                 .build(), observer);
 
