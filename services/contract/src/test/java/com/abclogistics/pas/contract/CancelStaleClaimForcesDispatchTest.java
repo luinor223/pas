@@ -487,8 +487,8 @@ class CancelStaleClaimForcesDispatchTest {
 
         assertThat(auditRows(id, "CANCEL_PENDING")).singleElement().satisfies(payload -> {
             // the status it kept, and no status it moved to — the row records an attempt, not a change
-            assertThat(payload).containsPattern(field("beforeStatus", "SUBMITTED"));
-            assertThat(payload).containsPattern("\"afterStatus\"\\s*:\\s*null");
+            assertThat(payload).containsPattern(field("before_status", "SUBMITTED"));
+            assertThat(payload).containsPattern("\"after_status\"\\s*:\\s*null");
             assertThat(payload).contains("customer withdrew");
             // which of the three pending paths it was, so the log says why it did not complete
             assertThat(payload).contains("no instance for the key yet");

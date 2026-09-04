@@ -54,6 +54,11 @@ public class RoleService {
         Role role = roles.findWithLockByCode(code)
                 .orElseThrow(() -> new NotFoundException("Unknown role: " + code));
 
+        List<String> before = role.getPermissions().stream()
+                .map(Permission::getCode)
+                .sorted()
+                .toList();
+
         List<String> distinctCodes = permissionCodes.stream().distinct().toList();
         List<Permission> resolved = permissions.findByCodeIn(distinctCodes);
         if (resolved.size() != distinctCodes.size()) {
@@ -61,8 +66,12 @@ public class RoleService {
         }
 
         role.setPermissions(new HashSet<>(resolved));
-        audit.record("ROLE", role.getId(), "role.permissions_replaced", null,
-                Map.of("permissions", distinctCodes));
+        List<String> after = resolved.stream().map(Permission::getCode).sorted().toList();
+        if (!before.equals(after)) {
+            audit.record("ROLE", role.getId(), role.getCode(), "role.permissions_replaced",
+                    null, null, null,
+                    Map.of("permissions", Map.of("from", before, "to", after)));
+        }
 
         rewriteCacheAfterCommit(code);
         return RoleResponse.from(role);

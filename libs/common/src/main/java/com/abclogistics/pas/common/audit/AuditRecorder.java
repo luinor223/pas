@@ -3,11 +3,11 @@ package com.abclogistics.pas.common.audit;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.common.security.SystemActor;
 import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -16,10 +16,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Writes an {@code audit.recorded} row to the outbox in the caller's transaction.
- * Actor is taken from the security context, or null for system/scheduler actions.
- */
+/** Writes {@code audit.recorded} to the caller's outbox transaction. */
 @Component
 public class AuditRecorder {
 
@@ -48,26 +45,18 @@ public class AuditRecorder {
     public void record(String entityType, UUID entityId, String entityNo, String action,
                        String beforeStatus, String afterStatus, String note,
                        Map<String, Object> changes) {
-        AuthenticatedUser actor = currentActor();
+        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         String ip = currentIpAddress();
         AuditPayload payload = new AuditPayload(
                 sourceService,
                 entityType, entityId, entityNo, action,
-                actor == null ? null : actor.userId(),
-                actor == null ? "system" : actor.fullName(),
+                actor == null ? SystemActor.ID : actor.userId(),
+                actor == null ? SystemActor.NAME : actor.fullName(),
                 actor == null ? null : actor.department(),
                 beforeStatus, afterStatus,
                 changes == null ? Map.of() : changes,
                 note, ip, Instant.now());
         outbox.save(OutboxEvent.audit(entityType, entityId, serialize(payload)));
-    }
-
-    private AuthenticatedUser currentActor() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof AuthenticatedUser user) {
-            return user;
-        }
-        return null;
     }
 
     private String currentIpAddress() {

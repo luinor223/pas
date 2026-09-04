@@ -31,6 +31,9 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+    web:
+      pageable:
+        max-page-size: 100
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
@@ -82,8 +85,10 @@ outbox:
 contract:
   kafka:
     dlt-suffix: ".DLT"
-    retry-attempts: 3
+    # ~4 minutes of retry before the DLT, so a database or identity restart is not an audit gap
+    retry-attempts: 8
     retry-backoff: PT2S
+    max-retry-backoff: PT60S
   status-sweep-interval: PT60S
   expiry-warning-days: 30
   attachment-storage-path: ${ATTACHMENT_STORAGE_PATH:/var/pas/attachments}

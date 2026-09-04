@@ -21,14 +21,14 @@ message ValidateStartableRequest {
 message ValidateStartableResponse {}
 
 message StartInstanceRequest {
+  reserved 4;                 // a removed field; never reuse this number
   string document_type = 1;
   string document_id = 2;
   string document_no = 3;
-  string requested_by = 4; // deprecated: use requested_by_id/requested_by_name; kept for backward compat
   string idempotency_key = 5;
   string priority = 6;
   string customer_name = 7;
-  string requested_by_id = 8;
+  string requested_by = 8;    // uuid; required: every start has an authenticated submitter
   string requested_by_name = 9;
 }
 

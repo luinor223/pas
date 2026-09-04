@@ -5,6 +5,7 @@ import com.abclogistics.pas.esign.grpc.EsignInternalGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,8 @@ public class EsignGrpcClient {
     private final ManagedChannel channel;
     private final EsignInternalGrpc.EsignInternalBlockingStub stub;
 
+    // Select this constructor instead of the protected test constructor.
+    @Autowired
     public EsignGrpcClient(@Value("${esign.grpc.host:localhost}") String host,
                            @Value("${esign.grpc.port:50057}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
@@ -36,7 +39,8 @@ public class EsignGrpcClient {
      * @return the session id esign-service created or already had for this idempotency key
      */
     public UUID createSigningSession(UUID idempotencyKey, String documentType, UUID documentId,
-                                     String documentNo, String signerName, String signerEmail) {
+                                     String documentNo, String signerName, String signerEmail,
+                                     String customerName, UUID requestedBy, String requestedByName) {
         CreateSigningSessionRequest request = CreateSigningSessionRequest.newBuilder()
                 .setIdempotencyKey(idempotencyKey.toString())
                 .setDocumentType(documentType)
@@ -44,6 +48,9 @@ public class EsignGrpcClient {
                 .setDocumentNo(documentNo)
                 .setSignerName(signerName == null ? "" : signerName)
                 .setSignerEmail(signerEmail == null ? "" : signerEmail)
+                .setCustomerName(customerName == null ? "" : customerName)
+                .setRequestedBy(requestedBy == null ? "" : requestedBy.toString())
+                .setRequestedByName(requestedByName == null ? "" : requestedByName)
                 .build();
         return UUID.fromString(deadlined().createSigningSession(request).getSessionId());
     }

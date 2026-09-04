@@ -2,7 +2,6 @@ package com.abclogistics.pas.contract.service;
 
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
-import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.ApprovableDocument;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
@@ -73,10 +72,9 @@ public class StatusTransitionService {
     private void record(EntityType entityType, UUID entityId, String entityNo,
                         DocumentStatus from, DocumentStatus to,
                         TriggerKind trigger, UUID triggerRef, String note) {
-        AuthenticatedUser actor = SecurityUtils.currentUser().orElse(null);
         history.save(StatusHistory.of(entityType, entityId, from, to, trigger, triggerRef,
-                actor == null ? null : actor.userId(),
-                actor == null ? "system" : actor.fullName(),
+                SecurityUtils.currentUserIdOrSystem(),
+                SecurityUtils.currentUserNameOrSystem(),
                 note));
         audit.record(entityType.name(), entityId, entityNo, "STATUS_CHANGE",
                 from == null ? null : from.name(), to.name(), note,

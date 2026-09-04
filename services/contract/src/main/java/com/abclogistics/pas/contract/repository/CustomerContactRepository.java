@@ -12,4 +12,6 @@ public interface CustomerContactRepository extends JpaRepository<CustomerContact
     List<CustomerContact> findByCustomerId(UUID customerId);
 
     Optional<CustomerContact> findByCustomerIdAndPrimaryTrue(UUID customerId);
+
+    List<CustomerContact> findByCustomerIdInAndPrimaryTrue(List<UUID> customerIds);
 }

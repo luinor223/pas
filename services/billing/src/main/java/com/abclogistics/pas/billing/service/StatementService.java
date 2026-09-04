@@ -356,14 +356,8 @@ public class StatementService {
         if (statement.getCustomerName() != null) {
             payload.put("customer_name", statement.getCustomerName());
         }
-        UUID requestedById = SecurityUtils.currentUserId();
-        String requestedByName = SecurityUtils.currentUserName();
-        if (requestedById != null) {
-            payload.put("requested_by_id", requestedById.toString());
-        }
-        if (requestedByName != null && !requestedByName.isBlank()) {
-            payload.put("requested_by_name", requestedByName);
-        }
+        payload.put("requested_by", SecurityUtils.currentUserIdOrSystem().toString());
+        payload.put("requested_by_name", SecurityUtils.currentUserNameOrSystem());
         OutboxEvent event = OutboxEvent.event(
             "workflow.start_requested",
             "PAYMENT_STATEMENT",
@@ -621,6 +615,10 @@ public class StatementService {
         esignPayload.put("document_no", statement.getStatementNo());
         esignPayload.put("signer_name",
             statement.getCustomerName() != null ? statement.getCustomerName() : "");
+        esignPayload.put("customer_name",
+            statement.getCustomerName() != null ? statement.getCustomerName() : "");
+        esignPayload.put("requested_by", SecurityUtils.currentUserIdOrSystem().toString());
+        esignPayload.put("requested_by_name", SecurityUtils.currentUserNameOrSystem());
         OutboxEvent esignEvent = OutboxEvent.event(
             "esign.session_requested",
             "PAYMENT_STATEMENT",
@@ -785,8 +783,8 @@ public class StatementService {
         history.setToStatus(toStatus.name());
         history.setTriggerKind(kind);
         history.setTriggerRef(triggerRef);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
+        history.setActorId(SecurityUtils.currentUserIdOrSystem());
+        history.setActorName(SecurityUtils.currentUserNameOrSystem());
         history.setOccurredAt(Instant.now());
         // Explicit save (listeners do the same): never rely on commit-flush cascading alone.
         historyRepo.save(history);

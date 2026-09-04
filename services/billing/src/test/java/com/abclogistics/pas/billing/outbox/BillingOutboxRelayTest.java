@@ -51,7 +51,7 @@ class BillingOutboxRelayTest {
                 new ObjectMapper(), mock(AuditRecorder.class));
         when(workflow.startInstance(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(UUID.randomUUID());
-        when(esign.createSigningSession(any(), any(), any(), any(), any(), any()))
+        when(esign.createSigningSession(any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(CreateSigningSessionResponse.newBuilder()
                         .setSessionId(UUID.randomUUID().toString()).setStatus("SIGNING").build());
         when(kafka.send(any(ProducerRecord.class)))
@@ -84,7 +84,7 @@ class BillingOutboxRelayTest {
                 "{\"idempotency_key\":\"" + UUID.randomUUID() + "\",\"document_type\":\"PAYMENT_STATEMENT\","
                         + "\"document_id\":\"" + docId + "\",\"document_no\":\"PMT-2026-0001\"}"));
 
-        verify(esign).createSigningSession(any(), any(), any(), any(), any(), any());
+        verify(esign).createSigningSession(any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(kafka, never()).send(any(ProducerRecord.class));
     }
 

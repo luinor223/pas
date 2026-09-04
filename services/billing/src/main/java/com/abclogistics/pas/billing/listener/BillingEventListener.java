@@ -7,6 +7,7 @@ import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
 import com.abclogistics.pas.billing.repository.StatusHistoryRepository;
 import com.abclogistics.pas.common.audit.AuditRecorder;
+import com.abclogistics.pas.common.security.SystemActor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -198,6 +199,8 @@ public class BillingEventListener {
         h.setToStatus(to.name());
         h.setTriggerKind(kind);
         h.setTriggerRef(triggerRef);
+        h.setActorId(SystemActor.ID);
+        h.setActorName(SystemActor.NAME);
         h.setOccurredAt(Instant.now());
         return h;
     }

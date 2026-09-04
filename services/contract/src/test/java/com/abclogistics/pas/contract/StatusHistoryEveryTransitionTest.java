@@ -24,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.security.SystemActor;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.StatusHistory;
@@ -239,13 +240,13 @@ class StatusHistoryEveryTransitionTest {
                         TriggerKind.S,   // D14d activation
                         TriggerKind.S);  // D14d expiry
 
-        // and the actor travels with the trigger: a user edge names them, a scheduler edge is
-        // "system" with no id, which is what the History tab renders (D15)
+        // and the actor travels with the trigger: a user edge names them, a scheduler edge is the
+        // SYSTEM principal (D-actor), never a null id, which is what the History tab renders (D15)
         List<StatusHistory> rows = historyOf(id);
         assertThat(rows.getFirst().getActorId()).isEqualTo(SALES.userId());
         assertThat(rows.getFirst().getActorName()).isEqualTo("Nguyen Thi Lan");
-        assertThat(rows.getLast().getActorId()).isNull();
-        assertThat(rows.getLast().getActorName()).isEqualTo("system");
+        assertThat(rows.getLast().getActorId()).isEqualTo(SystemActor.ID);
+        assertThat(rows.getLast().getActorName()).isEqualTo(SystemActor.NAME);
     }
 
     // --- helpers --------------------------------------------------------------------------------

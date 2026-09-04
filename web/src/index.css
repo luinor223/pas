@@ -55,6 +55,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Native control affordances follow the brand: the highlighted option in a
+   select popup (drawn by the browser, not reachable by our own CSS), plus
+   checkboxes and radios. */
+:root { accent-color: var(--color-primary); }
+
 /* tabular figures wherever data lines up */
 .tnum { font-variant-numeric: tabular-nums; }
 

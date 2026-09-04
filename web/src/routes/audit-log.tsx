@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Placeholder } from "@/shared/components/Placeholder";
+import { AuditRecordTable } from "@/features/audit/components/AuditRecordTable";
 
 export const Route = createFileRoute("/audit-log")({
-  component: () => <Placeholder title="Audit Log" note="The complete, immutable activity trail." />,
+  component: AuditRecordTable,
 });

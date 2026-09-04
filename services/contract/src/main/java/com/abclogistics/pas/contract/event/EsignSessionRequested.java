@@ -8,7 +8,10 @@ public record EsignSessionRequested(
         UUID documentId,
         String documentNo,
         String signerName,
-        String signerEmail
+        String signerEmail,
+        String customerName,
+        UUID requestedBy,
+        String requestedByName
 ) {
     public static final String EVENT_TYPE = "esign.session_requested";
 }

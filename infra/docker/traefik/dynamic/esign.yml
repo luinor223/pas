@@ -1,0 +1,20 @@
+http:
+  routers:
+    esign:
+      rule: >-
+        PathPrefix(`/api/v1/signing-sessions`) || PathPrefix(`/api/v1/signing-session-events`)
+      entryPoints: [web]
+      middlewares: [esign-ratelimit, jwt-auth@file, api-v1-strip]
+      service: esign
+
+  middlewares:
+    esign-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+
+  services:
+    esign:
+      loadBalancer:
+        servers:
+          - url: http://esign-service:8007

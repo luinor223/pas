@@ -1,9 +1,11 @@
 package com.abclogistics.pas.contract.repository;
 
 import com.abclogistics.pas.contract.domain.Addendum;
+import com.abclogistics.pas.contract.domain.ChangeType;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,15 +17,32 @@ import java.util.UUID;
 
 public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
 
+    // Same reason as ContractRepository.findById: DTO mapping touches
+    // contract + services outside the tx (open-in-view=false).
+    @EntityGraph(attributePaths = {"contract", "services"})
+    Optional<Addendum> findById(UUID id);
+
     Optional<Addendum> findByAddendumNo(String addendumNo);
 
+    @EntityGraph(attributePaths = {"contract", "services"})
     @Query("""
             select a from Addendum a
             where (:contractId is null or a.contract.id = :contractId)
               and (:status is null or a.status = :status)
+              and (:changeType is null or a.changeType = :changeType)
+              and (:q is null
+                   or lower(a.addendumNo) like :q
+                   or lower(a.description) like :q
+                   or lower(a.contract.contractNo) like :q)
+              and (:#{#effectiveFromFrom == null} = true or a.effectiveFrom >= :effectiveFromFrom)
+              and (:#{#effectiveFromTo == null} = true or a.effectiveFrom <= :effectiveFromTo)
             """)
     Page<Addendum> search(@Param("contractId") UUID contractId,
                           @Param("status") DocumentStatus status,
+                          @Param("changeType") ChangeType changeType,
+                          @Param("q") String q,
+                          @Param("effectiveFromFrom") LocalDate effectiveFromFrom,
+                          @Param("effectiveFromTo") LocalDate effectiveFromTo,
                           Pageable pageable);
 
     List<Addendum> findByContractId(UUID contractId);

@@ -86,7 +86,7 @@ public class BillingOutboxRelay extends OutboxRelay {
         try {
             JsonNode p = objectMapper.readTree(event.getPayload());
             UUID idempotencyKey = requiredUuid(p, "idempotency_key", event);
-            UUID requestedById = uuidOrNull(text(p, "requested_by_id"));
+            UUID requestedById = uuidOrNull(text(p, "requested_by"));
             String documentId = required(p, "document_id", event);
             String documentNo = required(p, "document_no", event);
             workflow.startInstance(
@@ -117,7 +117,10 @@ public class BillingOutboxRelay extends OutboxRelay {
                 required(p, "document_no", event),
                 text(p, "signer_name"),
                 "",
-                idempotencyKey);
+                idempotencyKey,
+                text(p, "customer_name"),
+                text(p, "requested_by"),
+                text(p, "requested_by_name"));
             log.debug("CreateSigningSession dispatched for statement {}", documentId);
         } catch (StatusRuntimeException e) {
             if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {
@@ -143,7 +146,7 @@ public class BillingOutboxRelay extends OutboxRelay {
 
     /**
      * R1: a malformed UUID is corruption, not an outage — like a missing field it must park.
-     * (The optional {@code requested_by_id} stays lenient via {@link #uuidOrNull}.)
+     * (The optional {@code requested_by} stays lenient via {@link #uuidOrNull}.)
      */
     private static UUID requiredUuid(JsonNode node, String field, OutboxEvent event) {
         try {

@@ -8,7 +8,9 @@ import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.repository.CustomerContactRepository;
 import com.abclogistics.pas.contract.repository.CustomerRepository;
 import org.springframework.data.domain.Page;
@@ -19,9 +21,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Optional;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Customer master data (4.1). No approval workflow, so nothing here writes status_history. */
 @Service
@@ -31,13 +35,16 @@ public class CustomerService {
 
     private final CustomerRepository customers;
     private final CustomerContactRepository contacts;
+    private final ContractRepository contracts;
     private final DocumentNumberService numbers;
     private final AuditRecorder audit;
 
     public CustomerService(CustomerRepository customers, CustomerContactRepository contacts,
-                           DocumentNumberService numbers, AuditRecorder audit) {
+                           ContractRepository contracts, DocumentNumberService numbers,
+                           AuditRecorder audit) {
         this.customers = customers;
         this.contacts = contacts;
+        this.contracts = contracts;
         this.numbers = numbers;
         this.audit = audit;
     }
@@ -52,9 +59,30 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
+    public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
+        Page<Customer> page = search(query, status, pageable);
+        List<UUID> ids = page.getContent().stream().map(Customer::getId).toList();
+        Map<UUID, CustomerContact> primaries = ids.isEmpty() ? Map.of()
+                : contacts.findByCustomerIdInAndPrimaryTrue(ids).stream()
+                        .collect(Collectors.toMap(c -> c.getCustomer().getId(), Function.identity()));
+        Map<UUID, Long> counts = ids.isEmpty() ? Map.of()
+                : contracts.countByCustomerIds(ids).stream()
+                        .collect(Collectors.toMap(r -> (UUID) r[0], r -> (Long) r[1]));
+        return page.map(c -> CustomerResponse.ofList(c, primaries.get(c.getId()),
+                counts.getOrDefault(c.getId(), 0L)));
+    }
+
+    @Transactional(readOnly = true)
     public Customer get(UUID id) {
         return customers.findById(id)
                 .orElseThrow(() -> new NotFoundException("Customer %s not found".formatted(id)));
+    }
+
+    /** Single-record view (detail, create/update responses): full contacts + exact count. */
+    @Transactional(readOnly = true)
+    public CustomerResponse toResponse(Customer customer) {
+        return CustomerResponse.of(customer, contactsOf(customer.getId()),
+                contracts.countByCustomerId(customer.getId()));
     }
 
     @Transactional(readOnly = true)

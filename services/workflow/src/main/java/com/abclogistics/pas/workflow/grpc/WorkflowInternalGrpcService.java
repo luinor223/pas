@@ -70,25 +70,9 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             UUID idemKey = UUID.fromString(request.getIdempotencyKey());
             String priority = request.getPriority().isBlank() ? "NORMAL" : request.getPriority();
             String customerName = request.getCustomerName();
-            UUID requestedBy = null;
-            String requestedByName = null;
-            if (!request.getRequestedById().isBlank()) {
-                try { requestedBy = UUID.fromString(request.getRequestedById()); } catch (Exception ignored) {}
-                requestedByName = request.getRequestedByName().isBlank() ? request.getRequestedBy() : request.getRequestedByName();
-            } else if (!request.getRequestedByName().isBlank()) {
-                requestedByName = request.getRequestedByName();
-                if (!request.getRequestedBy().isBlank() && request.getRequestedBy().matches("[0-9a-fA-F-]{36}")) {
-                    try { requestedBy = UUID.fromString(request.getRequestedBy()); } catch (Exception ignored) {}
-                }
-            } else {
-                String legacy = request.getRequestedBy();
-                if (legacy != null && legacy.matches("[0-9a-fA-F-]{36}")) {
-                    try { requestedBy = UUID.fromString(legacy); } catch (Exception ignored) {}
-                    requestedByName = legacy;
-                } else {
-                    requestedByName = legacy;
-                }
-            }
+            UUID requestedBy = requireRequestedBy(request);
+            String requestedByName = request.getRequestedByName().isBlank()
+                    ? null : request.getRequestedByName();
 
             WorkflowInstance inst = instanceService.startInstance(
                     request.getDocumentType(), docId, request.getDocumentNo(),
@@ -148,6 +132,19 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
             responseObserver.onCompleted();
         } catch (Exception e) {
             responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
+        }
+    }
+
+    /** Required: every start comes from an authenticated submitter, and audit reads the id back. */
+    private static UUID requireRequestedBy(StartInstanceRequest request) {
+        if (request.getRequestedBy().isBlank()) {
+            throw new IllegalArgumentException("requested_by is required");
+        }
+        try {
+            return UUID.fromString(request.getRequestedBy());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "requested_by is not a uuid: " + request.getRequestedBy());
         }
     }
 

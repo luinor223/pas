@@ -21,6 +21,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as PaymentStatementsRouteImport } from './routes/payment-statements'
 import { Route as PriceListsRouteImport } from './routes/price-lists'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as VolumeRecordsRouteImport } from './routes/volume-records'
 import { Route as AdminDocumentTypesRouteImport } from './routes/admin.document-types'
 import { Route as AdminRolesRouteImport } from './routes/admin.roles'
@@ -87,6 +88,11 @@ const PriceListsRoute = PriceListsRouteImport.update({
   path: '/price-lists',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VolumeRecordsRoute = VolumeRecordsRouteImport.update({
   id: '/volume-records',
   path: '/volume-records',
@@ -126,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof NotificationsRoute
   '/payment-statements': typeof PaymentStatementsRoute
   '/price-lists': typeof PriceListsRoute
+  '/profile': typeof ProfileRoute
   '/volume-records': typeof VolumeRecordsRoute
   '/admin/document-types': typeof AdminDocumentTypesRoute
   '/admin/roles': typeof AdminRolesRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/notifications': typeof NotificationsRoute
   '/payment-statements': typeof PaymentStatementsRoute
   '/price-lists': typeof PriceListsRoute
+  '/profile': typeof ProfileRoute
   '/volume-records': typeof VolumeRecordsRoute
   '/admin/document-types': typeof AdminDocumentTypesRoute
   '/admin/roles': typeof AdminRolesRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/notifications': typeof NotificationsRoute
   '/payment-statements': typeof PaymentStatementsRoute
   '/price-lists': typeof PriceListsRoute
+  '/profile': typeof ProfileRoute
   '/volume-records': typeof VolumeRecordsRoute
   '/admin/document-types': typeof AdminDocumentTypesRoute
   '/admin/roles': typeof AdminRolesRoute
@@ -186,6 +195,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/payment-statements'
     | '/price-lists'
+    | '/profile'
     | '/volume-records'
     | '/admin/document-types'
     | '/admin/roles'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/payment-statements'
     | '/price-lists'
+    | '/profile'
     | '/volume-records'
     | '/admin/document-types'
     | '/admin/roles'
@@ -224,6 +235,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/payment-statements'
     | '/price-lists'
+    | '/profile'
     | '/volume-records'
     | '/admin/document-types'
     | '/admin/roles'
@@ -244,6 +256,7 @@ export interface RootRouteChildren {
   NotificationsRoute: typeof NotificationsRoute
   PaymentStatementsRoute: typeof PaymentStatementsRoute
   PriceListsRoute: typeof PriceListsRoute
+  ProfileRoute: typeof ProfileRoute
   VolumeRecordsRoute: typeof VolumeRecordsRoute
 }
 
@@ -333,6 +346,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PriceListsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/volume-records': {
       id: '/volume-records'
       path: '/volume-records'
@@ -400,6 +420,7 @@ const rootRouteChildren: RootRouteChildren = {
   NotificationsRoute: NotificationsRoute,
   PaymentStatementsRoute: PaymentStatementsRoute,
   PriceListsRoute: PriceListsRoute,
+  ProfileRoute: ProfileRoute,
   VolumeRecordsRoute: VolumeRecordsRoute,
 }
 export const routeTree = rootRouteImport

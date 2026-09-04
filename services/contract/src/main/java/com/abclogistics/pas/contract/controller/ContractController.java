@@ -10,6 +10,7 @@ import com.abclogistics.pas.contract.dto.StatusHistoryResponse;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.service.DocumentCancellationService.Outcome;
 import com.abclogistics.pas.contract.service.ContractService;
+import com.abclogistics.pas.contract.service.PageableGuard;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -46,8 +47,14 @@ public class ContractController {
                                        @RequestParam(required = false) String status,
                                        @RequestParam(required = false) String serviceGroup,
                                        @RequestParam(required = false) String q,
+                                       @RequestParam(required = false) String validFromFrom,
+                                       @RequestParam(required = false) String validFromTo,
+                                       @RequestParam(required = false) String validToFrom,
+                                       @RequestParam(required = false) String validToTo,
                                        @PageableDefault(size = 20) Pageable pageable) {
-        return contracts.search(customerId, status, serviceGroup, q, pageable)
+        Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CONTRACT_SORTS);
+        return contracts.search(customerId, status, serviceGroup, q,
+                        validFromFrom, validFromTo, validToFrom, validToTo, safe)
                 .map(ContractResponse::of);
     }
 
