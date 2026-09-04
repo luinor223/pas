@@ -4,7 +4,7 @@ import com.abclogistics.pas.billing.dto.AdjustmentRequest;
 import com.abclogistics.pas.billing.dto.CalculateStatementRequest;
 import com.abclogistics.pas.billing.dto.EditLineRequest;
 import com.abclogistics.pas.billing.dto.StatementResponse;
-import com.abclogistics.pas.billing.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.billing.client.ContractGrpcClient;
 import com.abclogistics.pas.billing.client.OperationsGrpcClient;
 import com.abclogistics.pas.billing.client.PricingGrpcClient;

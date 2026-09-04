@@ -101,7 +101,7 @@ class StatementTotalsTest {
 
         assertThatThrownBy(() -> service.editLine("PMT-2026-0001",
                 new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), null, 7)))
-                .isInstanceOf(com.abclogistics.pas.billing.error.UnprocessableEntityException.class)
+                .isInstanceOf(com.abclogistics.pas.common.error.UnprocessableEntityException.class)
                 .hasMessageContaining("Stale statement version");
     }
 

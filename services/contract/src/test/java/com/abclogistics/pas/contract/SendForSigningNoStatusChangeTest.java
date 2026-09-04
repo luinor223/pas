@@ -18,7 +18,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.scheduler.ContractStatusScheduler;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;

@@ -19,7 +19,7 @@ import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.ContractResponse;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
