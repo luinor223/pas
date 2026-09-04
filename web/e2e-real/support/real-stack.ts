@@ -3,16 +3,32 @@ import { expect, type Page, type Response } from "@playwright/test";
 const username = process.env.PAS_E2E_USERNAME ?? "admin";
 const password = process.env.PAS_E2E_PASSWORD ?? "admin12345";
 
-export async function signIn(page: Page) {
+export async function signIn(page: Page, credentials: { username: string; password: string } = { username, password }) {
   await page.goto("/login");
-  await page.getByLabel("Email address").fill(username);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Email address").fill(credentials.username);
+  await page.getByLabel("Password").fill(credentials.password);
 
   const loginResponse = page.waitForResponse((response) =>
     response.url().includes("/api/v1/auth/login") && response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Sign in" }).click();
   await expectApiSuccess(await loginResponse, "login");
+  await expect(page).not.toHaveURL(/\/login(?:\?|$)/);
+  await expect(page.getByRole("button", { name: "Open account menu" })).toBeVisible();
+}
+
+export async function signOut(page: Page) {
+  await page.getByRole("button", { name: "Open account menu" }).click();
+  const logoutResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/auth/logout") && response.request().method() === "POST",
+  );
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  expect((await logoutResponse).status()).toBe(204);
+  await expect(page).toHaveURL(/\/login(?:\?|$)/);
+}
+
+export async function openAuthenticatedApp(page: Page) {
+  await page.goto("/");
   await expect(page).not.toHaveURL(/\/login(?:\?|$)/);
   await expect(page.getByRole("button", { name: "Open account menu" })).toBeVisible();
 }

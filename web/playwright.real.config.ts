@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const authState = "test-results/.auth/real-user.json";
+
 export default defineConfig({
   testDir: "./e2e-real",
   fullyParallel: false,
@@ -16,5 +18,17 @@ export default defineConfig({
   },
   expect: { timeout: 10_000 },
   timeout: 45_000,
-  projects: [{ name: "chromium-real-stack", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "authenticate-real-stack",
+      testMatch: /.*\.setup\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "chromium-real-stack",
+      testIgnore: /.*\.setup\.ts/,
+      use: { ...devices["Desktop Chrome"], storageState: authState },
+      dependencies: ["authenticate-real-stack"],
+    },
+  ],
 });
