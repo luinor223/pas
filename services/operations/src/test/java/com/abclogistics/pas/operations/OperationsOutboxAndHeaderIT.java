@@ -78,7 +78,7 @@ class OperationsOutboxAndHeaderIT {
 
     @Test
     void auditRecordedWrittenToOutboxAndPeriodLockedHasCorrectHeaders() {
-        String periodCode = "2026-08";
+        String periodCode = "2026-10";
         try { periodService.create(periodCode); } catch (Exception ignored) {}
         long beforeLockOutbox = outbox.count();
         periodService.lock(periodCode);

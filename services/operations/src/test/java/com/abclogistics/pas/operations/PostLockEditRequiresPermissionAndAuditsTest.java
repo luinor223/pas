@@ -193,7 +193,7 @@ class PostLockEditRequiresPermissionAndAuditsTest {
 
     @Test
     void createRequiresAnActiveContractAndAPeriodWithinItsValidity() {
-        String code = "2026-08";
+        String code = "2026-10";
         setAuthWithoutEditLocked();
         try { periodService.create(code); } catch (Exception ignored) {}
 
@@ -211,8 +211,8 @@ class PostLockEditRequiresPermissionAndAuditsTest {
         contractClient.setContract(outsideValidityId, contractClient.getContract(outsideValidityId).toBuilder()
                 .setContractNo("CTR-2026-SHORT")
                 .setStatus("ACTIVE")
-                .setValidFrom("2026-08-10")
-                .setValidTo("2026-08-20")
+                .setValidFrom("2026-10-10")
+                .setValidTo("2026-10-20")
                 .build());
         assertThatThrownBy(() -> volumeService.create(
                 outsideValidityId, code, "STORAGE", BigDecimal.ONE, null))
