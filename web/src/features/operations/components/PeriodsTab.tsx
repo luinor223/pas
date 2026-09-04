@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { PaginationControls } from "@/shared/components/pagination-controls";
-import { formatDate, formatDateTime } from "@/shared/lib/format";
+import { formatDate, formatDateTime, localMonthInputValue } from "@/shared/lib/format";
 import { formatPeriod } from "../operationsFormat";
 import { operationsApi } from "../services/operationsApi";
 import type { PeriodResponse } from "../types/operationsTypes";
@@ -29,10 +29,9 @@ export function PeriodsTab({
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
   const [lockTarget, setLockTarget] = useState<PeriodResponse | null>(null);
-  const sorted = [...periods].sort((left, right) => right.periodCode.localeCompare(left.periodCode));
-  const totalPages = Math.max(1, Math.ceil(sorted.length / DEFAULT_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(periods.length / DEFAULT_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages - 1);
-  const visible = sorted.slice(currentPage * DEFAULT_PAGE_SIZE, (currentPage + 1) * DEFAULT_PAGE_SIZE);
+  const visible = periods.slice(currentPage * DEFAULT_PAGE_SIZE, (currentPage + 1) * DEFAULT_PAGE_SIZE);
 
   const lockMutation = useMutation({
     mutationFn: (periodCode: string) => operationsApi.lockPeriod(periodCode),
@@ -136,7 +135,7 @@ export function PeriodsTab({
 
 function CreatePeriodDialog({ existing, onClose }: { existing: PeriodResponse[]; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const [periodCode, setPeriodCode] = useState(new Date().toISOString().slice(0, 7));
+  const [periodCode, setPeriodCode] = useState(localMonthInputValue);
   const alreadyExists = existing.some((period) => period.periodCode === periodCode);
   const createMutation = useMutation({
     mutationFn: () => operationsApi.createPeriod(periodCode),

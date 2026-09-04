@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -19,9 +19,10 @@ import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { CustomerPicker } from "@/features/contract/components/CustomerPicker";
 import { ContractPicker } from "@/features/contract/components/ContractPicker";
-import { contractsQuery, customersQuery } from "@/features/contract/hooks/contractQueries";
+import { contractLookupsQuery, customerLookupsQuery } from "@/features/contract/hooks/contractQueries";
 import { SERVICE_GROUPS } from "@/features/contract/contractOptions";
 import { humanize } from "@/shared/lib/text";
+import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
 import { priceListQuery, priceListsQuery, priceListVersionByIdQuery } from "../hooks/pricingQueries";
 import { pricingApi } from "../services/pricingApi";
 import type { CreatePriceListRequest, PriceListResponse } from "../types/pricingTypes";
@@ -36,14 +37,10 @@ export function PriceListPage() {
   const navigate = useNavigate({ from: "/price-lists" });
   const { id: selectedId, versionId: initialVersionId } = useSearch({ from: "/price-lists" });
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebouncedSearch(search);
   const [serviceGroup, setServiceGroup] = useState("");
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
   const listsQuery = useQuery({ ...priceListsQuery({
     serviceGroup: serviceGroup || undefined,
     q: debouncedSearch || undefined,
@@ -53,13 +50,13 @@ export function PriceListPage() {
   const linkedVersionQuery = useQuery({ ...priceListVersionByIdQuery(initialVersionId ?? ""), enabled: canRead && !selectedId && Boolean(initialVersionId) });
   const effectiveSelectedId = selectedId ?? linkedVersionQuery.data?.version.priceListId ?? "";
   const selectedQuery = useQuery({ ...priceListQuery(effectiveSelectedId), enabled: canRead && Boolean(effectiveSelectedId) });
-  const priceLists = listsQuery.data?.items ?? [];
-  const needsContracts = priceLists.some((list) => Boolean(list.contractId));
-  const needsCustomers = priceLists.some((list) => Boolean(list.customerId));
-  const contracts = useQuery({ ...contractsQuery({ size: 100 }), enabled: canRead && needsContracts });
-  const customers = useQuery({ ...customersQuery({ size: 100 }), enabled: canRead && needsCustomers });
-  const contractsById = useMemo(() => new Map((contracts.data?.content ?? []).map((contract) => [contract.id, contract])), [contracts.data]);
-  const customersById = useMemo(() => new Map((customers.data?.content ?? []).map((customer) => [customer.id, customer])), [customers.data]);
+  const priceLists = useMemo(() => listsQuery.data?.items ?? [], [listsQuery.data?.items]);
+  const contractIds = useMemo(() => [...new Set(priceLists.flatMap((list) => list.contractId ? [list.contractId] : []))], [priceLists]);
+  const customerIds = useMemo(() => [...new Set(priceLists.flatMap((list) => list.customerId ? [list.customerId] : []))], [priceLists]);
+  const contracts = useQuery({ ...contractLookupsQuery(contractIds), enabled: canRead && contractIds.length > 0 });
+  const customers = useQuery({ ...customerLookupsQuery(customerIds), enabled: canRead && customerIds.length > 0 });
+  const contractsById = useMemo(() => new Map((contracts.data ?? []).map((contract) => [contract.id, contract])), [contracts.data]);
+  const customersById = useMemo(() => new Map((customers.data ?? []).map((customer) => [customer.id, customer])), [customers.data]);
 
   const columns = useMemo<ColumnDef<PriceListResponse>[]>(() => [
     {
@@ -71,7 +68,19 @@ export function PriceListPage() {
         </button>
       ),
     },
-    { id: "scope", header: "APPLIES TO", cell: ({ row }) => <PriceListScope priceList={row.original} contract={contractsById.get(row.original.contractId ?? "")} customer={customersById.get(row.original.customerId ?? "")} /> },
+    {
+      id: "scope",
+      header: "APPLIES TO",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <PriceListScope
+          priceList={row.original}
+          contract={contractsById.get(row.original.contractId ?? "")}
+          customer={customersById.get(row.original.customerId ?? "")}
+          resolveDetails={false}
+        />
+      ),
+    },
     { accessorKey: "note", header: "NOTE", cell: ({ row }) => <span className="text-muted-foreground">{row.original.note || "—"}</span> },
     {
       id: "action",

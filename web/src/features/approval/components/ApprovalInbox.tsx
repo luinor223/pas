@@ -1,24 +1,24 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Check, Download, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Badge } from "@/shared/components/badge";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent } from "@/shared/components/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/dialog";
-import { Label } from "@/shared/components/label";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { PaginationControls } from "@/shared/components/pagination-controls";
 import { SearchInput } from "@/shared/components/search-input";
 import { Select } from "@/shared/components/select";
 import { StatusBadge } from "@/shared/components/status-badge";
+import { TabBar } from "@/shared/components/tab-bar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
-import { Textarea } from "@/shared/components/textarea";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { cn } from "@/shared/lib/cn";
 import { formatDateTime, formatRelative } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
+import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
 import { approvalInboxQuery } from "../hooks/approvalQueries";
 import { approvalApi } from "../services/approvalApi";
 import type { ApprovalAction, ApprovalInboxItem, ApprovalTab } from "../types/approvalTypes";
@@ -42,19 +42,16 @@ type ReasonDialogState = { item: ApprovalInboxItem; action: ReasonAction } | nul
 export function ApprovalInbox() {
   const queryClient = useQueryClient();
   const canAct = useHasPermission("approval:act");
-  const [tab, setTab] = useState<ApprovalTab>("ASSIGNED");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [documentType, setDocumentType] = useState("");
-  const [priority, setPriority] = useState("");
-  const [page, setPage] = useState(0);
+  const navigate = useNavigate({ from: "/approvals" });
+  const routeSearch = useSearch({ from: "/approvals" });
+  const tab = (routeSearch.tab ?? "ASSIGNED") as ApprovalTab;
+  const search = routeSearch.q ?? "";
+  const documentType = routeSearch.documentType ?? "";
+  const priority = routeSearch.priority ?? "";
+  const page = routeSearch.page ?? 0;
+  const debouncedSearch = useDebouncedSearch(search);
   const [reasonDialog, setReasonDialog] = useState<ReasonDialogState>(null);
   const [approveTarget, setApproveTarget] = useState<ApprovalInboxItem | null>(null);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
 
   const activeQuery = useQuery({
     ...approvalInboxQuery(tab, {
@@ -85,15 +82,11 @@ export function ApprovalInbox() {
   const totalItems = activeQuery.data?.totalItems ?? 0;
 
   function changeTab(next: ApprovalTab) {
-    setTab(next);
-    setPage(0);
+    navigate({ search: (previous) => ({ ...previous, tab: next === "ASSIGNED" ? undefined : next, page: undefined }) });
   }
 
   function clearFilters() {
-    setSearch("");
-    setDocumentType("");
-    setPriority("");
-    setPage(0);
+    navigate({ search: (previous) => ({ ...previous, q: undefined, documentType: undefined, priority: undefined, page: undefined }), replace: true });
   }
 
   function openReasonDialog(item: ApprovalInboxItem, action: ReasonAction) {
@@ -126,25 +119,11 @@ export function ApprovalInbox() {
 
   return (
     <div className="space-y-4">
-      <div className="flex border-b border-border">
-        {TABS.map(({ value, label }) => {
-          const count = tab === value ? activeQuery.data?.totalItems : undefined;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => changeTab(value)}
-              className={cn(
-                "-mb-px flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors",
-                tab === value ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-              {count !== undefined && <Badge variant={tab === value ? "default" : "secondary"}>{count}</Badge>}
-            </button>
-          );
-        })}
-      </div>
+      <TabBar
+        tabs={TABS.map((item) => ({ ...item, count: item.value === tab ? activeQuery.data?.totalItems : undefined }))}
+        value={tab}
+        onChange={changeTab}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
@@ -152,13 +131,13 @@ export function ApprovalInbox() {
           label="Search approvals"
           placeholder="Search document or customer"
           value={search}
-          onChange={(value) => { setSearch(value); setPage(0); }}
+          onChange={(value) => navigate({ search: (previous) => ({ ...previous, q: value || undefined, page: undefined }), replace: true })}
         />
         <Select
           className="w-full sm:w-48"
           aria-label="Filter by document type"
           value={documentType}
-          onChange={(event) => { setDocumentType(event.target.value); setPage(0); }}
+          onChange={(event) => navigate({ search: (previous) => ({ ...previous, documentType: event.target.value || undefined, page: undefined }), replace: true })}
         >
           <option value="">Document type: All</option>
           {Object.entries(DOCUMENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -167,7 +146,7 @@ export function ApprovalInbox() {
           className="w-full sm:w-40"
           aria-label="Filter by priority"
           value={priority}
-          onChange={(event) => { setPriority(event.target.value); setPage(0); }}
+          onChange={(event) => navigate({ search: (previous) => ({ ...previous, priority: event.target.value || undefined, page: undefined }), replace: true })}
         >
           <option value="">Priority: All</option>
           {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((value) => <option key={value} value={value}>{humanize(value)}</option>)}
@@ -235,7 +214,6 @@ export function ApprovalInbox() {
                         <div className="flex justify-end gap-1.5">
                           <Button
                             size="sm"
-                            className="bg-emerald-600 hover:bg-emerald-700"
                             disabled={!canAct || !item.stepInstanceId || actionMutation.isPending}
                             onClick={() => { actionMutation.reset(); setApproveTarget(item); }}
                           >
@@ -244,7 +222,7 @@ export function ApprovalInbox() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="border-amber-500 text-amber-700 hover:bg-amber-50"
+                            className="border-st-review text-st-review hover:bg-st-review-bg"
                             disabled={!canAct || !item.stepInstanceId || actionMutation.isPending}
                             onClick={() => openReasonDialog(item, "REQUEST_REVISION")}
                           >
@@ -270,128 +248,65 @@ export function ApprovalInbox() {
         </CardContent>
       </Card>
 
-      {!activeQuery.isLoading && !activeQuery.isError && items.length > 0 && (
+      {!activeQuery.isLoading && !activeQuery.isError && (activeQuery.data?.totalPages ?? 0) > 0 && (
         <PaginationControls
           page={page}
           totalPages={totalPages}
           pageSize={DEFAULT_PAGE_SIZE}
           totalItems={totalItems}
-          onPageChange={setPage}
+          onPageChange={(nextPage) => navigate({ search: (previous) => ({ ...previous, page: nextPage || undefined }), replace: true })}
         />
       )}
 
-      <ReasonDialog
+      <ConfirmDialog
         key={reasonDialog ? `${reasonDialog.item.stepInstanceId}-${reasonDialog.action}` : "closed"}
-        state={reasonDialog}
+        open={Boolean(reasonDialog)}
+        title={reasonDialog?.action === "REQUEST_REVISION" ? "Request revision" : "Reject request"}
+        body={reasonDialog ? `${reasonDialog.item.documentNo} · ${reasonDialog.item.customerName || documentTypeLabel(reasonDialog.item.documentTypeCode)}${reasonDialog.item.currentStepName ? ` · currently at ${reasonDialog.item.currentStepName}` : ""}` : ""}
+        confirmLabel={reasonDialog?.action === "REQUEST_REVISION" ? "Send for revision" : "Reject request"}
+        pendingLabel="Saving..."
         pending={actionMutation.isPending}
         error={reasonDialog && actionMutation.isError ? actionMutation.error : undefined}
-        onClose={closeReasonDialog}
-        onSubmit={(comment) => {
+        cancelLabel="Cancel"
+        confirmVariant={reasonDialog?.action === "REQUEST_REVISION" ? "default" : "destructive"}
+        reason={{
+          label: reasonDialog?.action === "REQUEST_REVISION" ? "Reason for revision" : "Reason for rejection",
+          placeholder: reasonDialog?.action === "REQUEST_REVISION" ? "Explain what needs to change before this can be approved..." : "Explain why this request is being rejected...",
+          required: true,
+          description: "Required — this note is shown to the submitter and recorded in the activity history.",
+        }}
+        onCancel={closeReasonDialog}
+        onConfirm={(comment) => {
           if (reasonDialog) actionMutation.mutate({ item: reasonDialog.item, action: reasonDialog.action, comment });
         }}
       />
-      <ApproveDialog
-        item={approveTarget}
+      <ConfirmDialog
+        open={Boolean(approveTarget)}
+        title={`Approve ${approveTarget?.documentNo ?? "this request"}?`}
+        body={approveTarget ? (
+          <div className="space-y-2">
+            <p className="text-muted-foreground">{approveTarget.customerName || documentTypeLabel(approveTarget.documentTypeCode)}{approveTarget.currentStepName ? ` · ${approveTarget.currentStepName}` : ""}</p>
+            <p>This records your approval and moves the document to its next workflow step. This action cannot be undone here.</p>
+          </div>
+        ) : null}
+        confirmLabel="Approve request"
+        pendingLabel="Approving..."
+        confirmVariant="default"
         pending={actionMutation.isPending}
         error={approveTarget && actionMutation.isError ? actionMutation.error : undefined}
-        onClose={() => { if (!actionMutation.isPending) { actionMutation.reset(); setApproveTarget(null); } }}
+        cancelLabel="Keep reviewing"
+        onCancel={() => { if (!actionMutation.isPending) { actionMutation.reset(); setApproveTarget(null); } }}
         onConfirm={() => { if (approveTarget) actionMutation.mutate({ item: approveTarget, action: "APPROVE" }); }}
       />
     </div>
   );
 }
 
-function ApproveDialog({
-  item, pending, error, onClose, onConfirm,
-}: {
-  item: ApprovalInboxItem | null;
-  pending: boolean;
-  error?: unknown;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  if (!item) return null;
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Approve {item.documentNo}?</DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            {item.customerName || documentTypeLabel(item.documentTypeCode)}
-            {item.currentStepName ? ` · ${item.currentStepName}` : ""}
-          </p>
-        </DialogHeader>
-        <p className="text-sm">This records your approval and moves the document to its next workflow step. This action cannot be undone here.</p>
-        {error != null && <p role="alert" className="text-sm text-destructive">{getApiErrorMessage(error, "Could not approve this request")}</p>}
-        <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onClose}>Keep reviewing</Button>
-          <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={pending} onClick={onConfirm}>
-            {pending ? "Approving..." : "Approve request"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ReasonDialog({
-  state, pending, error, onClose, onSubmit,
-}: {
-  state: ReasonDialogState;
-  pending: boolean;
-  error?: unknown;
-  onClose: () => void;
-  onSubmit: (comment: string) => void;
-}) {
-  const [comment, setComment] = useState("");
-  if (!state) return null;
-
-  const revision = state.action === "REQUEST_REVISION";
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{revision ? "Request revision" : "Reject request"}</DialogTitle>
-          <p className="text-xs text-muted-foreground">
-            {state.item.documentNo} · {state.item.customerName || documentTypeLabel(state.item.documentTypeCode)}
-            {state.item.currentStepName ? ` · currently at ${state.item.currentStepName}` : ""}
-          </p>
-        </DialogHeader>
-        <div>
-          <Label>{revision ? "Reason for revision" : "Reason for rejection"} *</Label>
-          <Textarea
-            autoFocus
-            required
-            aria-required="true"
-            rows={4}
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-            placeholder={revision ? "Explain what needs to change before this can be approved..." : "Explain why this request is being rejected..."}
-          />
-          <p className="mt-2 text-xs text-muted-foreground">Required — this note is shown to the submitter and recorded in the activity history.</p>
-          {error != null && <p role="alert" className="mt-2 text-sm text-destructive">{getApiErrorMessage(error, "Could not update this approval")}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onClose}>Cancel</Button>
-          <Button
-            variant={revision ? "default" : "destructive"}
-            className={revision ? "bg-amber-600 hover:bg-amber-700" : undefined}
-            disabled={pending || !comment.trim()}
-            onClick={() => onSubmit(comment.trim())}
-          >
-            {pending ? "Saving..." : revision ? "Send for revision" : "Reject request"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function PriorityBadge({ priority }: { priority: string }) {
   const key = priority.toUpperCase();
   const style = key === "URGENT" || key === "HIGH"
-    ? "bg-red-100 text-red-700"
-    : key === "LOW" ? "bg-slate-100 text-slate-600" : "bg-blue-50 text-blue-700";
+    ? "bg-st-rejected-bg text-st-rejected"
+    : key === "LOW" ? "bg-st-expired-bg text-st-expired" : "bg-st-effective-bg text-st-effective";
   return <Badge className={style}>{humanize(priority)}</Badge>;
 }
 
@@ -430,5 +345,6 @@ function emptyHelp(tab: ApprovalTab) {
 }
 
 function csvCell(value: string) {
-  return `"${value.replaceAll('"', '""')}"`;
+  const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safeValue.replaceAll('"', '""')}"`;
 }

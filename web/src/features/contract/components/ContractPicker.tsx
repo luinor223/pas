@@ -3,6 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
 import { contractQuery, contractsQuery } from "../hooks/contractQueries";
+import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
 
 export function ContractPicker({
   value,
@@ -22,18 +23,13 @@ export function ContractPicker({
   className?: string;
 }) {
   const [text, setText] = useState("");
-  const [debounced, setDebounced] = useState("");
+  const debounced = useDebouncedSearch(text);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(text.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [text]);
 
   useEffect(() => {
     function closeOnOutsideClick(event: MouseEvent) {
@@ -65,7 +61,6 @@ export function ContractPicker({
 
   function startSelecting() {
     setText("");
-    setDebounced("");
     setEditing(true);
     setOpen(true);
     setActiveIndex(-1);
@@ -75,7 +70,6 @@ export function ContractPicker({
   function select(id: string) {
     onChange(id);
     setText("");
-    setDebounced("");
     setOpen(false);
     setEditing(false);
     setActiveIndex(-1);
@@ -140,6 +134,7 @@ export function ContractPicker({
           {allowClear && (
             <button
               type="button"
+              aria-label="Clear contract"
               className="px-1 text-xs text-muted-foreground hover:text-foreground"
               title="Clear contract"
               onClick={() => select("")}
@@ -190,7 +185,7 @@ export function ContractPicker({
                 type="button"
                 role="option"
                 aria-selected={contract.id === value}
-                className={`block w-full px-3 py-2 text-left hover:bg-muted ${contract.id === value ? "bg-blue-50/50" : ""} ${activeIndex === optionIndex ? "bg-muted" : ""}`}
+                className={`block w-full px-3 py-2 text-left hover:bg-muted ${contract.id === value ? "bg-muted font-medium" : ""} ${activeIndex === optionIndex ? "bg-muted" : ""}`}
                 onMouseEnter={() => setActiveIndex(optionIndex)}
                 onClick={() => select(contract.id)}
               >
@@ -199,6 +194,9 @@ export function ContractPicker({
               </button>
               );
             })
+          )}
+          {!resultsLoading && results.length >= 10 && (
+            <div className="border-t px-3 py-2 text-xs text-muted-foreground">Showing the first matches. Type more to narrow the list.</div>
           )}
         </div>
       )}

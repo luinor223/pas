@@ -9,7 +9,7 @@ import { Label } from "@/shared/components/label";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/table";
 import { getApiErrorMessage } from "@/shared/api/errors";
-import { formatDate, formatMoney } from "@/shared/lib/format";
+import { formatDate, formatMoney, localDateInputValue } from "@/shared/lib/format";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { priceListVersionQuery, priceListVersionsQuery, serviceItemsQuery } from "../hooks/pricingQueries";
 import { pricingApi } from "../services/pricingApi";
@@ -70,7 +70,7 @@ export function PriceListDetail({
                 </TableHeader>
                 <TableBody>
                   {[...versions].reverse().map((version) => (
-                    <TableRow key={version.id} className={selectedVersionId === version.id ? "bg-blue-50/60" : undefined}>
+                    <TableRow key={version.id} className={selectedVersionId === version.id ? "bg-muted/60" : undefined}>
                       <TableCell className="font-semibold">Version {version.versionNo}</TableCell>
                       <TableCell>{formatDate(version.validFrom)}</TableCell>
                       <TableCell>{formatDate(version.validTo)}</TableCell>
@@ -315,7 +315,7 @@ function CreateVersionDialog({
   onCreated: (version: PriceListVersionResponse) => void;
 }) {
   const queryClient = useQueryClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateInputValue();
   const [validFrom, setValidFrom] = useState(today);
   const [validTo, setValidTo] = useState("");
   const invalidRange = Boolean(validFrom && validTo && validFrom > validTo);

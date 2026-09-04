@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
@@ -16,11 +16,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/shared/components/textarea";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
-import { contractQuery, contractsQuery } from "@/features/contract/hooks/contractQueries";
 import { ContractPicker } from "@/features/contract/components/ContractPicker";
-import type { ContractResponse } from "@/features/contract/types/contractTypes";
 import { serviceItemsQuery } from "@/features/pricing/hooks/pricingQueries";
 import { formatDateTime } from "@/shared/lib/format";
+import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
 import { volumesQuery } from "../hooks/operationsQueries";
 import { formatPeriod, formatQuantity } from "../operationsFormat";
 import { operationsApi } from "../services/operationsApi";
@@ -36,17 +35,13 @@ export function VolumeRecordsTab({
   canEditLocked: boolean;
 }) {
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebouncedSearch(search);
   const [periodCode, setPeriodCode] = useState("");
   const [contractId, setContractId] = useState("");
   const [serviceCode, setServiceCode] = useState("");
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
   const [editTarget, setEditTarget] = useState<VolumeResponse | null>(null);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
   const volumes = useQuery(volumesQuery({
     periodCode: periodCode || undefined,
     contractId: contractId || undefined,
@@ -55,11 +50,8 @@ export function VolumeRecordsTab({
     page,
     size: DEFAULT_PAGE_SIZE,
   }));
-  const contracts = useQuery(contractsQuery({ size: 100 }));
   const serviceItems = useQuery(serviceItemsQuery);
-  const contractById = new Map((contracts.data?.content ?? []).map((contract) => [contract.id, contract]));
   const periodByCode = new Map(periods.map((period) => [period.periodCode, period]));
-  const sortedPeriods = [...periods].sort((left, right) => right.periodCode.localeCompare(left.periodCode));
   const visible = volumes.data?.items ?? [];
   const totalPages = Math.max(1, volumes.data?.totalPages ?? 1);
   const totalItems = volumes.data?.totalItems ?? 0;
@@ -100,7 +92,7 @@ export function VolumeRecordsTab({
         />
         <Select className="w-full sm:w-48" aria-label="Filter by period" value={periodCode} onChange={(event) => { setPeriodCode(event.target.value); setPage(0); }}>
           <option value="">Period: All</option>
-          {sortedPeriods.map((period) => <option key={period.id} value={period.periodCode}>{formatPeriod(period.periodCode)}</option>)}
+          {periods.map((period) => <option key={period.id} value={period.periodCode}>{formatPeriod(period.periodCode)}</option>)}
         </Select>
         <ContractPicker
           className="w-full sm:w-64"
@@ -151,7 +143,11 @@ export function VolumeRecordsTab({
                       {volume.note && <div className="max-w-48 truncate text-xs text-muted-foreground" title={volume.note}>{volume.note}</div>}
                     </TableCell>
                     <TableCell className="font-medium">{volume.customerName}</TableCell>
-                    <TableCell><ContractReference id={volume.contractId} contract={contractById.get(volume.contractId)} /></TableCell>
+                    <TableCell>
+                      <Link to="/contracts" search={{ id: volume.contractId } as never} className="font-medium text-primary hover:underline">
+                        {volume.contractNo || "View contract"}
+                      </Link>
+                    </TableCell>
                     <TableCell>{volume.serviceName}</TableCell>
                     <TableCell>
                       <div>{formatPeriod(volume.periodCode)}</div>
@@ -174,7 +170,7 @@ export function VolumeRecordsTab({
         </div>
       )}
 
-      {!volumes.isLoading && !volumes.isError && visible.length > 0 && (
+      {!volumes.isLoading && !volumes.isError && (volumes.data?.totalPages ?? 0) > 0 && (
         <PaginationControls page={page} totalPages={totalPages} pageSize={DEFAULT_PAGE_SIZE} totalItems={totalItems} onPageChange={setPage} />
       )}
 
@@ -200,13 +196,6 @@ export function VolumeRecordsTab({
   );
 }
 
-function ContractReference({ id, contract }: { id: string; contract?: ContractResponse }) {
-  const fallback = useQuery({ ...contractQuery(id), enabled: !contract });
-  const resolved = contract ?? fallback.data;
-  if (!resolved) return <span className="text-muted-foreground">{fallback.isError ? "Unavailable" : "Loading..."}</span>;
-  return <Link to="/contracts" search={{ id } as never} className="font-medium text-primary hover:underline">{resolved.contractNo}</Link>;
-}
-
 function CreateVolumeDialog({
   periods, services, canWrite, canEditLocked, preferredPeriod, onClose,
 }: {
@@ -218,9 +207,7 @@ function CreateVolumeDialog({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const eligiblePeriods = periods
-    .filter((period) => canWrite && (period.status !== "LOCKED" || canEditLocked))
-    .sort((left, right) => right.periodCode.localeCompare(left.periodCode));
+  const eligiblePeriods = periods.filter((period) => canWrite && (period.status !== "LOCKED" || canEditLocked));
   const initialPeriod = eligiblePeriods.some((period) => period.periodCode === preferredPeriod) ? preferredPeriod : eligiblePeriods[0]?.periodCode ?? "";
   const [periodCode, setPeriodCode] = useState(initialPeriod);
   const [contractId, setContractId] = useState("");
@@ -300,7 +287,7 @@ function CreateVolumeDialog({
             <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add useful operational context..." />
           </div>
           {selectedPeriod?.status === "LOCKED" && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <div className="rounded-md border border-st-review bg-st-review-bg px-3 py-2 text-sm text-st-review">
               This period is locked. You are using special access, and this addition will be recorded in the activity history.
             </div>
           )}
@@ -351,7 +338,7 @@ function EditVolumeDialog({ volume, period, onClose }: { volume: VolumeResponse;
         </DialogHeader>
         <div className="space-y-4">
           {period?.status === "LOCKED" && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <div className="rounded-md border border-st-review bg-st-review-bg px-3 py-2 text-sm text-st-review">
               This period is locked. You are using special access, and the before-and-after quantities will be recorded in the activity history.
             </div>
           )}
