@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { BookOpen } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -158,14 +159,19 @@ export function PaymentStatementsPage() {
             <p className="text-sm text-muted-foreground">Build a statement from confirmed operational volumes and the effective prices for that month.</p>
           </DialogHeader>
           <form onSubmit={handleSubmit((d) => calcMut.mutate(d))} className="space-y-3">
-            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">Before calculating:</p>
-              <ol className="mt-1 list-decimal space-y-1 pl-4">
-                <li>The contract must cover the entire billing month.</li>
-                <li>The month must exist in Volume Records, contain the contract&apos;s volumes, and be locked.</li>
-                <li>An effective price list must cover the month and price every recorded service.</li>
+            <aside className="rounded-md border border-blue-200 bg-blue-50/60 px-3 py-3 text-xs text-muted-foreground dark:border-blue-900 dark:bg-blue-950/30" aria-labelledby="statement-preparation-guide">
+              <div className="flex items-center gap-2 text-foreground">
+                <BookOpen size={16} aria-hidden="true" className="text-primary" />
+                <p id="statement-preparation-guide" className="font-semibold">Preparation guide</p>
+              </div>
+              <p className="mt-1">Complete these records in order before calculating:</p>
+              <ol className="mt-2 list-decimal space-y-1.5 pl-4">
+                <li><span className="font-medium text-foreground">Contracts:</span> create and approve the contract; it must cover the entire billing month.</li>
+                <li><span className="font-medium text-foreground">Price Lists:</span> create a version covering the month, price every recorded service, and complete its approval.</li>
+                <li><span className="font-medium text-foreground">Volume Records:</span> create the month, add this contract&apos;s volumes, then lock the period.</li>
+                <li><span className="font-medium text-foreground">Payment Statements:</span> return here and calculate the statement.</li>
               </ol>
-            </div>
+            </aside>
             <div>
               <ContractPicker value={selectedContractId} onChange={(id) => setValue("contractId", id, { shouldValidate: true })} label="Contract" requirement="draft" emptyHint="Choose an active contract, or an expired contract for its final billing month." placeholder="Search contract number or customer..." statuses={["ACTIVE", "EXPIRED"]} />
               {errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}

@@ -35,9 +35,12 @@ test("explains calculation prerequisites and shows a missing-period response", a
   await page.getByRole("button", { name: "+ New Statement" }).click();
   const dialog = page.getByRole("dialog", { name: "Calculate payment statement" });
 
-  await expect(dialog.getByText("The contract must cover the entire billing month.")).toBeVisible();
-  await expect(dialog.getByText(/month must exist in Volume Records.*be locked/)).toBeVisible();
-  await expect(dialog.getByText(/effective price list must cover the month/)).toBeVisible();
+  const guide = dialog.getByRole("complementary", { name: "Preparation guide" });
+  await expect(guide).toContainText("Complete these records in order before calculating");
+  await expect(guide.getByText(/Contracts:.*create and approve the contract/)).toBeVisible();
+  await expect(guide.getByText(/Price Lists:.*price every recorded service/)).toBeVisible();
+  await expect(guide.getByText(/Volume Records:.*lock the period/)).toBeVisible();
+  await expect(guide.getByText(/Payment Statements:.*return here and calculate/)).toBeVisible();
 
   const picker = dialog.getByRole("combobox", { name: "Contract *" });
   await picker.click();
