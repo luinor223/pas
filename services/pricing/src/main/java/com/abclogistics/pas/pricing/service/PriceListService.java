@@ -51,7 +51,8 @@ public class PriceListService {
         PriceList.validateScope(customerId, contractId, normalizedGroup);
         String no = "PRC-%04d".formatted(lists.nextPriceListNo());
         PriceList list = lists.save(new PriceList(no, customerId, contractId, normalizedGroup, note));
-        audit.record("PRICE_LIST", list.getId(), "CREATE", null, list.getPriceListNo(), null, Map.of());
+        audit.record("PRICE_LIST", list.getId(), list.getPriceListNo(), "CREATE",
+                null, null, note, Map.of());
         return list;
     }
 
@@ -108,8 +109,9 @@ public class PriceListService {
         int nextNo = versions.maxVersionNo(priceListId) + 1;
         PriceListVersion version = versions.save(new PriceListVersion(
                 priceListId, nextNo, list.getScopeKey(), validFrom, validTo, addendumId));
-        audit.record("PRICE_LIST_VERSION", version.getId(), "CREATE", null,
-                PriceListVersionStatus.DRAFT.name(), null, Map.<String, Object>of("versionNo", nextNo));
+        audit.record("PRICE_LIST_VERSION", version.getId(), versionEntityNo(list, nextNo), "CREATE",
+                null, PriceListVersionStatus.DRAFT.name(), null,
+                Map.<String, Object>of("versionNo", nextNo));
         return version;
     }
 
@@ -133,8 +135,15 @@ public class PriceListService {
             }
             lines.save(new PriceLine(versionId, item.getId(), in.unitPrice()));
         }
-        audit.record("PRICE_LIST_VERSION", versionId, "EDIT_LINES", null, Map.<String, Object>of("lineCount", inputs.size()));
+        PriceList list = get(version.getPriceListId());
+        audit.record("PRICE_LIST_VERSION", versionId, versionEntityNo(list, version.getVersionNo()),
+                "EDIT_LINES", null, null, null,
+                Map.<String, Object>of("lineCount", inputs.size()));
     }
 
     public record LineInput(String serviceCode, BigDecimal unitPrice) {}
+
+    private static String versionEntityNo(PriceList list, int versionNo) {
+        return list.getPriceListNo() + " v" + versionNo;
+    }
 }

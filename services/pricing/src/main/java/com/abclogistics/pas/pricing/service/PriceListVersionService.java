@@ -197,7 +197,11 @@ public class PriceListVersionService {
         version.setStatus(to);
         history.save(new StatusHistory(version.getId(), from, to, kind, ref, note,
                 SecurityUtils.currentUserId()));
-        audit.record(ENTITY, version.getId(), "STATUS_CHANGE", from.name(), to.name(), note, Map.of());
+        PriceList list = lists.findById(version.getPriceListId())
+                .orElseThrow(() -> new NotFoundException("No price list " + version.getPriceListId()));
+        String entityNo = list.getPriceListNo() + " v" + version.getVersionNo();
+        audit.record(ENTITY, version.getId(), entityNo, "STATUS_CHANGE",
+                from.name(), to.name(), note, Map.of());
     }
 
     private String startRequestedPayload(PriceList list, PriceListVersion version,
