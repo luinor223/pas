@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 
 type DetailBackButtonProps = {
-  to: "/customers" | "/contracts" | "/price-lists";
+  to: "/customers" | "/contracts" | "/addenda" | "/price-lists";
   /** Names the destination for assistive tech, since the chevron carries no text. */
   label: string;
 };
@@ -18,6 +18,8 @@ export function DetailBackButton({ to, label }: DetailBackButtonProps) {
         ? { id: undefined }
         : to === "/contracts"
           ? { id: undefined, tab: undefined, customerId: undefined }
+          : to === "/addenda"
+            ? ((previous) => ({ ...previous, id: undefined }))
           : { id: undefined, versionId: undefined }}
       aria-label={label}
       title={label}

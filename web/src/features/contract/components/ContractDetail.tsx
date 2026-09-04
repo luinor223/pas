@@ -40,7 +40,10 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
   const customer = custQ.data;
 
   const addColumns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
-    { accessorKey: "addendumNo", header: "NO" },
+    {
+      accessorKey: "addendumNo", header: "NO",
+      cell: ({ row }) => <Link to="/addenda" search={{ id: row.original.id } as never} className="text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
+    },
     { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { addendaQuery, addendumQuery, contractsQuery } from "../hooks/contractQueries";
+import { addendaQuery, contractsQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { AddendumResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
@@ -21,7 +21,7 @@ import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
-import { Link, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
 import { FilterBar } from "@/shared/components/filter-bar";
@@ -57,8 +57,8 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export function AddendumList() {
-  const { id: linkedAddendumId } = useSearch({ from: "/addenda" });
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
   const canCancelActive = useHasPermission("contract:cancel_active");
@@ -77,11 +77,8 @@ export function AddendumList() {
 
   const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE }));
   const contractsQ = useQuery(contractsQuery({ size: 100 }));
-  const linkedAddendum = useQuery({ ...addendumQuery(linkedAddendumId ?? ""), enabled: Boolean(linkedAddendumId) });
   const pageItems = listQ.data?.content ?? [];
-  const items = linkedAddendum.data && !pageItems.some((item) => item.id === linkedAddendum.data.id)
-    ? [linkedAddendum.data, ...pageItems]
-    : pageItems;
+  const items = pageItems;
 
   const { register, handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -96,7 +93,19 @@ export function AddendumList() {
       newValidTo: data.newValidTo || null, paymentTermOverride: data.paymentTermOverride || null,
       services: (data.services ?? []).map((s) => ({ serviceCode: s.serviceCode, serviceName: s.serviceName, unit: s.unit || null, scopeNote: s.scopeNote || null })),
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setOpenCreate(false); },
+    onSuccess: (created) => {
+      qc.setQueryData(["addendum", created.id], created);
+      qc.invalidateQueries({ queryKey: ["addenda"] });
+      setOpenCreate(false);
+      navigate({
+        to: "/addenda",
+        search: (previous) => ({
+          id: created.id,
+          contractId: previous.contractId,
+          changeType: previous.changeType,
+        }),
+      });
+    },
   });
   const updateMut = useMutation({
     mutationFn: (data: FormData) => {
@@ -127,7 +136,10 @@ export function AddendumList() {
   };
 
   const columns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
-    { accessorKey: "addendumNo", header: "NO" },
+    {
+      accessorKey: "addendumNo", header: "NO",
+      cell: ({ row }) => <Link to="/addenda" search={(previous) => ({ id: row.original.id, contractId: previous.contractId, changeType: previous.changeType })} className="font-medium text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
+    },
     {
       accessorKey: "contractNo", header: "CONTRACT",
       cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.contractId } as never} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
@@ -180,7 +192,7 @@ export function AddendumList() {
             </Select>
             <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => { setStatus(""); setChangeType(""); setQ(""); setPage(0); }} />
           </FilterBar>
-          {listQ.isLoading || linkedAddendum.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError || linkedAddendum.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error ?? linkedAddendum.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} rowClassName={(item) => item.id === linkedAddendumId ? "bg-primary/5" : undefined} />}
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={items} emptyMessage="No addenda" pageSize={PAGE_SIZE} />}
           <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={listQ.data?.totalElements ?? 0} onPageChange={setPage} />
         </CardContent>
       </Card>
