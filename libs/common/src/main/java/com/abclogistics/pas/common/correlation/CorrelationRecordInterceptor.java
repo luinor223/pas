@@ -1,17 +1,15 @@
 package com.abclogistics.pas.common.correlation;
 
+import com.abclogistics.pas.common.events.EventHeaders;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.header.Header;
 import org.springframework.kafka.listener.RecordInterceptor;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-
 /**
  * Consumer side of correlation: lifts {@code X-Correlation-Id} off each record into the MDC before the
- * listener runs, and clears it after. Boot's auto-configured listener factory applies the sole
- * {@link RecordInterceptor} bean, so every consumer picks this up with no per-service wiring.
+ * listener runs, and clears it after. Wired into every listener factory (Boot's auto-configured one picks
+ * up this sole {@link RecordInterceptor} bean; services with a hand-built factory set it explicitly).
  */
 @Component
 public class CorrelationRecordInterceptor implements RecordInterceptor<String, String> {
@@ -19,9 +17,7 @@ public class CorrelationRecordInterceptor implements RecordInterceptor<String, S
     @Override
     public ConsumerRecord<String, String> intercept(ConsumerRecord<String, String> record,
                                                      Consumer<String, String> consumer) {
-        Header header = record.headers().lastHeader(CorrelationSupport.KAFKA_HEADER);
-        String incoming = header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
-        CorrelationSupport.set(CorrelationSupport.orNew(incoming));
+        CorrelationSupport.set(CorrelationSupport.orNew(EventHeaders.of(record, CorrelationSupport.KAFKA_HEADER)));
         return record;
     }
 

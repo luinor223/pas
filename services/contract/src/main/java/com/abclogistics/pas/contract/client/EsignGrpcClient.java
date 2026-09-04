@@ -1,10 +1,9 @@
 package com.abclogistics.pas.contract.client;
 
-import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import com.abclogistics.pas.esign.grpc.CreateSigningSessionRequest;
 import com.abclogistics.pas.esign.grpc.EsignInternalGrpc;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,7 +26,7 @@ public class EsignGrpcClient {
     @Autowired
     public EsignGrpcClient(@Value("${esign.grpc.host:localhost}") String host,
                            @Value("${esign.grpc.port:50057}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = EsignInternalGrpc.newBlockingStub(channel);
     }
 

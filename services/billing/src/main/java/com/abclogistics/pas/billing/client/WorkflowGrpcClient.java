@@ -1,9 +1,8 @@
 package com.abclogistics.pas.billing.client;
 
-import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import com.abclogistics.pas.workflow.grpc.*;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +22,7 @@ public class WorkflowGrpcClient {
 
     public WorkflowGrpcClient(@Value("${workflow.grpc.host:localhost}") String host,
                                @Value("${workflow.grpc.port:50056}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = WorkflowInternalGrpc.newBlockingStub(channel);
     }
 

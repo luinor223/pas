@@ -20,14 +20,7 @@ public class CorrelationServerInterceptor implements ServerInterceptor {
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
             ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
         String id = CorrelationSupport.orNew(headers.get(CorrelationSupport.GRPC_KEY));
-        ServerCall.Listener<ReqT> delegate;
-        CorrelationSupport.set(id);
-        try {
-            delegate = next.startCall(call, headers);
-        } finally {
-            CorrelationSupport.clear();
-        }
-        return new SimpleForwardingServerCallListener<ReqT>(delegate) {
+        return new SimpleForwardingServerCallListener<ReqT>(next.startCall(call, headers)) {
             @Override public void onMessage(ReqT message) { run(() -> super.onMessage(message)); }
             @Override public void onHalfClose() { run(() -> super.onHalfClose()); }
             @Override public void onCancel() { run(() -> super.onCancel()); }

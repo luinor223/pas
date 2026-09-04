@@ -3,13 +3,12 @@ package com.abclogistics.pas.operations.client;
 import com.abclogistics.pas.contract.grpc.ContractInternalGrpc;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
-import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.error.ServiceUnavailableException;
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -26,7 +25,7 @@ public class ContractGrpcClient implements ContractClient {
     public ContractGrpcClient(
             @Value("${contract.grpc.host:localhost}") String host,
             @Value("${contract.grpc.port:50052}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = ContractInternalGrpc.newBlockingStub(channel);
     }
 
