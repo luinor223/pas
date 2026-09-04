@@ -4,7 +4,7 @@ import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.grpc.CreateSigningSessionRequest;
 import com.abclogistics.pas.esign.grpc.CreateSigningSessionResponse;
-import com.abclogistics.pas.esign.grpc.EsignInternalGrpcService;
+import com.abclogistics.pas.esign.controller.grpc.EsignInternalGrpcService;
 import com.abclogistics.pas.esign.service.SigningSessionService;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
