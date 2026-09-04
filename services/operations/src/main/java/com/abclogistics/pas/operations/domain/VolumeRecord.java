@@ -31,6 +31,9 @@ public class VolumeRecord extends BaseEntity {
     @Column(name = "contract_id", nullable = false)
     private UUID contractId;
 
+    @Column(name = "contract_no")
+    private String contractNo; // snapshot; nullable for records created before V2
+
     @Column(name = "customer_id")
     private UUID customerId;
 
@@ -55,7 +58,7 @@ public class VolumeRecord extends BaseEntity {
     protected VolumeRecord() {}
 
     public static VolumeRecord create(OperationPeriod period, String recordNo,
-                                       UUID contractId, UUID customerId, String customerName,
+                                       UUID contractId, String contractNo, UUID customerId, String customerName,
                                        String serviceCode, String serviceName, String unit,
                                        BigDecimal quantity, String note,
                                        UUID createdBy) {
@@ -63,6 +66,7 @@ public class VolumeRecord extends BaseEntity {
         v.recordNo = recordNo;
         v.period = period;
         v.contractId = contractId;
+        v.contractNo = contractNo;
         v.customerId = customerId;
         v.customerName = customerName;
         v.serviceCode = serviceCode;
@@ -87,6 +91,7 @@ public class VolumeRecord extends BaseEntity {
     public String getRecordNo() { return recordNo; }
     public OperationPeriod getPeriod() { return period; }
     public UUID getContractId() { return contractId; }
+    public String getContractNo() { return contractNo; }
     public UUID getCustomerId() { return customerId; }
     public String getCustomerName() { return customerName; }
     public String getServiceCode() { return serviceCode; }

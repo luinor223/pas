@@ -93,6 +93,7 @@ public class VolumeService {
             tmpCustomerId = null;
         }
         final UUID customerId = tmpCustomerId;
+        final String contractNoFinal = contract.getContractNo();
         final String serviceNameFinal = serviceName;
         final String unitFinal = unit;
         final String customerNameFinal = customerName;
@@ -114,7 +115,7 @@ public class VolumeService {
                         throw new AccessDeniedException("Period is locked; volume:edit_locked required");
                     }
                     VolumeRecord record = VolumeRecord.create(
-                            period, currentRecNo, contractId, customerId, customerNameFinal,
+                            period, currentRecNo, contractId, contractNoFinal, customerId, customerNameFinal,
                             serviceCode, serviceNameFinal, unitFinal, quantityFinal, noteFinal, actorFinal);
                     volumeRepo.save(record);
                     Map<String, Object> changes = Map.of(
@@ -125,7 +126,7 @@ public class VolumeService {
                     );
                     audit.record("VOLUME_RECORD", record.getId(), currentRecNo, "volume.created",
                             null, null, null, changes);
-                    return toResponse(record);
+                    return toResponse(record, contractNoFinal);
                 });
             } catch (DataIntegrityViolationException e) {
                 String msg = e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "";
@@ -246,11 +247,16 @@ public class VolumeService {
     }
 
     private VolumeResponse toResponse(VolumeRecord r) {
+        return toResponse(r, r.getContractNo());
+    }
+
+    private VolumeResponse toResponse(VolumeRecord r, String contractNo) {
         return new VolumeResponse(
                 r.getId(),
                 r.getRecordNo(),
                 r.getPeriod().getPeriodCode(),
                 r.getContractId(),
+                contractNo,
                 r.getCustomerName(),
                 r.getServiceCode(),
                 r.getServiceName(),

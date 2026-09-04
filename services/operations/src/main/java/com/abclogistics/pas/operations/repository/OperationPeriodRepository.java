@@ -7,12 +7,14 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface OperationPeriodRepository extends JpaRepository<OperationPeriod, UUID> {
     Optional<OperationPeriod> findByPeriodCode(String periodCode);
     boolean existsByPeriodCode(String periodCode);
+    List<OperationPeriod> findAllByOrderByPeriodCodeDesc();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from OperationPeriod p where p.periodCode = :code")

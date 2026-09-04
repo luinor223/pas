@@ -52,8 +52,8 @@ public class VolumeController {
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "15") int size) {
-        if (page < 0) throw new IllegalArgumentException("Page cannot be negative");
-        return volumeService.search(periodCode, contractId, serviceCode, q, page, Math.max(1, Math.min(size, 100)));
+        return volumeService.search(periodCode, contractId, serviceCode, q,
+                Math.max(0, page), Math.max(1, Math.min(size, 100)));
     }
 
     @GetMapping("/{id}")

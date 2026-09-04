@@ -75,7 +75,9 @@ public class PeriodService {
                 .collect(java.util.stream.Collectors.toMap(
                         VolumeRecordRepository.PeriodVolumeCount::getPeriodId,
                         VolumeRecordRepository.PeriodVolumeCount::getVolumeCount));
-        return periodRepo.findAll().stream().map(period -> toResponse(period, counts.getOrDefault(period.getId(), 0L))).toList();
+        return periodRepo.findAllByOrderByPeriodCodeDesc().stream()
+                .map(period -> toResponse(period, counts.getOrDefault(period.getId(), 0L)))
+                .toList();
     }
 
     @Transactional(readOnly = true)
