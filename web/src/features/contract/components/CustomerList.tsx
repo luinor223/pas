@@ -13,7 +13,7 @@ import { DataTable } from "@/shared/components/data-table";
 import type { CellContext, ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
@@ -25,6 +25,7 @@ import { FilterBar } from "@/shared/components/filter-bar";
 import { SearchInput } from "@/shared/components/search-input";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ContactTable } from "./ContactTable";
+import { EmptyFieldHint, RequirementLabel } from "./FormRequirement";
 import { statusLabel } from "@/shared/lib/labels";
 import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
@@ -104,6 +105,7 @@ export function CustomerList({ search }: { search: CustomerRouteSearch }) {
     resolver: zodResolver(schema),
     defaultValues: { name: "", shortName: "", taxCode: "", address: "", representativeName: "", representativePosition: "", segment: "", contacts: [{ fullName: "", title: "", email: "", phone: "", primary: true }] },
   });
+  const formValues = useWatch({ control });
   const { fields, append, remove } = useFieldArray({ control, name: "contacts" });
 
   const createMut = useMutation({
@@ -259,15 +261,55 @@ export function CustomerList({ search }: { search: CustomerRouteSearch }) {
 
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
-          <DialogHeader><DialogTitle>Create customer</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Create customer</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Add the customer&apos;s legal details and the people your team can contact.
+            </p>
+          </DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
-            <div><Label htmlFor={`${formId}-name`}>Name *</Label><Input id={`${formId}-name`} {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-short-name`}>Short name</Label><Input id={`${formId}-short-name`} {...register("shortName")} /></div><div><Label htmlFor={`${formId}-tax-code`}>Tax code</Label><Input id={`${formId}-tax-code`} {...register("taxCode")} /></div></div>
-            <div><Label htmlFor={`${formId}-address`}>Address</Label><Textarea id={`${formId}-address`} {...register("address")} /></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-representative`}>Representative</Label><Input id={`${formId}-representative`} {...register("representativeName")} /></div><div><Label htmlFor={`${formId}-position`}>Position</Label><Input id={`${formId}-position`} {...register("representativePosition")} /></div></div>
-            <div><Label htmlFor={`${formId}-segment`}>Segment</Label><Input id={`${formId}-segment`} {...register("segment")} placeholder="e.g. RETAIL" /></div>
+            <div>
+              <RequirementLabel htmlFor={`${formId}-name`} kind="draft">Legal name</RequirementLabel>
+              <Input id={`${formId}-name`} aria-required="true" {...register("name")} />
+              {errors.name ? <p className="text-xs text-destructive">{errors.name.message}</p> : <EmptyFieldHint show={!formValues.name?.trim()}>Enter the customer&apos;s registered legal name.</EmptyFieldHint>}
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <RequirementLabel htmlFor={`${formId}-short-name`}>Short name</RequirementLabel>
+                <Input id={`${formId}-short-name`} {...register("shortName")} />
+                <EmptyFieldHint show={!formValues.shortName?.trim()}>Optional: a familiar name used in lists and searches.</EmptyFieldHint>
+              </div>
+              <div>
+                <RequirementLabel htmlFor={`${formId}-tax-code`}>Tax code</RequirementLabel>
+                <Input id={`${formId}-tax-code`} {...register("taxCode")} />
+                <EmptyFieldHint show={!formValues.taxCode?.trim()}>Optional: the customer&apos;s government-issued tax identifier.</EmptyFieldHint>
+              </div>
+            </div>
+            <div>
+              <RequirementLabel htmlFor={`${formId}-address`}>Registered address</RequirementLabel>
+              <Textarea id={`${formId}-address`} {...register("address")} />
+              <EmptyFieldHint show={!formValues.address?.trim()}>Optional: the address shown on legal and commercial documents.</EmptyFieldHint>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <RequirementLabel htmlFor={`${formId}-representative`}>Representative</RequirementLabel>
+                <Input id={`${formId}-representative`} {...register("representativeName")} />
+                <EmptyFieldHint show={!formValues.representativeName?.trim()}>Optional: the customer&apos;s authorized representative.</EmptyFieldHint>
+              </div>
+              <div>
+                <RequirementLabel htmlFor={`${formId}-position`}>Position</RequirementLabel>
+                <Input id={`${formId}-position`} {...register("representativePosition")} />
+                <EmptyFieldHint show={!formValues.representativePosition?.trim()}>Optional: the representative&apos;s job title.</EmptyFieldHint>
+              </div>
+            </div>
+            <div>
+              <RequirementLabel htmlFor={`${formId}-segment`}>Segment</RequirementLabel>
+              <Input id={`${formId}-segment`} {...register("segment")} placeholder="e.g. RETAIL" />
+              <EmptyFieldHint show={!formValues.segment?.trim()}>Optional: group the customer by business segment, for example RETAIL.</EmptyFieldHint>
+            </div>
             <div>
               <div className="text-sm font-medium">Contacts</div>
+              <p className="mb-2 text-xs text-muted-foreground">Add the people your team may contact and select no more than one primary contact.</p>
               <div className="space-y-2 border rounded p-2">
                 {fields.map((f, i) => {
                   const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
@@ -275,10 +317,10 @@ export function CustomerList({ search }: { search: CustomerRouteSearch }) {
                   <fieldset key={f.id} className="rounded border p-2 space-y-2">
                     <legend className="px-1 text-xs font-semibold">Contact {i + 1}</legend>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label htmlFor={`${formId}-contact-${i}-name`} className="text-xs">Full name *</Label><Input id={`${formId}-contact-${i}-name`} aria-label={`Contact ${i + 1} full name`} placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
-                      <div><Label htmlFor={`${formId}-contact-${i}-title`} className="text-xs">Title</Label><Input id={`${formId}-contact-${i}-title`} aria-label={`Contact ${i + 1} title`} placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
-                      <div><Label htmlFor={`${formId}-contact-${i}-email`} className="text-xs">Email</Label><Input id={`${formId}-contact-${i}-email`} aria-label={`Contact ${i + 1} email`} placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
-                      <div><Label htmlFor={`${formId}-contact-${i}-phone`} className="text-xs">Phone</Label><Input id={`${formId}-contact-${i}-phone`} aria-label={`Contact ${i + 1} phone`} placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
+                      <div><RequirementLabel htmlFor={`${formId}-contact-${i}-name`} kind="draft" className="text-xs">Full name</RequirementLabel><Input id={`${formId}-contact-${i}-name`} aria-label={`Contact ${i + 1} full name`} aria-required="true" placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName ? <p className="text-xs text-destructive">{ce.fullName.message}</p> : <EmptyFieldHint show={!formValues.contacts?.[i]?.fullName?.trim()}>Enter the contact&apos;s full name.</EmptyFieldHint>}</div>
+                      <div><RequirementLabel htmlFor={`${formId}-contact-${i}-title`} className="text-xs">Title</RequirementLabel><Input id={`${formId}-contact-${i}-title`} aria-label={`Contact ${i + 1} title`} placeholder="Title" {...register(`contacts.${i}.title` as const)} /><EmptyFieldHint show={!formValues.contacts?.[i]?.title?.trim()}>Optional job title.</EmptyFieldHint></div>
+                      <div><RequirementLabel htmlFor={`${formId}-contact-${i}-email`} className="text-xs">Email</RequirementLabel><Input id={`${formId}-contact-${i}-email`} aria-label={`Contact ${i + 1} email`} placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email ? <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p> : <EmptyFieldHint show={!formValues.contacts?.[i]?.email?.trim()}>Optional work email.</EmptyFieldHint>}</div>
+                      <div><RequirementLabel htmlFor={`${formId}-contact-${i}-phone`} className="text-xs">Phone</RequirementLabel><Input id={`${formId}-contact-${i}-phone`} aria-label={`Contact ${i + 1} phone`} placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /><EmptyFieldHint show={!formValues.contacts?.[i]?.phone?.trim()}>Optional phone number.</EmptyFieldHint></div>
                     </div>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-xs cursor-pointer select-none">

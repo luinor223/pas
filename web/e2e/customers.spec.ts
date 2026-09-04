@@ -293,6 +293,12 @@ test("names and removes repeated customer contacts with the keyboard", async ({ 
   await page.goto("/customers");
   await page.getByRole("button", { name: "+ New Customer" }).click();
   const dialog = page.getByRole("dialog", { name: "Create customer" });
+  await expect(dialog.getByText("Add the customer's legal details and the people your team can contact.")).toBeVisible();
+  await expect(dialog.getByText("Enter the customer's registered legal name.")).toBeVisible();
+  await expect(dialog.getByText("Optional: a familiar name used in lists and searches.")).toBeVisible();
+  await expect(dialog.locator('[data-requirement="draft"]')).toHaveCount(2);
+  await dialog.getByLabel(/Legal name/).fill("Example Logistics");
+  await expect(dialog.getByText("Enter the customer's registered legal name.")).toBeHidden();
   const addContact = dialog.getByRole("button", { name: "+ Add contact" });
   await addContact.focus();
   await page.keyboard.press("Enter");
