@@ -740,9 +740,9 @@ test("revises a rejected addendum and refreshes every detail panel", async ({ pa
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) {
       progressRequests += 1;
-      return { body: envelope(current.status === "REJECTED" ? {
+      return { body: envelope({
         ...emptyProgress,
-        documentStatus: "REJECTED",
+        documentStatus: current.status,
         workflowState: "REJECTED",
         instanceId: "40000000-0000-4000-8000-000000000002",
         steps: [{
@@ -750,7 +750,7 @@ test("revises a rejected addendum and refreshes every detail panel", async ({ pa
           assigneeNames: ["Alex Approver"], activatedAt: "2026-09-04T09:00:00Z", slaHours: 24, overdue: false,
           action: { actorName: "Alex Approver", actionedAt: "2026-09-04T09:30:00Z", comment: "Correct the term", action: "REJECTED" },
         }],
-      } : { ...emptyProgress, documentStatus: current.status }) };
+      }) };
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) {
       historyRequests += 1;
@@ -768,6 +768,8 @@ test("revises a rejected addendum and refreshes every detail panel", async ({ pa
 
   await page.goto(`/addenda?id=${ADDENDUM_ID}`);
   await expect(page.getByRole("button", { name: "Revise", exact: true })).toBeVisible();
+  await expect(page.getByRole("note", { name: "Rejection reason" })).toContainText("Correct the term");
+  await expect(page.getByRole("note", { name: "Rejection reason" })).toContainText("Alex Approver");
   await expect(page.getByText(/Rejected by Alex Approver/)).toBeVisible();
   await expect(page.getByText("Under review → Rejected")).toBeVisible();
   await expect(page.getByText("CTR-04", { exact: true })).toHaveCount(0);
@@ -775,6 +777,7 @@ test("revises a rejected addendum and refreshes every detail panel", async ({ pa
 
   await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit for approval" })).toBeVisible();
+  await expect(page.getByRole("note", { name: "Rejection reason" })).toContainText("Correct the term");
   expect(reviseRequests).toBe(1);
   await expect.poll(() => progressRequests).toBeGreaterThan(1);
   await expect.poll(() => historyRequests).toBeGreaterThan(1);
@@ -796,10 +799,26 @@ test("edits a revision-requested addendum and preserves optimistic-lock data", a
       historyRequests += 1;
       return { body: envelope([]) };
     }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) {
+      return { body: envelope({
+        ...emptyProgress,
+        documentStatus: "REVISION_REQUESTED",
+        workflowState: "REVISION_REQUESTED",
+        instanceId: "40000000-0000-4000-8000-000000000003",
+        steps: [{
+          stepNo: 2, name: "Legal review", approverRole: "LEGAL_MANAGER", status: "REVISION_REQUESTED",
+          assigneeNames: ["Legal Reviewer"], activatedAt: "2026-09-04T10:00:00Z", slaHours: 24, overdue: false,
+          action: { actorName: "Legal Reviewer", actionedAt: "2026-09-04T10:30:00Z", comment: "Clarify the liability clause (CTR-04)", action: "REQUEST_REVISION" },
+        }],
+      }) };
+    }
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
   }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
 
   await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  const revisionReason = page.getByRole("note", { name: "Revision request reason" });
+  await expect(revisionReason).toContainText("Clarify the liability clause");
+  await expect(revisionReason).not.toContainText("CTR-04");
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: `Edit ${addendum.addendumNo}` });
   await dialog.getByLabel("Description").fill("Updated after reviewer feedback");

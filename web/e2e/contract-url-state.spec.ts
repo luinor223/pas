@@ -65,6 +65,63 @@ async function installUrlMocks(page: Page, requests: Array<{ path: string; param
   }, { permissions: [...currentUser.permissions, "addendum:read"] });
 }
 
+test("shows the rejection reason prominently on contract details", async ({ page }) => {
+  const rejectedContract = {
+    ...contract,
+    status: "REJECTED",
+    canEdit: false,
+    canSubmit: false,
+    canRevise: true,
+    canCancel: false,
+    canCreateAddendum: false,
+  };
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) return { body: envelope(rejectedContract) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/progress`) {
+      return { body: envelope({
+        documentStatus: "REJECTED",
+        workflowState: "REJECTED",
+        currentStep: null,
+        steps: [{
+          stepNo: 2,
+          name: "Legal review",
+          approverRole: "LEGAL_MANAGER",
+          status: "REJECTED",
+          assigneeNames: ["Legal Reviewer"],
+          action: {
+            actorName: "Legal Reviewer",
+            actionedAt: "2026-09-04T10:30:00Z",
+            comment: "The liability clause is incomplete (CTR-04)",
+            action: "REJECT",
+          },
+          activatedAt: "2026-09-04T10:00:00Z",
+          slaHours: 24,
+          overdue: false,
+        }],
+      }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/history`) return { body: envelope([]) };
+    if (url.pathname === `/api/v1/customers/${CUSTOMER_ID}`) return { body: envelope(customer) };
+    if (url.pathname === "/api/v1/addenda") {
+      return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
+    }
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/signing-request`) {
+      return { body: envelope({ canSendForSigning: false, requestQueued: false, sessionId: null }) };
+    }
+    if (url.pathname === `/api/v1/signing-sessions/by-document/CONTRACT/${CONTRACT_ID}`) {
+      return { body: envelope([]) };
+    }
+  });
+
+  await page.goto(`/contracts?id=${CONTRACT_ID}`);
+
+  const reason = page.getByRole("note", { name: "Rejection reason" });
+  await expect(reason).toContainText("The liability clause is incomplete");
+  await expect(reason).toContainText("Legal Reviewer");
+  await expect(reason).not.toContainText("CTR-04");
+});
+
 test("list filters, text search, pages, and snapshot cursors survive refresh and history", async ({ page }) => {
   const requests: Array<{ path: string; params: URLSearchParams }> = [];
   await installUrlMocks(page, requests);

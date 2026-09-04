@@ -3,6 +3,38 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ca
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { roleLabel, statusLabel } from "@/shared/lib/labels";
 import { withoutInternalRuleCodes } from "@/shared/lib/text";
+import { formatDateTime } from "@/shared/lib/format";
+
+type DecisionReason = {
+  kind: "rejection" | "revision";
+  comment: string;
+  actorName: string | null;
+  actionedAt: string | null;
+};
+
+function decisionReason(progress?: ProgressResponse): DecisionReason | null {
+  const step = [...(progress?.steps ?? [])].reverse().find((candidate) => {
+    const action = candidate.action?.action;
+    return candidate.status === "REJECTED"
+      || candidate.status === "REVISION_REQUESTED"
+      || action === "REJECT"
+      || action === "REJECTED"
+      || action === "REQUEST_REVISION"
+      || action === "REVISION_REQUESTED";
+  });
+  const comment = step?.action?.comment ? withoutInternalRuleCodes(step.action.comment) : "";
+  if (!step?.action || !comment) return null;
+
+  const action = step.action.action;
+  const rejected = step.status === "REJECTED" || action === "REJECT" || action === "REJECTED";
+
+  return {
+    kind: rejected ? "rejection" : "revision",
+    comment,
+    actorName: step.action.actorName,
+    actionedAt: step.action.actionedAt,
+  };
+}
 
 function emptyWorkflowMessage(progress?: ProgressResponse): string {
   if (progress?.workflowState === "INITIALIZATION_PENDING") {
@@ -29,11 +61,33 @@ export function ApprovalProgressPanel({ progress, isLoading, error }: { progress
       ? "Your submission is being prepared for approval"
       : null;
   const steps = progress?.steps ?? [];
+  const decision = decisionReason(progress);
+  const decisionTitle = decision?.kind === "rejection" ? "Rejection reason" : "Revision request reason";
 
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Approval workflow</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm">
+        {decision && (
+          <div
+            role="note"
+            aria-label={decisionTitle}
+            className={`rounded-lg border p-3 ${decision.kind === "rejection"
+              ? "border-red-200 bg-red-50 text-red-900"
+              : "border-amber-200 bg-amber-50 text-amber-900"}`}
+          >
+            <div className="text-xs font-semibold uppercase tracking-wide">{decisionTitle}</div>
+            <p className="mt-2 whitespace-pre-wrap text-base font-normal leading-relaxed text-foreground">
+              {decision.comment}
+            </p>
+            {(decision.actorName || decision.actionedAt) && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                {decision.actorName ? `By ${decision.actorName}` : "Recorded"}
+                {decision.actionedAt ? ` · ${formatDateTime(decision.actionedAt)}` : ""}
+              </div>
+            )}
+          </div>
+        )}
         {isLoading ? <div className="text-muted-foreground">Loading approval progress...</div> : error ? (
           <div className="text-destructive">{getApiErrorMessage(error, "Failed to load approval progress")}</div>
         ) : waiting ? (
