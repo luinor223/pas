@@ -1,0 +1,27 @@
+http:
+  routers:
+    billing:
+      rule: PathPrefix(`/api/v1/payment-statements`)
+      entryPoints: [web]
+      middlewares: [billing-ratelimit, jwt-auth@file, api-v1-strip]
+      service: billing
+    billing-docs:
+      rule: PathPrefix(`/docs/billing`)
+      entryPoints: [web]
+      middlewares: [billing-docs-strip]
+      service: billing
+
+  middlewares:
+    billing-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+    billing-docs-strip:
+      stripPrefix:
+        prefixes: [/docs/billing]
+
+  services:
+    billing:
+      loadBalancer:
+        servers:
+          - url: http://billing-service:8005
