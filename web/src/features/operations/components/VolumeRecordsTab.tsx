@@ -343,8 +343,8 @@ function EditVolumeDialog({ volume, period, onClose }: { volume: VolumeResponse;
             </div>
           )}
           <div>
-            <Label>Quantity ({volume.unit}) *</Label>
-            <Input autoFocus type="number" min="0" step="0.001" inputMode="decimal" value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(""); }} />
+            <Label htmlFor="edit-volume-quantity">Quantity ({volume.unit}) *</Label>
+            <Input id="edit-volume-quantity" autoFocus type="number" min="0" step="0.001" inputMode="decimal" value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(""); }} />
           </div>
           <div>
             <Label>Note <span className="font-normal text-muted-foreground">(optional)</span></Label>

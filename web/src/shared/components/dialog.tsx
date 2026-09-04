@@ -12,7 +12,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   );
 }
 export function DialogContent({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-y-auto rounded-lg border bg-card p-6 text-card-foreground shadow-lg", className)} {...props}>{children}</div>;
+  return <div role="dialog" aria-modal="true" className={cn("flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-y-auto rounded-lg border bg-card p-6 text-card-foreground shadow-lg", className)} {...props}>{children}</div>;
 }
 export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("flex flex-col space-y-2 mb-4", className)} {...props} />;
