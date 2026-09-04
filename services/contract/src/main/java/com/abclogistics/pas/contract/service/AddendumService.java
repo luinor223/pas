@@ -365,6 +365,10 @@ public class AddendumService {
         DocumentStatus status = parent.getStatus();
         if (status != DocumentStatus.APPROVED && status != DocumentStatus.ACTIVE) {
             throw new UnprocessableEntityException(
+                    "ADDENDUM_PARENT_NOT_AMENDABLE",
+                    ("Contract %s is %s. An addendum amends a contract already in force, so the "
+                            + "contract must be approved or active first.")
+                            .formatted(parent.getContractNo(), status),
                     ("Contract %s is %s; an addendum amends a contract already in force, so the "
                             + "parent must be APPROVED or ACTIVE (4.3)")
                             .formatted(parent.getContractNo(), status));
@@ -376,17 +380,27 @@ public class AddendumService {
             case TERM_EXTENSION -> {
                 if (request.newValidTo() == null) {
                     throw new UnprocessableEntityException(
+                            "ADDENDUM_FIELD_REQUIRED",
+                            "A term extension needs the new expiry date it sets.",
                             "newValidTo is required for a TERM_EXTENSION addendum (D14b renewal)");
                 }
                 // before the extension rule: self-contradictory dates answered on their own terms
                 if (request.effectiveFrom().isAfter(request.newValidTo())) {
                     throw new UnprocessableEntityException(
+                            "ADDENDUM_DATES_INCONSISTENT",
+                            ("The effective date (%s) must not be after the new expiry date (%s); "
+                                    + "an addendum cannot take effect after the date it sets.")
+                                    .formatted(request.effectiveFrom(), request.newValidTo()),
                             ("effectiveFrom (%s) must not be after newValidTo (%s); an addendum "
                                     + "cannot take effect after the expiry date it sets")
                                     .formatted(request.effectiveFrom(), request.newValidTo()));
                 }
                 if (!request.newValidTo().isAfter(parent.getValidTo())) {
                     throw new UnprocessableEntityException(
+                            "ADDENDUM_TERM_NOT_EXTENDED",
+                            ("The new expiry date (%s) must be after the contract's current expiry "
+                                    + "date (%s); a term extension lengthens the term, it does not shorten it.")
+                                    .formatted(request.newValidTo(), parent.getValidTo()),
                             ("newValidTo (%s) must be after the contract's current validTo (%s); "
                                     + "a TERM_EXTENSION extends the term, it does not shorten it")
                                     .formatted(request.newValidTo(), parent.getValidTo()));
@@ -395,12 +409,16 @@ public class AddendumService {
             case PAYMENT_TERMS -> {
                 if (RequestValues.blankToNull(request.paymentTermOverride()) == null) {
                     throw new UnprocessableEntityException(
+                            "ADDENDUM_FIELD_REQUIRED",
+                            "A payment-terms addendum needs the replacement payment term.",
                             "paymentTermOverride is required for a PAYMENT_TERMS addendum");
                 }
             }
             case ADDED_SERVICE -> {
                 if (request.services() == null || request.services().isEmpty()) {
                     throw new UnprocessableEntityException(
+                            "ADDENDUM_FIELD_REQUIRED",
+                            "An added-service addendum must list at least one service.",
                             "An ADDED_SERVICE addendum must list at least one service");
                 }
             }
@@ -412,11 +430,19 @@ public class AddendumService {
     private void requireWithinParentValidity(LocalDate effectiveFrom, Contract parent) {
         if (effectiveFrom.isBefore(parent.getValidFrom())) {
             throw new UnprocessableEntityException(
+                    "ADDENDUM_EFFECTIVE_DATE_OUT_OF_RANGE",
+                    ("The effective date (%s) is before the contract's start date (%s). "
+                            + "Choose a date within the contract's term.")
+                            .formatted(effectiveFrom, parent.getValidFrom()),
                     ("effectiveFrom (%s) precedes the contract's validFrom (%s)")
                             .formatted(effectiveFrom, parent.getValidFrom()));
         }
         if (effectiveFrom.isAfter(parent.getValidTo())) {
             throw new UnprocessableEntityException(
+                    "ADDENDUM_EFFECTIVE_DATE_OUT_OF_RANGE",
+                    ("The effective date (%s) is after the contract's expiry date (%s). "
+                            + "Choose a date within the contract's term.")
+                            .formatted(effectiveFrom, parent.getValidTo()),
                     ("effectiveFrom (%s) is after the contract's current validTo (%s); the "
                             + "contract would already have expired, and renewing an EXPIRED "
                             + "contract is not an allowed transition")
