@@ -1,3 +1,12 @@
+pluginManagement {
+    repositories {
+        // Prefer Maven Central so Docker builds do not depend on the Plugin
+        // Portal's redirect to plugins-artifacts.gradle.org.
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 rootProject.name = "pas"
 
 include("libs:common")
