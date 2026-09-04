@@ -7,6 +7,7 @@ import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.common.security.SecurityUtils;
+import com.abclogistics.pas.common.security.SystemActor;
 import com.abclogistics.pas.pricing.domain.PriceList;
 import com.abclogistics.pas.pricing.domain.PriceListVersion;
 import com.abclogistics.pas.pricing.domain.PriceListVersionStatus;
@@ -172,7 +173,7 @@ public class PriceListVersionService {
                 predecessor.setValidTo(cutoff);
                 history.save(new StatusHistory(predecessor.getId(), predecessor.getStatus(), predecessor.getStatus(),
                         TriggerKind.S, successor.getId(), "Truncated by successor v" + successor.getVersionNo(),
-                        SecurityUtils.currentUserId()));
+                        SecurityUtils.currentUserIdOrSystem()));
             }
         }
     }
@@ -182,7 +183,7 @@ public class PriceListVersionService {
         PriceListVersionStatus from = version.getStatus();
         version.setStatus(to);
         history.save(new StatusHistory(version.getId(), from, to, kind, ref, note,
-                SecurityUtils.currentUserId()));
+                SecurityUtils.currentUserIdOrSystem()));
         audit.record(ENTITY, version.getId(), "STATUS_CHANGE", from.name(), to.name(), note, Map.of());
     }
 
@@ -195,8 +196,8 @@ public class PriceListVersionService {
         payload.put("idempotency_key", idempotencyKey.toString());
         payload.put("priority", "NORMAL");
         payload.put("customer_name", "");   // pricing holds customer_id only, no name snapshot
-        payload.put("requested_by_id", actor == null ? null : actor.userId().toString());
-        payload.put("requested_by_name", actor == null ? null : actor.fullName());
+        payload.put("requested_by_id", actor == null ? SystemActor.ID.toString() : actor.userId().toString());
+        payload.put("requested_by_name", actor == null ? SystemActor.NAME : actor.fullName());
         return objectMapper.writeValueAsString(payload);
     }
 

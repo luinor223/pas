@@ -333,8 +333,8 @@ public class StatementService {
             && status == PaymentStatement.StatementStatus.SIGNING) {
             UUID esignKey = UUID.randomUUID();
             String customerName = statement.getCustomerName() != null ? statement.getCustomerName() : "";
-            UUID requestedBy = SecurityUtils.currentUserId();
-            String requestedByName = SecurityUtils.currentUserName();
+            UUID requestedBy = SecurityUtils.currentUserIdOrSystem();
+            String requestedByName = SecurityUtils.currentUserNameOrSystem();
             OutboxEvent esignEvent = OutboxEvent.event(
                 "esign.session_requested",
                 "PAYMENT_STATEMENT",
@@ -491,8 +491,8 @@ public class StatementService {
         history.setToStatus(toStatus.name());
         history.setTriggerKind(kind);
         history.setTriggerRef(triggerRef);
-        history.setActorId(SecurityUtils.currentUserId());
-        history.setActorName(SecurityUtils.currentUserName());
+        history.setActorId(SecurityUtils.currentUserIdOrSystem());
+        history.setActorName(SecurityUtils.currentUserNameOrSystem());
         history.setOccurredAt(Instant.now());
         statement.getStatusHistory().add(history);
     }
@@ -513,8 +513,8 @@ public class StatementService {
     }
 
     private void auditOutbox(PaymentStatement statement, String action) {
-        UUID actorId = SecurityUtils.currentUserId();
-        String actorName = SecurityUtils.currentUserName();
+        UUID actorId = SecurityUtils.currentUserIdOrSystem();
+        String actorName = SecurityUtils.currentUserNameOrSystem();
         String payload = String.format(
             "{\"source_service\":\"billing\",\"entity_type\":\"PAYMENT_STATEMENT\","
             + "\"entity_id\":\"%s\",\"entity_no\":\"%s\",\"action\":\"%s\","

@@ -37,4 +37,13 @@ public final class SecurityUtils {
     public static String currentUserName() {
         return currentUser().map(AuthenticatedUser::fullName).orElse(null);
     }
+
+    /** No authenticated user means a system-initiated action: credit the {@link SystemActor}, not null. */
+    public static UUID currentUserIdOrSystem() {
+        return currentUser().map(AuthenticatedUser::userId).orElse(SystemActor.ID);
+    }
+
+    public static String currentUserNameOrSystem() {
+        return currentUser().map(AuthenticatedUser::fullName).orElse(SystemActor.NAME);
+    }
 }

@@ -6,6 +6,7 @@ import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
+import com.abclogistics.pas.common.security.SystemActor;
 import com.abclogistics.pas.esign.domain.SigningCallbackLog;
 import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.domain.StatusHistory;
@@ -124,7 +125,7 @@ public class SigningSessionService {
         session.setAttempts(attempts);
         session.setSentAt(Instant.now());
         transitions.transition(session, SigningSession.SessionStatus.SIGNING,
-            StatusHistory.TriggerKind.S, null, "System", "Sent to provider");
+            StatusHistory.TriggerKind.S, SystemActor.ID, SystemActor.NAME, "Sent to provider");
         sessionRepo.save(session);
     }
 
@@ -140,7 +141,7 @@ public class SigningSessionService {
         session.setLastError(error);
         session.setCompletedAt(Instant.now());
         transitions.transition(session, SigningSession.SessionStatus.FAILED,
-            StatusHistory.TriggerKind.S, null, "System", error);
+            StatusHistory.TriggerKind.S, SystemActor.ID, SystemActor.NAME, error);
         sessionRepo.save(session);
         emitSessionCompleted(session, SigningSession.SessionStatus.FAILED, error);
     }
@@ -194,7 +195,8 @@ public class SigningSessionService {
 
         session.setCompletedAt(Instant.now());
         transitions.transition(session, newStatus, StatusHistory.TriggerKind.E,
-            session.getRequestedBy(), session.getRequestedByName(),
+            session.getRequestedBy() != null ? session.getRequestedBy() : SystemActor.ID,
+            session.getRequestedByName() != null ? session.getRequestedByName() : SystemActor.NAME,
             error != null ? error : "Provider callback: " + result);
         sessionRepo.save(session);
 

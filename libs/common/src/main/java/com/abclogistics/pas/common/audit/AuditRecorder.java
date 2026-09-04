@@ -3,6 +3,7 @@ package com.abclogistics.pas.common.audit;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.security.SystemActor;
 import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,8 +51,8 @@ public class AuditRecorder {
         AuditPayload payload = new AuditPayload(
                 sourceService,
                 entityType, entityId, entityNo, action,
-                actor == null ? null : actor.userId(),
-                actor == null ? "system" : actor.fullName(),
+                actor == null ? SystemActor.ID : actor.userId(),
+                actor == null ? SystemActor.NAME : actor.fullName(),
                 actor == null ? null : actor.department(),
                 beforeStatus, afterStatus,
                 changes == null ? Map.of() : changes,

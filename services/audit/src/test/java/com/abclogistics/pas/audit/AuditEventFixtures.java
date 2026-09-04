@@ -2,6 +2,7 @@ package com.abclogistics.pas.audit;
 
 import com.abclogistics.pas.common.audit.AuditPayload;
 import com.abclogistics.pas.common.outbox.EventRecords;
+import com.abclogistics.pas.common.security.SystemActor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import tools.jackson.databind.ObjectMapper;
 
@@ -36,10 +37,10 @@ final class AuditEventFixtures {
                 "Điều khoản thanh toán cần sửa", "10.0.0.1", at);
     }
 
-    /** A scheduler action: no actor, so {@code actor_name} is the "system" snapshot. */
+    /** A scheduler action: credited to the SYSTEM principal (D-actor), never a null actor. */
     static AuditPayload systemAction(UUID entityId, String action, Instant at) {
         return new AuditPayload("contract-service", "CONTRACT", entityId, "HD-2026-0001", action,
-                null, "system", null, "APPROVED", "ACTIVE", Map.of(), null, null, at);
+                SystemActor.ID, SystemActor.NAME, null, "APPROVED", "ACTIVE", Map.of(), null, null, at);
     }
 
     static AuditPayload by(String sourceService, String entityType, UUID entityId, String entityNo,

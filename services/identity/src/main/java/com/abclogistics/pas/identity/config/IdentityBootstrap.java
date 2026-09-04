@@ -38,7 +38,7 @@ public class IdentityBootstrap implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (users.count() > 0) {
+        if (users.existsByUsername(props.username())) {
             return;
         }
 

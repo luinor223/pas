@@ -6,6 +6,7 @@ import com.abclogistics.pas.common.audit.AuditPayload;
 import com.abclogistics.pas.common.events.EventHeaders;
 import com.abclogistics.pas.common.events.MalformedEventException;
 import com.abclogistics.pas.common.outbox.EventRecords;
+import com.abclogistics.pas.common.security.SystemActor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -134,8 +135,9 @@ class AuditPKDedupNoProcessedEventIT {
     }
 
     @Test
-    void aSystemActionIsStoredWithNoActorRatherThanRejected() {
-        // schedulers write audit rows too (D14d's time-driven flips); actor_id null is normal
+    void aSystemActionIsStoredWithTheSystemPrincipal() {
+        // schedulers write audit rows too (D14d's time-driven flips); the actor is the SYSTEM
+        // principal (D-actor), not null — actor_id is NOT NULL on audit_record
         ConsumerRecord<String, String> record = AuditEventFixtures.recorded(
                 AuditEventFixtures.systemAction(UUID.randomUUID(), "ACTIVATE", Instant.now()));
         UUID eventId = UUID.fromString(EventHeaders.of(record, EventHeaders.EVENT_ID));
@@ -143,8 +145,8 @@ class AuditPKDedupNoProcessedEventIT {
         listener.onAuditRecorded(record);
 
         var stored = records.findById(eventId).orElseThrow();
-        assertThat(stored.getActorId()).isNull();
-        assertThat(stored.getActorName()).isEqualTo("system");
+        assertThat(stored.getActorId()).isEqualTo(SystemActor.ID);
+        assertThat(stored.getActorName()).isEqualTo(SystemActor.NAME);
     }
 
     @Test
