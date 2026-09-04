@@ -121,6 +121,38 @@ test("does not request detail data without addendum read permission", async ({ p
   expect(detailRequests).toBe(0);
 });
 
+test("read-only addendum list does not request eligible parent contracts", async ({ page }) => {
+  let contractRequests = 0;
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") return { body: envelope([addendum], pageMeta) };
+    if (url.pathname.startsWith("/api/v1/contracts")) contractRequests += 1;
+  }, { permissions: [...currentUser.permissions, "addendum:read"] });
+
+  await page.goto("/addenda");
+  await expect(page.getByText(addendum.addendumNo)).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ New Addendum" })).toHaveCount(0);
+  expect(contractRequests).toBe(0);
+});
+
+test("addendum writers without contract read access cannot start unusable creation", async ({ page }) => {
+  let contractRequests = 0;
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") return { body: envelope([addendum], pageMeta) };
+    if (url.pathname.startsWith("/api/v1/contracts")) contractRequests += 1;
+  }, {
+    permissions: [
+      ...currentUser.permissions.filter((permission) => permission !== "contract:read"),
+      "addendum:read",
+      "addendum:write",
+    ],
+  });
+
+  await page.goto(`/addenda?contractId=${CONTRACT_ID}`);
+  await expect(page.getByText(addendum.addendumNo)).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ New Addendum" })).toHaveCount(0);
+  expect(contractRequests).toBe(0);
+});
+
 test("shows a not-found state for a missing addendum", async ({ page }) => {
   const missingId = "00000000-0000-4000-8000-000000000099";
   const requestedPaths: string[] = [];
@@ -143,8 +175,8 @@ test("preserves deep-link context when navigating to a newly created addendum an
     if (url.pathname === "/api/v1/addenda" && request.method() === "GET") {
       return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
     }
-    if (url.pathname === "/api/v1/contracts") {
-      return { body: envelope([{ id: CONTRACT_ID, contractNo: "CTR-2026-0001", status: "APPROVED" }], { page: 0, size: 100, totalElements: 1, totalPages: 1 }) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) {
+      return { body: envelope({ id: CONTRACT_ID, contractNo: "CTR-2026-0001", customerName: "Customer", status: "APPROVED", canCreateAddendum: true }) };
     }
     if (url.pathname === "/api/v1/addenda" && request.method() === "POST") {
       submittedContractId = (await request.postDataJSON()).contractId;
@@ -160,8 +192,8 @@ test("preserves deep-link context when navigating to a newly created addendum an
   await page.goto(`/addenda?contractId=${CONTRACT_ID}&changeType=TERM_EXTENSION`);
   await page.getByRole("button", { name: "+ New Addendum" }).click();
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
-  await expect(dialog.locator("select").first()).toHaveValue(CONTRACT_ID);
-  await expect(dialog.locator("select").nth(1)).toHaveValue("TERM_EXTENSION");
+  await expect(dialog.getByLabel("Contract *")).toHaveAttribute("placeholder", /CTR-2026-0001 · Customer/);
+  await expect(dialog.locator("select").first()).toHaveValue("TERM_EXTENSION");
   await dialog.locator('input[type="date"]').nth(1).fill("2027-09-30");
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
 
@@ -179,6 +211,86 @@ test("preserves deep-link context when navigating to a newly created addendum an
   await expect.poll(() => new URL(page.url()).searchParams.get("id")).toBeNull();
   await expect.poll(() => new URL(page.url()).searchParams.get("contractId")).toBe(CONTRACT_ID);
   await expect.poll(() => new URL(page.url()).searchParams.get("changeType")).toBe("TERM_EXTENSION");
+});
+
+test("create form excludes ineligible contracts even from a deep link", async ({ page }) => {
+  const draftId = "20000000-0000-4000-8000-000000000009";
+  const requestedStatuses: Array<string | null> = [];
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") return { body: envelope([], pageMeta) };
+    if (url.pathname === `/api/v1/contracts/${draftId}`) {
+      return { body: envelope({ id: draftId, contractNo: "CTR-DRAFT", status: "DRAFT", canCreateAddendum: false }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) {
+      return { body: envelope({ id: CONTRACT_ID, contractNo: "CTR-ELIGIBLE", customerName: "Eligible Customer", status: "APPROVED", canCreateAddendum: true }) };
+    }
+    if (url.pathname === "/api/v1/contracts") {
+      const status = url.searchParams.get("status");
+      requestedStatuses.push(status);
+      const rows = status === "APPROVED"
+        ? [{ id: CONTRACT_ID, contractNo: "CTR-ELIGIBLE", customerName: "Eligible Customer", status: "APPROVED", canCreateAddendum: true }]
+        : [];
+      return { body: envelope(rows, { page: 0, size: 10, totalElements: rows.length, totalPages: rows.length ? 1 : 0 }) };
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?contractId=${draftId}`);
+  await page.getByRole("button", { name: "+ New Addendum" }).click();
+  const contractPicker = page.getByRole("dialog", { name: "Create addendum" }).getByLabel("Contract *");
+  await expect(contractPicker).toHaveValue("");
+  await contractPicker.click();
+  await expect(page.getByRole("option", { name: /CTR-ELIGIBLE/ })).toBeVisible();
+  await page.getByRole("option", { name: /CTR-ELIGIBLE/ }).click();
+  await expect(contractPicker).toHaveValue("CTR-ELIGIBLE · Eligible Customer");
+  expect(requestedStatuses.sort()).toEqual(["ACTIVE", "APPROVED"]);
+});
+
+test("waits for deep-link eligibility before opening the create form", async ({ page }) => {
+  let releaseContract!: () => void;
+  const contractGate = new Promise<void>((resolve) => { releaseContract = resolve; });
+  await installAddendumMocks(page, async (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") return { body: envelope([], pageMeta) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) {
+      await contractGate;
+      return { body: envelope({ id: CONTRACT_ID, contractNo: "CTR-DEEP-LINK", customerName: "Deep Link Customer", status: "ACTIVE", canCreateAddendum: true }) };
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?contractId=${CONTRACT_ID}`);
+  const newButton = page.getByRole("button", { name: "+ New Addendum" });
+  await expect(newButton).toBeDisabled();
+  releaseContract();
+  await expect(newButton).toBeEnabled();
+  await newButton.click();
+  await expect(page.getByRole("dialog", { name: "Create addendum" }).getByLabel("Contract *"))
+    .toHaveAttribute("placeholder", /CTR-DEEP-LINK · Deep Link Customer/);
+});
+
+test("searches eligible contracts instead of limiting creation to the first 100", async ({ page }) => {
+  const listRequests: Array<{ q: string | null; status: string | null; size: string | null }> = [];
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") return { body: envelope([], pageMeta) };
+    if (url.pathname === "/api/v1/contracts") {
+      const request = { q: url.searchParams.get("q"), status: url.searchParams.get("status"), size: url.searchParams.get("size") };
+      listRequests.push(request);
+      const rows = request.q === "CTR-150" && request.status === "APPROVED"
+        ? [{ id: CONTRACT_ID, contractNo: "CTR-150", customerName: "Customer 150", status: "APPROVED", canCreateAddendum: true }]
+        : [];
+      return { body: envelope(rows, { page: 0, size: 10, totalElements: rows.length, totalPages: rows.length ? 1 : 0 }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) {
+      return { body: envelope({ id: CONTRACT_ID, contractNo: "CTR-150", customerName: "Customer 150", status: "APPROVED", canCreateAddendum: true }) };
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto("/addenda");
+  await page.getByRole("button", { name: "+ New Addendum" }).click();
+  const picker = page.getByRole("dialog", { name: "Create addendum" }).getByLabel("Contract *");
+  await picker.fill("CTR-150");
+  await page.getByRole("option", { name: /CTR-150/ }).click();
+  await expect(picker).toHaveValue("CTR-150 · Customer 150");
+  expect(listRequests.filter(({ q }) => q === "CTR-150").map(({ status, size }) => [status, size]).sort())
+    .toEqual([["ACTIVE", "10"], ["APPROVED", "10"]]);
 });
 
 test("blocks draft submission until an attachment exists", async ({ page }) => {
@@ -220,7 +332,10 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
       return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
     }
     if (url.pathname === "/api/v1/contracts") {
-      return { body: envelope([{ id: CONTRACT_ID, contractNo: "CTR-2026-0001", status: "APPROVED" }], { page: 0, size: 100, totalElements: 1, totalPages: 1 }) };
+      return { body: envelope([{ id: CONTRACT_ID, contractNo: "CTR-2026-0001", customerName: "Customer", status: "APPROVED", canCreateAddendum: true }], { page: 0, size: 10, totalElements: 1, totalPages: 1 }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}`) {
+      return { body: envelope({ id: CONTRACT_ID, contractNo: "CTR-2026-0001", customerName: "Customer", status: "APPROVED", canCreateAddendum: true }) };
     }
     if (url.pathname === "/api/v1/addenda" && method === "POST") return { status: 201, body: envelope(created) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/submit` && method === "POST") {
@@ -248,7 +363,8 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
   await page.goto("/addenda");
   await page.getByRole("button", { name: "+ New Addendum" }).click();
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
-  await dialog.locator("select").first().selectOption(CONTRACT_ID);
+  await dialog.getByLabel("Contract *").click();
+  await page.getByRole("option", { name: /CTR-2026-0001/ }).click();
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: created.addendumNo })).toBeVisible();

@@ -3,6 +3,15 @@ import { currentUser, envelope, installApiMocks } from "./support/api";
 
 const meta = (page: number) => ({ page, size: 15, totalElements: 16, totalPages: 2, cursor: "snapshot-token" });
 
+const contractRow = (id: string, status: string, canCreateAddendum: boolean) => ({
+  id, contractNo: `CTR-${id.slice(-1)}`, customerId: "40000000-0000-4000-8000-000000000001",
+  customerName: "Customer", description: null, serviceGroup: "TRANSPORTATION", value: 1, currency: "VND",
+  validFrom: "2026-01-01", validTo: "2026-12-31", paymentTerm: null, billingCycle: "MONTHLY",
+  vatRate: null, penaltyTerms: null, serviceClause: null, status, editable: status === "DRAFT",
+  canCreateAddendum, version: 0, createdAt: "2026-01-01T00:00:00Z", createdByName: null,
+  updatedAt: "2026-01-01T00:00:00Z",
+});
+
 test("customer list requests server pages without page-local sorting", async ({ page }) => {
   const requests: Array<[string, string | null, string | null]> = [];
   await installApiMocks(page, (_request, url) => {
@@ -103,4 +112,65 @@ test("contract list can recover when its snapshot cursor expires while navigatin
   expect(requests.slice(1, -1)).not.toHaveLength(0);
   expect(requests.slice(1, -1).every(([p, cursor]) =>
     (p === "1" || p === "0") && cursor === "snapshot-token")).toBe(true);
+});
+
+test("contract actions follow backend addendum capabilities", async ({ page }) => {
+  let addendumRequests = 0;
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/contracts") {
+      return { body: envelope([
+        contractRow("50000000-0000-4000-8000-000000000001", "DRAFT", false),
+        contractRow("50000000-0000-4000-8000-000000000002", "APPROVED", true),
+      ], { page: 0, size: 15, totalElements: 2, totalPages: 1, cursor: "actions-token" }) };
+    }
+    if (url.pathname === "/api/v1/addenda") addendumRequests += 1;
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto("/contracts");
+  const actionButtons = page.getByRole("button", { name: "Row actions" });
+  await actionButtons.nth(0).click();
+  await expect(page.getByRole("menuitem", { name: "Create addendum" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Renew contract" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await actionButtons.nth(1).click();
+  await expect(page.getByRole("menuitem", { name: "Create addendum" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Renew contract" })).toBeVisible();
+  expect(addendumRequests).toBe(0);
+});
+
+test("contract forms request only active customers", async ({ page }) => {
+  const customerStatuses: Array<string | null> = [];
+  const draft = contractRow("50000000-0000-4000-8000-000000000001", "DRAFT", false);
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/contracts") {
+      return { body: envelope([draft], { page: 0, size: 15, totalElements: 1, totalPages: 1, cursor: "contract-token" }) };
+    }
+    if (url.pathname === "/api/v1/customers") {
+      customerStatuses.push(url.searchParams.get("status"));
+      return { body: envelope([], { page: 0, size: 10, totalElements: 0, totalPages: 0, cursor: "customer-token" }) };
+    }
+    if (url.pathname === `/api/v1/customers/${draft.customerId}`) {
+      return { body: envelope({ id: draft.customerId, code: "CUS-1", name: "Customer", status: "ACTIVE" }) };
+    }
+  }, { permissions: [...currentUser.permissions, "contract:write"] });
+
+  await page.goto("/contracts");
+  await page.getByPlaceholder("All customers").click();
+  await expect.poll(() => customerStatuses).toContain(null);
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "+ New Contract" }).click();
+  const createDialog = page.getByRole("dialog", { name: "Create contract" });
+  await createDialog.getByLabel("Customer *").click();
+  await expect.poll(() => customerStatuses.filter((status) => status === "ACTIVE").length).toBeGreaterThanOrEqual(1);
+  await createDialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Row actions" }).click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  const editCustomer = page.getByRole("dialog", { name: "Edit contract" }).getByLabel("Customer *");
+  await editCustomer.click();
+  await editCustomer.fill("replacement");
+  await expect.poll(() => customerStatuses.filter((status) => status === "ACTIVE").length).toBeGreaterThanOrEqual(2);
+  expect(customerStatuses.every((status) => status === null || status === "ACTIVE")).toBe(true);
 });

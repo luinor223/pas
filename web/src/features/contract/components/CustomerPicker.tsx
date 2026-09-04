@@ -5,12 +5,12 @@ import { Label } from "@/shared/components/label";
 import { useEntityCombobox } from "@/shared/hooks/use-entity-combobox";
 import { customersQuery, customerQuery } from "../hooks/contractQueries";
 
-export function CustomerPicker({ value, onChange, label = "Customer", placeholder = "Type code or name...", className }: {
-  value: string; onChange: (id: string) => void; label?: string; placeholder?: string; className?: string;
+export function CustomerPicker({ value, onChange, label = "Customer", placeholder = "Type code or name...", status, className }: {
+  value: string; onChange: (id: string) => void; label?: string; placeholder?: string; status?: string; className?: string;
 }) {
   let optionIds: string[] = [];
   const combo = useEntityCombobox({ onChange, getOptionIds: () => optionIds, allowClear: true });
-  const searchQuery = useQuery({ ...customersQuery({ q: combo.debounced || undefined, size: 10 }), enabled: combo.open });
+  const searchQuery = useQuery({ ...customersQuery({ q: combo.debounced || undefined, status, size: 10 }), enabled: combo.open });
   const selectedQuery = useQuery({ ...customerQuery(value), enabled: Boolean(value) });
   const selected = selectedQuery.data;
   const results = searchQuery.data?.content ?? [];

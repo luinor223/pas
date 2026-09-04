@@ -72,7 +72,7 @@ public class AddendumController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('addendum:write')")
+    @PreAuthorize("hasAuthority('addendum:write') and hasAuthority('contract:read')")
     public AddendumResponse create(@Valid @RequestBody AddendumRequest request) {
         return AddendumResponse.of(addenda.create(request));
     }

@@ -75,6 +75,7 @@ export type ContractResponse = {
   serviceClause: string | null;
   status: string;
   editable: boolean;
+  canCreateAddendum: boolean;
   version: number;
   createdAt: string;
   createdByName: string | null;

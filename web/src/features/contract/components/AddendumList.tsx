@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { addendaQuery, contractsQuery } from "../hooks/contractQueries";
+import { addendaQuery, contractQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { AddendumResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
@@ -27,6 +27,7 @@ import { SearchInput } from "@/shared/components/search-input";
 import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
 import { humanize } from "@/shared/lib/text";
+import { ContractPicker } from "./ContractPicker";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -59,6 +60,8 @@ export function AddendumList() {
   const navigate = useNavigate();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
+  const canReadContracts = useHasPermission("contract:read");
+  const canCreate = canWrite && canReadContracts;
   // Deep-link default for the create form (e.g. contract detail's Create addendum).
   // There is intentionally no contract filter: Figma has none, and contract-scoped
   // addenda live on the contract detail page.
@@ -72,7 +75,7 @@ export function AddendumList() {
   const hasFilters = !!(status || changeType || q);
 
   const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor }));
-  const contractsQ = useQuery(contractsQuery({ size: 100 }));
+  const defaultContractQ = useQuery({ ...contractQuery(defaultContractId), enabled: canCreate && Boolean(defaultContractId) });
   const pageItems = listQ.data?.content ?? [];
   const items = pageItems;
 
@@ -83,12 +86,13 @@ export function AddendumList() {
   const restartListing = () => { setSnapshotCursor(undefined); setPage(0); };
   const recoverFirstPage = () => { qc.removeQueries({ queryKey: ["addenda"] }); restartListing(); };
 
-  const { register, handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, control, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { contractId: "", changeType: CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] },
   });
   const { fields, append, remove } = useFieldArray({ control, name: "services" });
   const watchedType = watch("changeType");
+  const selectedContractId = watch("contractId");
 
   const createMut = useMutation({
     mutationFn: (data: FormData) => contractApi.createAddendum({
@@ -139,7 +143,7 @@ export function AddendumList() {
               value={q}
               onChange={(value) => { setQ(value); restartListing(); }}
             />
-          {canWrite && <Button onClick={() => { reset({ contractId: defaultContractId || (contractsQ.data?.content?.[0]?.id ?? ""), changeType: changeType || CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
+          {canCreate && <Button disabled={Boolean(defaultContractId) && defaultContractQ.isPending} onClick={() => { reset({ contractId: defaultContractQ.data?.canCreateAddendum ? defaultContractQ.data.id : "", changeType: changeType || CHANGE_TYPES[0], description: "", effectiveFrom: new Date().toISOString().slice(0, 10), newValidTo: "", paymentTermOverride: "", services: [] }); setOpenCreate(true); }}>+ New Addendum</Button>}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -160,7 +164,18 @@ export function AddendumList() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create addendum</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
-            <div><Label>Contract *</Label><Select {...register("contractId")}><option value="">Select</option>{(contractsQ.data?.content ?? []).map((c) => <option key={c.id} value={c.id}>{c.contractNo} [{c.status}]</option>)}</Select>{errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}</div>
+            <div>
+              <ContractPicker
+                value={selectedContractId}
+                onChange={(id) => setValue("contractId", id, { shouldValidate: true })}
+                label="Contract *"
+                placeholder="Search eligible contracts..."
+                statuses={["APPROVED", "ACTIVE"]}
+                eligibleForAddendum
+                allowClear={false}
+              />
+              {errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}
+            </div>
             <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
             <div className="grid grid-cols-2 gap-2"><div><Label>Effective from *</Label><Input type="date" {...register("effectiveFrom")} />{errors.effectiveFrom && <p className="text-xs text-destructive">{errors.effectiveFrom.message}</p>}</div>{watchedType==="TERM_EXTENSION" && <div><Label>New valid to *</Label><Input type="date" {...register("newValidTo")} />{errors.newValidTo && <p className="text-xs text-destructive">{String(errors.newValidTo.message)}</p>}</div>}{watchedType==="PAYMENT_TERMS" && <div><Label>Payment term override *</Label><Input {...register("paymentTermOverride")} /></div>}</div>

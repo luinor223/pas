@@ -150,8 +150,8 @@ export function ContractList() {
         if (canWrite && editable) items.push({ label: "Edit", onClick: () => onEdit(c) });
         if (canWrite && c.status === "DRAFT") items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
         if (canWrite && c.status === "REJECTED") items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
-        if (canWrite) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
-        if (canWrite) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
+        if (c.canCreateAddendum) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
+        if (c.canCreateAddendum) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
         if (canWrite && cancellable) items.push({ label: "Cancel contract", onClick: () => setConfirmCancel(c), danger: true });
         return (
           <div className="text-right">
@@ -241,7 +241,7 @@ export function ContractList() {
           <DialogHeader><DialogTitle>Create contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
             <div>
-              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." />
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." status="ACTIVE" />
               {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
             </div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
@@ -261,7 +261,7 @@ export function ContractList() {
           <DialogHeader><DialogTitle>Edit contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => updateMut.mutate(d))} className="space-y-3">
             <div>
-              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." />
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." status="ACTIVE" />
               {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
             </div>
             <div><Label>Description</Label><Textarea {...register("description")} /></div>
