@@ -5,7 +5,7 @@ One chart per deployable, each installed and versioned independently:
 - `services/<svc>/helm/` — the 10 backend services
 - `web/helm/` — the React frontend (nginx)
 - `infra/helm/pas-common/` — a **library chart** holding the shared templates
-  (Deployment, Service, Secret, PVC, Traefik IngressRoute + Middlewares). It
+  (Deployment, Service, PVC, Traefik IngressRoute + Middlewares). It
   deploys nothing on its own; every service chart depends on it, so the
   per-service charts stay thin.
 

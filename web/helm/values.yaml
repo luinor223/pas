@@ -19,4 +19,3 @@ service:
     requests:
       memory: 32Mi
       cpu: 25m
-  env: {}

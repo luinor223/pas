@@ -1,9 +1,11 @@
 {{/*
-Workload/Service name. Kept as "<name>-service" so in-cluster gRPC peers
-(e.g. IDENTITY_GRPC_HOST=identity-service) resolve to this Service's DNS.
+Workload/Service name. Defaults to "<name>-service" so in-cluster gRPC peers
+(e.g. IDENTITY_GRPC_HOST=identity-service) resolve to this Service's DNS;
+service.fullnameOverride sets it verbatim for peers referenced without the
+suffix (web, esign-mock-provider).
 */}}
 {{- define "pas-common.fullname" -}}
-{{- printf "%s-service" .Values.service.name -}}
+{{- .Values.service.fullnameOverride | default (printf "%s-service" .Values.service.name) -}}
 {{- end -}}
 
 {{/*

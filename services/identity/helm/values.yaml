@@ -39,7 +39,6 @@ service:
     name: pas_identity
     user: identity
     # db-password comes from the external Secret (service.secretName)
-  env: {}
   routes:
     - /api/v1/users
     - /api/v1/roles

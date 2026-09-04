@@ -1,24 +1,3 @@
-# Shared infra endpoints. Override per-environment with -f values-<env>.yaml
-# (the same file across all service charts).
-postgres:
-  host: postgres
-  port: 5432
-redis:
-  host: redis
-  port: 6379
-kafka:
-  bootstrapServers: kafka:9092
-
-jwt:
-  issuer: pas-identity
-  # RS256 public key PEM, used by the Traefik jwt-auth middleware.
-  publicKey: ""
-  # Secret holding jwt-private.pem, mounted into services that sign (identity).
-  privateKeySecret: pas-jwt-private
-
-ingress:
-  entryPoint: web
-
 service:
   name: esign-mock-provider
   fullnameOverride: esign-mock-provider
@@ -33,8 +12,7 @@ service:
     pullPolicy: IfNotPresent
   resources:
     limits:
-      memory: 640Mi
+      memory: 384Mi
     requests:
-      memory: 512Mi
-      cpu: 100m
-  env: {}
+      memory: 256Mi
+      cpu: 50m

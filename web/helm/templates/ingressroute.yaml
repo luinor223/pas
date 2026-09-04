@@ -1,7 +1,7 @@
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: web
+  name: {{ include "pas-common.fullname" . }}
   labels: {{- include "pas-common.labels" . | nindent 4 }}
 spec:
   entryPoints:
@@ -12,5 +12,5 @@ spec:
       kind: Rule
       priority: 1
       services:
-        - name: {{ .Values.service.fullnameOverride }}
+        - name: {{ include "pas-common.fullname" . }}
           port: {{ .Values.service.httpPort }}

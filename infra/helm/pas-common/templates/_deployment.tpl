@@ -1,11 +1,17 @@
 {{- define "pas-common.deployment" -}}
+{{- $svc := .Values.service -}}
+{{- $fullname := include "pas-common.fullname" . -}}
+{{- $secret := include "pas-common.secretName" . -}}
+{{- $signsJwt := $svc.signsJwt -}}
+{{- $persistence := $svc.persistence -}}
+{{- $probe := $svc.probe | default "http" -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "pas-common.fullname" . }}
+  name: {{ $fullname }}
   labels: {{- include "pas-common.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.service.replicas | default 1 }}
+  replicas: {{ $svc.replicas | default 1 }}
   selector:
     matchLabels: {{- include "pas-common.selectorLabels" . | nindent 6 }}
   template:
@@ -13,68 +19,67 @@ spec:
       labels: {{- include "pas-common.selectorLabels" . | nindent 8 }}
     spec:
       containers:
-        - name: {{ .Values.service.name }}
-          image: "{{ .Values.service.image.repository }}:{{ .Values.service.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.service.image.pullPolicy | default "IfNotPresent" }}
+        - name: {{ $svc.name }}
+          image: "{{ $svc.image.repository }}:{{ $svc.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ $svc.image.pullPolicy | default "IfNotPresent" }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.httpPort }}
-            {{- if .Values.service.grpcPort }}
+              containerPort: {{ $svc.httpPort }}
+            {{- if $svc.grpcPort }}
             - name: grpc
-              containerPort: {{ .Values.service.grpcPort }}
+              containerPort: {{ $svc.grpcPort }}
             {{- end }}
           env:
-            {{- if .Values.service.database }}
+            {{- if $svc.database }}
             - name: DB_URL
-              value: "jdbc:postgresql://{{ .Values.postgres.host }}:{{ .Values.postgres.port }}/{{ .Values.service.database.name }}"
+              value: "jdbc:postgresql://{{ .Values.postgres.host }}:{{ .Values.postgres.port }}/{{ $svc.database.name }}"
             - name: DB_USER
-              value: {{ .Values.service.database.user | quote }}
+              value: {{ $svc.database.user | quote }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pas-common.secretName" . }}
+                  name: {{ $secret }}
                   key: db-password
             {{- end }}
-            {{- if not .Values.service.disableRedis }}
+            {{- if not $svc.disableRedis }}
             - name: REDIS_HOST
               value: {{ .Values.redis.host | quote }}
             - name: REDIS_PORT
               value: {{ .Values.redis.port | quote }}
             {{- end }}
-            {{- if not .Values.service.disableKafka }}
+            {{- if not $svc.disableKafka }}
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.kafka.bootstrapServers | quote }}
             {{- end }}
-            {{- if .Values.service.signsJwt }}
+            {{- if $signsJwt }}
             - name: JWT_ISSUER
               value: {{ .Values.jwt.issuer | quote }}
             - name: JWT_PRIVATE_KEY_PATH
               value: /keys/jwt-private.pem
             {{- end }}
-            {{- range $k, $v := .Values.service.env }}
+            {{- range $k, $v := $svc.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
-            {{- range $k, $secretKey := .Values.service.secretEnv }}
+            {{- range $k, $secretKey := $svc.secretEnv }}
             - name: {{ $k }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pas-common.secretName" $ }}
+                  name: {{ $secret }}
                   key: {{ $secretKey }}
             {{- end }}
-          {{- if or .Values.service.signsJwt .Values.service.persistence }}
+          {{- if or $signsJwt $persistence }}
           volumeMounts:
-            {{- if .Values.service.signsJwt }}
+            {{- if $signsJwt }}
             - name: jwt-key
               mountPath: /keys
               readOnly: true
             {{- end }}
-            {{- if .Values.service.persistence }}
+            {{- if $persistence }}
             - name: data
-              mountPath: {{ .Values.service.persistence.mountPath }}
+              mountPath: {{ $persistence.mountPath }}
             {{- end }}
           {{- end }}
-          {{- $probe := .Values.service.probe | default "http" }}
           {{- if eq $probe "http" }}
           livenessProbe:
             httpGet:
@@ -98,18 +103,18 @@ spec:
               port: http
             initialDelaySeconds: 5
           {{- end }}
-          resources: {{- toYaml .Values.service.resources | nindent 12 }}
-      {{- if or .Values.service.signsJwt .Values.service.persistence }}
+          resources: {{- toYaml $svc.resources | nindent 12 }}
+      {{- if or $signsJwt $persistence }}
       volumes:
-        {{- if .Values.service.signsJwt }}
+        {{- if $signsJwt }}
         - name: jwt-key
           secret:
             secretName: {{ .Values.jwt.privateKeySecret }}
         {{- end }}
-        {{- if .Values.service.persistence }}
+        {{- if $persistence }}
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "pas-common.fullname" . }}-data
+            claimName: {{ $fullname }}-data
         {{- end }}
       {{- end }}
 {{- end -}}
