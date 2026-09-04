@@ -88,6 +88,22 @@ public class StatementService {
         return toResponse(stmt);
     }
 
+    public record SigningPayload(String documentNo, String signerName, String signerEmail) { }
+
+    public SigningPayload signingPayload(UUID statementId) {
+        PaymentStatement statement = statementRepo.findById(statementId)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementId));
+        PaymentStatement.StatementStatus status = statement.getStatus();
+        if (status != PaymentStatement.StatementStatus.APPROVED
+            && status != PaymentStatement.StatementStatus.SIGNING) {
+            throw new FailedPreconditionException("Statement must be APPROVED or SIGNING for signing payload");
+        }
+        return new SigningPayload(
+            statement.getStatementNo(),
+            statement.getCustomerName() != null ? statement.getCustomerName() : "",
+            "");
+    }
+
     @Transactional
     public StatementResponse calculate(CalculateStatementRequest req) {
         UUID contractId;
