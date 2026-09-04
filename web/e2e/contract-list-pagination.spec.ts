@@ -181,6 +181,13 @@ test("contract forms request only active customers", async ({ page }) => {
 
   await page.getByRole("button", { name: "+ New Contract" }).click();
   const createDialog = page.getByRole("dialog", { name: "Create contract" });
+  await expect(createDialog.getByLabel("Field requirement guide")).toContainText("Required to save a draft");
+  await expect(createDialog.locator("label [data-requirement=draft]")).toHaveCount(4);
+  await expect(createDialog.locator("label [data-requirement=submit]")).toHaveCount(2);
+  await expect(createDialog.getByText("Required before submission. Example: NET30.")).toBeVisible();
+  await expect(createDialog.getByText("Required before submission. Enter 0 when no VAT applies.")).toBeVisible();
+  await createDialog.getByLabel("Payment term *").fill("NET30");
+  await expect(createDialog.getByText("Required before submission. Example: NET30.")).toHaveCount(0);
   await createDialog.getByLabel("Customer *").click();
   await expect.poll(() => customerStatuses.filter((status) => status === "ACTIVE").length).toBeGreaterThanOrEqual(1);
   await createDialog.getByRole("button", { name: "Cancel" }).click();

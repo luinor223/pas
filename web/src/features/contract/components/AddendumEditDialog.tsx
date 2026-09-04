@@ -9,10 +9,10 @@ import { ADDENDUM_CHANGE_TYPES, addendumChangeTypeLabel } from "../contractOptio
 import { Button } from "@/shared/components/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/dialog";
 import { Input } from "@/shared/components/input";
-import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Textarea } from "@/shared/components/textarea";
 import { getApiErrorMessage } from "@/shared/api/errors";
+import { EmptyFieldHint, RequirementLabel, RequirementLegend } from "./FormRequirement";
 
 const serviceSchema = z.object({
   serviceItemId: z.string().optional().nullable(),
@@ -57,7 +57,8 @@ export function AddendumEditDialog({ addendum, onClose, onSaved }: { addendum: A
     },
   });
   const services = useFieldArray({ control: form.control, name: "services" });
-  const changeType = form.watch("changeType");
+  const values = form.watch();
+  const changeType = values.changeType;
   const mutation = useMutation({
     mutationFn: (data: EditForm) => contractApi.updateAddendum(addendum.id, {
       contractId: addendum.contractId,
@@ -83,23 +84,25 @@ export function AddendumEditDialog({ addendum, onClose, onSaved }: { addendum: A
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
         <DialogHeader><DialogTitle>Edit {addendum.addendumNo}</DialogTitle></DialogHeader>
         <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))} className="space-y-3">
+          <RequirementLegend attachmentNote />
           <div><div className="text-xs text-muted-foreground">PARENT CONTRACT</div><div className="text-sm">{addendum.contractNo}</div></div>
-          <div><Label htmlFor={`${fieldId}-type`}>Change type *</Label><Select id={`${fieldId}-type`} {...form.register("changeType")}>{ADDENDUM_CHANGE_TYPES.map((type) => <option key={type} value={type}>{addendumChangeTypeLabel(type)}</option>)}</Select></div>
-          <div><Label htmlFor={`${fieldId}-description`}>Description</Label><Textarea id={`${fieldId}-description`} {...form.register("description")} /></div>
+          <div><RequirementLabel htmlFor={`${fieldId}-type`} kind="draft">Change type</RequirementLabel><Select id={`${fieldId}-type`} aria-required="true" {...form.register("changeType")}>{ADDENDUM_CHANGE_TYPES.map((type) => <option key={type} value={type}>{addendumChangeTypeLabel(type)}</option>)}</Select><EmptyFieldHint show={!values.changeType}>Choose what this addendum changes.</EmptyFieldHint></div>
+          <div><RequirementLabel htmlFor={`${fieldId}-description`}>Description</RequirementLabel><Textarea id={`${fieldId}-description`} {...form.register("description")} /><EmptyFieldHint show={!values.description?.trim()}>Optional: summarize why this change is needed.</EmptyFieldHint></div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div><Label htmlFor={`${fieldId}-effective`}>Effective from *</Label><Input id={`${fieldId}-effective`} type="date" {...form.register("effectiveFrom")} />{form.formState.errors.effectiveFrom && <p className="text-xs text-destructive">{form.formState.errors.effectiveFrom.message}</p>}</div>
-            {changeType === "TERM_EXTENSION" && <div><Label htmlFor={`${fieldId}-valid-to`}>New valid to *</Label><Input id={`${fieldId}-valid-to`} type="date" {...form.register("newValidTo")} />{form.formState.errors.newValidTo && <p className="text-xs text-destructive">{form.formState.errors.newValidTo.message}</p>}</div>}
-            {changeType === "PAYMENT_TERMS" && <div><Label htmlFor={`${fieldId}-payment`}>Payment term *</Label><Input id={`${fieldId}-payment`} {...form.register("paymentTermOverride")} />{form.formState.errors.paymentTermOverride && <p className="text-xs text-destructive">{form.formState.errors.paymentTermOverride.message}</p>}</div>}
+            <div><RequirementLabel htmlFor={`${fieldId}-effective`} kind="draft">Effective from</RequirementLabel><Input id={`${fieldId}-effective`} type="date" aria-required="true" {...form.register("effectiveFrom")} />{form.formState.errors.effectiveFrom ? <p className="text-xs text-destructive">{form.formState.errors.effectiveFrom.message}</p> : <EmptyFieldHint show={!values.effectiveFrom}>Set the date this change takes effect.</EmptyFieldHint>}</div>
+            {changeType === "TERM_EXTENSION" && <div><RequirementLabel htmlFor={`${fieldId}-valid-to`} kind="draft">New valid to</RequirementLabel><Input id={`${fieldId}-valid-to`} type="date" aria-required="true" {...form.register("newValidTo")} />{form.formState.errors.newValidTo ? <p className="text-xs text-destructive">{form.formState.errors.newValidTo.message}</p> : <EmptyFieldHint show={!values.newValidTo}>Enter a date later than the contract's current end date.</EmptyFieldHint>}</div>}
+            {changeType === "PAYMENT_TERMS" && <div><RequirementLabel htmlFor={`${fieldId}-payment`} kind="draft">Payment term</RequirementLabel><Input id={`${fieldId}-payment`} aria-required="true" {...form.register("paymentTermOverride")} />{form.formState.errors.paymentTermOverride ? <p className="text-xs text-destructive">{form.formState.errors.paymentTermOverride.message}</p> : <EmptyFieldHint show={!values.paymentTermOverride?.trim()}>Enter the replacement payment term, for example NET30.</EmptyFieldHint>}</div>}
           </div>
           {changeType === "ADDED_SERVICE" && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between"><div className="text-sm font-medium">Services</div><Button type="button" size="sm" variant="outline" onClick={() => services.append({ serviceItemId: null, serviceCode: "", serviceName: "", unit: "", scopeNote: "" })}>+ Service</Button></div>
+              <div className="flex items-center justify-between"><RequirementLabel kind="draft">Services</RequirementLabel><Button type="button" size="sm" variant="outline" onClick={() => services.append({ serviceItemId: null, serviceCode: "", serviceName: "", unit: "", scopeNote: "" })}>+ Service</Button></div>
+              <EmptyFieldHint show={services.fields.length === 0}>Add at least one service included by this addendum.</EmptyFieldHint>
               {services.fields.map((field, index) => (
                 <div key={field.id} className="grid grid-cols-1 items-end gap-2 rounded border p-2 sm:grid-cols-5">
-                  <Input aria-label={`Service ${index + 1} code`} {...form.register(`services.${index}.serviceCode`)} placeholder="Code" />
-                  <Input aria-label={`Service ${index + 1} name`} {...form.register(`services.${index}.serviceName`)} placeholder="Name" />
-                  <Input aria-label={`Service ${index + 1} unit`} {...form.register(`services.${index}.unit`)} placeholder="Unit" />
-                  <Input aria-label={`Service ${index + 1} scope`} {...form.register(`services.${index}.scopeNote`)} placeholder="Scope" />
+                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-code`} kind="draft">Code</RequirementLabel><Input id={`${fieldId}-service-${index}-code`} aria-label={`Service ${index + 1} code`} aria-required="true" {...form.register(`services.${index}.serviceCode`)} /><EmptyFieldHint show={!values.services[index]?.serviceCode?.trim()}>Service identifier.</EmptyFieldHint></div>
+                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-name`} kind="draft">Name</RequirementLabel><Input id={`${fieldId}-service-${index}-name`} aria-label={`Service ${index + 1} name`} aria-required="true" {...form.register(`services.${index}.serviceName`)} /><EmptyFieldHint show={!values.services[index]?.serviceName?.trim()}>Business name of the service.</EmptyFieldHint></div>
+                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-unit`}>Unit</RequirementLabel><Input id={`${fieldId}-service-${index}-unit`} aria-label={`Service ${index + 1} unit`} {...form.register(`services.${index}.unit`)} /><EmptyFieldHint show={!values.services[index]?.unit?.trim()}>Optional billing unit.</EmptyFieldHint></div>
+                  <div><RequirementLabel htmlFor={`${fieldId}-service-${index}-scope`}>Scope</RequirementLabel><Input id={`${fieldId}-service-${index}-scope`} aria-label={`Service ${index + 1} scope`} {...form.register(`services.${index}.scopeNote`)} /><EmptyFieldHint show={!values.services[index]?.scopeNote?.trim()}>Optional service boundaries.</EmptyFieldHint></div>
                   <Button type="button" size="sm" variant="ghost" aria-label={`Remove service ${index + 1}`} onClick={() => services.remove(index)}>Remove</Button>
                 </div>
               ))}

@@ -5,7 +5,6 @@ import { contractApi } from "../services/contractApi";
 import type { ContractResponse } from "../types/contractTypes";
 import { Button } from "@/shared/components/button";
 import { Input } from "@/shared/components/input";
-import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Textarea } from "@/shared/components/textarea";
 import { DataTable } from "@/shared/components/data-table";
@@ -34,6 +33,7 @@ import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-rang
 import type { ContractRouteSearch } from "../contractSearchParams";
 import { contractFormSchema, contractRequest, type ContractFormData } from "../contractForm";
 import { ContractEditDialog } from "./ContractEditDialog";
+import { EmptyFieldHint, RequirementLabel, RequirementLegend } from "./FormRequirement";
 
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
@@ -88,7 +88,8 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
     resolver: zodResolver(contractFormSchema),
     defaultValues: { customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: "", validTo: "", paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" },
   });
-  const selectedCustomerId = watch("customerId");
+  const formValues = watch();
+  const selectedCustomerId = formValues.customerId;
 
   const createMut = useMutation({
     mutationFn: (data: ContractFormData) => contractApi.createContract(contractRequest(data)),
@@ -219,16 +220,17 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
+            <RequirementLegend attachmentNote />
             <div>
-              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." status="ACTIVE" />
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer" requirement="draft" emptyHint="Select the active customer this contract belongs to." placeholder="Type code or name..." status="ACTIVE" />
               {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
             </div>
-            <div><Label htmlFor={`${formId}-description`}>Description</Label><Textarea id={`${formId}-description`} {...register("description")} /></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-service-group`}>Service group *</Label><Select id={`${formId}-service-group`} {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label htmlFor={`${formId}-currency`}>Currency</Label><Input id={`${formId}-currency`} {...register("currency")} placeholder="VND" /></div></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-value`}>Value</Label><Input id={`${formId}-value`} type="number" step="0.01" {...register("value")} /></div><div><Label htmlFor={`${formId}-valid-from`}>Valid from *</Label><Input id={`${formId}-valid-from`} type="date" {...register("validFrom")} />{errors.validFrom && <p className="text-xs text-destructive">{errors.validFrom.message}</p>}</div><div><Label htmlFor={`${formId}-valid-to`}>Valid to *</Label><Input id={`${formId}-valid-to`} type="date" {...register("validTo")} />{errors.validTo && <p className="text-xs text-destructive">{errors.validTo.message}</p>}</div></div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-payment-term`}>Payment term</Label><Input id={`${formId}-payment-term`} {...register("paymentTerm")} placeholder="e.g. 30D" /></div><div><Label htmlFor={`${formId}-billing-cycle`}>Billing cycle</Label><Input id={`${formId}-billing-cycle`} {...register("billingCycle")} readOnly /></div><div><Label htmlFor={`${formId}-vat-rate`}>VAT rate</Label><Input id={`${formId}-vat-rate`} type="number" step="0.01" {...register("vatRate")} /></div></div>
-            <div><Label htmlFor={`${formId}-penalty-terms`}>Penalty terms</Label><Textarea id={`${formId}-penalty-terms`} {...register("penaltyTerms")} /></div>
-            <div><Label htmlFor={`${formId}-service-clause`}>Service clause</Label><Textarea id={`${formId}-service-clause`} {...register("serviceClause")} /></div>
+            <div><RequirementLabel htmlFor={`${formId}-description`}>Description</RequirementLabel><Textarea id={`${formId}-description`} {...register("description")} /><EmptyFieldHint show={!formValues.description?.trim()}>Optional: briefly describe the commercial purpose of this contract.</EmptyFieldHint></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><RequirementLabel htmlFor={`${formId}-service-group`} kind="draft">Service group</RequirementLabel><Select id={`${formId}-service-group`} aria-required="true" {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select><EmptyFieldHint show={!formValues.serviceGroup}>Choose the services covered by this contract.</EmptyFieldHint></div><div><RequirementLabel htmlFor={`${formId}-currency`}>Currency</RequirementLabel><Input id={`${formId}-currency`} {...register("currency")} placeholder="VND" /><EmptyFieldHint show={!formValues.currency?.trim()}>Enter the three-letter billing currency, for example VND.</EmptyFieldHint></div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><RequirementLabel htmlFor={`${formId}-value`}>Value</RequirementLabel><Input id={`${formId}-value`} type="number" step="0.01" {...register("value")} />{errors.value ? <p className="text-xs text-destructive">{errors.value.message}</p> : <EmptyFieldHint show={!formValues.value}>Optional in a draft; enter the agreed value when known.</EmptyFieldHint>}</div><div><RequirementLabel htmlFor={`${formId}-valid-from`} kind="draft">Valid from</RequirementLabel><Input id={`${formId}-valid-from`} type="date" aria-required="true" {...register("validFrom")} />{errors.validFrom ? <p className="text-xs text-destructive">{errors.validFrom.message}</p> : <EmptyFieldHint show={!formValues.validFrom}>Set the date this contract begins.</EmptyFieldHint>}</div><div><RequirementLabel htmlFor={`${formId}-valid-to`} kind="draft">Valid to</RequirementLabel><Input id={`${formId}-valid-to`} type="date" aria-required="true" {...register("validTo")} />{errors.validTo ? <p className="text-xs text-destructive">{errors.validTo.message}</p> : <EmptyFieldHint show={!formValues.validTo}>Set the date this contract ends.</EmptyFieldHint>}</div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><RequirementLabel htmlFor={`${formId}-payment-term`} kind="submit">Payment term</RequirementLabel><Input id={`${formId}-payment-term`} {...register("paymentTerm")} placeholder="e.g. NET30" /><EmptyFieldHint show={!formValues.paymentTerm?.trim()} kind="submit">Required before submission. Example: NET30.</EmptyFieldHint></div><div><RequirementLabel htmlFor={`${formId}-billing-cycle`}>Billing cycle</RequirementLabel><Input id={`${formId}-billing-cycle`} {...register("billingCycle")} readOnly /></div><div><RequirementLabel htmlFor={`${formId}-vat-rate`} kind="submit">VAT rate</RequirementLabel><Input id={`${formId}-vat-rate`} type="number" step="0.01" {...register("vatRate")} />{errors.vatRate ? <p className="text-xs text-destructive">{errors.vatRate.message}</p> : <EmptyFieldHint show={!formValues.vatRate} kind="submit">Required before submission. Enter 0 when no VAT applies.</EmptyFieldHint>}</div></div>
+            <div><RequirementLabel htmlFor={`${formId}-penalty-terms`}>Penalty terms</RequirementLabel><Textarea id={`${formId}-penalty-terms`} {...register("penaltyTerms")} /><EmptyFieldHint show={!formValues.penaltyTerms?.trim()}>Optional: describe late-performance or service penalties.</EmptyFieldHint></div>
+            <div><RequirementLabel htmlFor={`${formId}-service-clause`}>Service clause</RequirementLabel><Textarea id={`${formId}-service-clause`} {...register("serviceClause")} /><EmptyFieldHint show={!formValues.serviceClause?.trim()}>Optional: describe the included services and commercial scope.</EmptyFieldHint></div>
             {createMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(createMut.error, "Create failed")}</div>}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setOpenCreate(false)}>Cancel</Button><Button type="submit" disabled={createMut.isPending}>{createMut.isPending ? "Creating..." : "Create"}</Button></DialogFooter>
           </form>

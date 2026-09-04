@@ -135,7 +135,11 @@ test("shows business change labels and includes expired addenda in the status fi
 
   await page.getByRole("button", { name: "+ New Addendum" }).click();
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
+  await expect(dialog.getByLabel("Field requirement guide")).toContainText("attachment can be added after the draft is created");
   await dialog.getByLabel("Change type *").selectOption("TERM_EXTENSION");
+  await expect(dialog.locator("label [data-requirement=draft]")).toHaveCount(4);
+  await expect(dialog.locator("label [data-requirement=submit]")).toHaveCount(0);
+  await expect(dialog.getByText("Enter a date later than the contract's current end date.")).toBeVisible();
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(dialog.getByText("New valid-to date is required for a term extension")).toBeVisible();
   await expect(dialog.getByText("TERM_EXTENSION", { exact: true })).toHaveCount(0);
