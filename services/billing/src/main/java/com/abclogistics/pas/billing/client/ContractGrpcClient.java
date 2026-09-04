@@ -5,6 +5,7 @@ import com.abclogistics.pas.contract.grpc.ContractInternalGrpc;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import io.grpc.ManagedChannel;
+import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,10 +30,14 @@ public class ContractGrpcClient {
 
     public GetContractResponse getContract(String contractId) {
         log.debug("Calling ContractInternal.GetContract({})", contractId);
-        return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
-            .getContract(GetContractRequest.newBuilder()
-                .setId(contractId)
-                .build());
+        try {
+            return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
+                .getContract(GetContractRequest.newBuilder()
+                    .setId(contractId)
+                    .build());
+        } catch (StatusRuntimeException error) {
+            throw BillingDependencyErrors.contract(error);
+        }
     }
 
     @PreDestroy

@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { unreadCountQuery } from "@/features/notification/hooks/notificationQueries";
 import { departmentLabel } from "@/shared/lib/labels";
 import { approvalInboxQuery } from "@/features/approval/hooks/approvalQueries";
+import { WorkflowGuide } from "@/app/WorkflowGuide";
 
 type Item = { to: string; label: string; icon: React.ReactNode; permission?: string; anyOf?: string[] };
 type Group = { heading: string; items: Item[] };
@@ -159,6 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ))}
         </nav>
+        <WorkflowGuide collapsed={sidebarCollapsed} />
       </aside>
 
       {/* Main */}

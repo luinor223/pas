@@ -5,6 +5,7 @@ import com.abclogistics.pas.operations.grpc.ListVolumesRequest;
 import com.abclogistics.pas.operations.grpc.ListVolumesResponse;
 import com.abclogistics.pas.operations.grpc.OperationsInternalGrpc;
 import io.grpc.ManagedChannel;
+import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,11 +30,15 @@ public class OperationsGrpcClient {
 
     public ListVolumesResponse listVolumes(String contractId, String periodCode) {
         log.debug("Calling OperationsInternal.ListVolumes(contract={}, period={})", contractId, periodCode);
-        return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
-            .listVolumes(ListVolumesRequest.newBuilder()
-                .setContractId(contractId)
-                .setPeriodCode(periodCode)
-                .build());
+        try {
+            return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
+                .listVolumes(ListVolumesRequest.newBuilder()
+                    .setContractId(contractId)
+                    .setPeriodCode(periodCode)
+                    .build());
+        } catch (StatusRuntimeException error) {
+            throw BillingDependencyErrors.operations(error, periodCode);
+        }
     }
 
     @PreDestroy
