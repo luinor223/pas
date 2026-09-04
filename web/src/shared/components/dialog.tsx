@@ -25,9 +25,13 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   if (!open) return null;
   return createPortal(
     <DialogContext.Provider value={contextValue}>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div aria-hidden="true" className="fixed inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
-        <div className="relative z-50 flex max-h-full w-full justify-center">{children}</div>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) close();
+        }}
+      >
+        {children}
       </div>
     </DialogContext.Provider>,
     document.body,

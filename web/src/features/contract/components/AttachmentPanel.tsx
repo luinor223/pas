@@ -4,11 +4,13 @@ import { contractApi } from "../services/contractApi";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { getApiErrorMessage } from "@/shared/api/errors";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import type { AttachmentResponse } from "../types/contractTypes";
 import { formatDateTime } from "@/shared/lib/format";
+import { FileText, Upload } from "lucide-react";
+import { cn } from "@/shared/lib/cn";
 
 export function AttachmentPanel({ ownerType, ownerId, editable = true, mutationsDisabled = false }: { ownerType: "CONTRACT" | "ADDENDUM"; ownerId: string; editable?: boolean; mutationsDisabled?: boolean }) {
   const qc = useQueryClient();
@@ -16,6 +18,8 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
   const canManage = canWrite && editable;
   const q = useQuery(attachmentsQuery(ownerType, ownerId));
   const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState<AttachmentResponse | null>(null);
 
   const uploadMut = useMutation({
@@ -26,6 +30,7 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
     },
     onSuccess: (uploaded) => {
       setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       qc.setQueryData<AttachmentResponse[]>(["attachments", ownerType, ownerId], (current) => [
         ...(current ?? []).filter((attachment) => attachment.id !== uploaded.id),
         uploaded,
@@ -68,9 +73,57 @@ export function AttachmentPanel({ ownerType, ownerId, editable = true, mutations
         )}
         {q.isError && q.data && <div role="alert" className="text-xs text-amber-700">Attachments were updated, but the latest refresh failed. The confirmed changes are still shown.</div>}
         {canManage && (
-          <div className="flex gap-2 items-center">
-            <input aria-label="Choose attachment file" type="file" disabled={mutationsDisabled} onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
-            <Button size="sm" onClick={() => uploadMut.mutate()} disabled={mutationsDisabled || !file || uploadMut.isPending}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
+          <div className="space-y-3">
+            <input
+              ref={fileInputRef}
+              aria-label="Choose attachment file"
+              type="file"
+              disabled={mutationsDisabled || uploadMut.isPending}
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+            <div
+              onDragEnter={(event) => {
+                event.preventDefault();
+                if (!mutationsDisabled && !uploadMut.isPending) setIsDragging(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDragging(false);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                setIsDragging(false);
+                if (!mutationsDisabled && !uploadMut.isPending) setFile(event.dataTransfer.files?.[0] ?? null);
+              }}
+              className={cn(
+                "flex min-h-36 flex-col items-center justify-center rounded-lg border-2 border-dashed bg-muted/20 px-6 py-5 text-center transition-colors",
+                isDragging && "border-primary bg-primary/5",
+                mutationsDisabled || uploadMut.isPending ? "opacity-60" : "hover:border-primary/60 hover:bg-primary/5",
+              )}
+            >
+              {file ? <FileText className="mb-2 h-8 w-8 text-primary" aria-hidden="true" /> : <Upload className="mb-2 h-8 w-8 text-primary" aria-hidden="true" />}
+              <p className="text-sm font-medium">{file ? file.name : "Add an attachment"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {file ? `${(file.size / 1024).toFixed(1)} KB selected` : "Drag and drop a file here, or choose one from your device."}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-3 bg-background"
+                disabled={mutationsDisabled || uploadMut.isPending}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {file ? "Choose a different file" : "Choose file"}
+              </Button>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => uploadMut.mutate()} disabled={mutationsDisabled || !file || uploadMut.isPending}>
+                <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {uploadMut.isPending ? "Uploading..." : "Upload attachment"}
+              </Button>
+            </div>
           </div>
         )}
         {uploadMut.isError && <div className="text-xs text-destructive">{getApiErrorMessage(uploadMut.error, "Upload failed")}</div>}

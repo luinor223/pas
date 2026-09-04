@@ -373,7 +373,7 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
     mimeType: attachment.contentType,
     buffer: Buffer.from("pdf contents"),
   });
-  await page.getByRole("button", { name: "Upload", exact: true }).click();
+  await page.getByRole("button", { name: "Upload attachment", exact: true }).click();
   await expect(page.getByText(attachment.fileName)).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
   expect(uploadRequest?.ownerType).toBe("ADDENDUM");
@@ -478,7 +478,7 @@ test("blocks upload and delete while submission is in flight", async ({ page }) 
   await fileInput.setInputFiles({
     name: "replacement.pdf", mimeType: "application/pdf", buffer: Buffer.from("replacement"),
   });
-  const upload = page.getByRole("button", { name: "Upload", exact: true });
+  const upload = page.getByRole("button", { name: "Upload attachment", exact: true });
   const remove = page.getByRole("button", { name: "Delete", exact: true });
   await expect(upload).toBeEnabled();
   await expect(remove).toBeEnabled();
