@@ -124,8 +124,8 @@ public class ContractInternalGrpcService extends ContractInternalGrpc.ContractIn
 
             if (!SIGNABLE.contains(document.getStatus())) {
                 throw new FailedPreconditionException(
-                        "%s %s is %s; a signing payload is only served for a document that is %s "
-                                + "(registry §5)".formatted(type, document.getDocumentNo(),
+                        "%s %s is %s; a signing payload is only served for a document that is %s"
+                                .formatted(type, document.getDocumentNo(),
                                 document.getStatus(), SIGNABLE));
             }
             CustomerContact signer = signerFor(document, type);

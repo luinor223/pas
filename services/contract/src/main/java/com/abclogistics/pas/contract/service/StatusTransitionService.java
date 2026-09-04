@@ -39,7 +39,7 @@ public class StatusTransitionService {
         DocumentStatus from = document.getStatus();
         if (!from.canTransitionTo(to, trigger)) {
             throw new FailedPreconditionException(
-                    "%s %s cannot move %s -> %s under trigger %s (registry §9)"
+                    "%s %s cannot move %s -> %s under trigger %s"
                             .formatted(document.entityType(), document.getDocumentNo(),
                                     from, to, trigger));
         }
@@ -58,7 +58,7 @@ public class StatusTransitionService {
         if (document.getStatus() == DocumentStatus.SUBMITTED) {
             // filled in, not skipped: §9 has no SUBMITTED -> APPROVED row to apply directly
             transition(document, DocumentStatus.UNDER_REVIEW, TriggerKind.W, instanceId,
-                    "Approval instance started (applied out of order, registry §9 footnote 1)");
+                    "Approval instance started (applied out of order)");
         }
         transition(document, outcome, TriggerKind.W, instanceId,
                 "Approval %s".formatted(outcome.name().toLowerCase(Locale.ROOT)));
