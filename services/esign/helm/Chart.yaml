@@ -1,0 +1,10 @@
+apiVersion: v2
+name: esign
+description: PAS esign service (e-signature sessions).
+type: application
+version: 0.1.0
+appVersion: "main"
+dependencies:
+  - name: pas-common
+    version: 0.1.0
+    repository: "file://../../../infra/helm/pas-common"

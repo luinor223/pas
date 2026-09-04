@@ -1,0 +1,16 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: web
+  labels: {{- include "pas-common.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - {{ .Values.ingress.entryPoint | default "web" }}
+  routes:
+    # Catch-all SPA route; low priority so /api and /docs routes win.
+    - match: PathPrefix(`/`)
+      kind: Rule
+      priority: 1
+      services:
+        - name: {{ .Values.service.fullnameOverride }}
+          port: {{ .Values.service.httpPort }}
