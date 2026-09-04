@@ -1,5 +1,19 @@
 plugins {
     alias(libs.plugins.spring.boot)
+    alias(libs.plugins.jib)
+}
+
+jib {
+    from {
+        image = "gcr.io/distroless/java25-debian13:nonroot"
+    }
+    to {
+        image = "ghcr.io/luinor223/pas-billing"
+    }
+    container {
+        ports = listOf("8005", "50055")
+        jvmFlags = listOf("-XX:MaxRAMPercentage=65")
+    }
 }
 
 dependencyManagement {

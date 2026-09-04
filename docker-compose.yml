@@ -83,9 +83,8 @@ services:
     restart: "no"
 
   identity-service:
-    build:
-      context: .
-      dockerfile: services/identity/Dockerfile
+    image: ghcr.io/luinor223/pas-identity:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_identity
       DB_USER: identity
@@ -128,9 +127,8 @@ services:
       - "traefik.http.routers.identity-docs.middlewares=identity-docs-strip"
 
   workflow-service:
-    build:
-      context: .
-      dockerfile: services/workflow/Dockerfile
+    image: ghcr.io/luinor223/pas-workflow:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_workflow
       DB_USER: workflow
@@ -167,9 +165,8 @@ services:
       - "traefik.http.routers.workflow-docs.middlewares=workflow-docs-strip"
 
   operations-service:
-    build:
-      context: .
-      dockerfile: services/operations/Dockerfile
+    image: ghcr.io/luinor223/pas-operations:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_operations
       DB_USER: operations
@@ -190,12 +187,6 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8004/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 30s
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.operations.loadbalancer.server.port=8004"
@@ -206,9 +197,8 @@ services:
       - "traefik.http.routers.operations.middlewares=operations-ratelimit,jwt-auth@file,api-v1-strip"
 
   contract-service:
-    build:
-      context: .
-      dockerfile: services/contract/Dockerfile
+    image: ghcr.io/luinor223/pas-contract:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_contract
       DB_USER: contract
@@ -252,9 +242,8 @@ services:
       - "traefik.http.routers.contract.middlewares=contract-ratelimit,jwt-auth@file,api-v1-strip"
 
   pricing-service:
-    build:
-      context: .
-      dockerfile: services/pricing/Dockerfile
+    image: ghcr.io/luinor223/pas-pricing:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_pricing
       DB_USER: pricing
@@ -290,9 +279,8 @@ services:
       - "traefik.http.routers.pricing-docs.middlewares=pricing-docs-strip"
 
   billing-service:
-    build:
-      context: .
-      dockerfile: services/billing/Dockerfile
+    image: ghcr.io/luinor223/pas-billing:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_billing
       DB_USER: billing
@@ -342,9 +330,8 @@ services:
       - "traefik.http.routers.billing-docs.middlewares=billing-docs-strip"
 
   esign-service:
-    build:
-      context: .
-      dockerfile: services/esign/Dockerfile
+    image: ghcr.io/luinor223/pas-esign:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_esign
       DB_USER: esign
@@ -382,16 +369,14 @@ services:
       - "traefik.http.routers.esign.middlewares=esign-ratelimit,jwt-auth@file,api-v1-strip"
 
   esign-mock-provider:
-    build:
-      context: .
-      dockerfile: services/esign-mock-provider/Dockerfile
+    image: ghcr.io/luinor223/pas-esign-mock-provider:latest
+    mem_limit: 384m
     labels:
       - "traefik.enable=false"
 
   notification-service:
-    build:
-      context: .
-      dockerfile: services/notification/Dockerfile
+    image: ghcr.io/luinor223/pas-notification:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_notification
       DB_USER: notification
@@ -429,9 +414,8 @@ services:
       - "traefik.http.routers.notification-docs.middlewares=notification-docs-strip"
 
   audit-service:
-    build:
-      context: .
-      dockerfile: services/audit/Dockerfile
+    image: ghcr.io/luinor223/pas-audit:latest
+    mem_limit: 640m
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/pas_audit
       DB_USER: audit
