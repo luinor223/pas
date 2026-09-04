@@ -29,7 +29,7 @@ public class ContractGrpcClient {
 
     public GetContractResponse getContract(String contractId) {
         log.debug("Calling ContractInternal.GetContract({})", contractId);
-        return stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+        return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
             .getContract(GetContractRequest.newBuilder()
                 .setId(contractId)
                 .build());

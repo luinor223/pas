@@ -31,7 +31,7 @@ public class PricingGrpcClient {
                                                                 String serviceGroup, String date) {
         log.debug("Calling PricingInternal.GetEffectivePriceList(contract={}, customer={}, group={}, date={})",
             contractId, customerId, serviceGroup, date);
-        return stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+        return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
             .getEffectivePriceList(GetEffectivePriceListRequest.newBuilder()
                 .setContractId(contractId)
                 .setCustomerId(customerId)

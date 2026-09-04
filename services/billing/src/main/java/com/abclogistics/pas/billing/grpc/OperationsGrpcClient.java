@@ -29,7 +29,7 @@ public class OperationsGrpcClient {
 
     public ListVolumesResponse listVolumes(String contractId, String periodCode) {
         log.debug("Calling OperationsInternal.ListVolumes(contract={}, period={})", contractId, periodCode);
-        return stub.withDeadlineAfter(5, TimeUnit.SECONDS)
+        return stub.withDeadlineAfter(2, TimeUnit.SECONDS)
             .listVolumes(ListVolumesRequest.newBuilder()
                 .setContractId(contractId)
                 .setPeriodCode(periodCode)
