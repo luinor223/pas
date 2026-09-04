@@ -19,6 +19,13 @@ const ROLES: Record<string, string> = {
   SYSTEM_ADMIN: "System Administrator",
 };
 
+const DOCUMENT_TYPES: Record<string, string> = {
+  CONTRACT: "Contract",
+  ADDENDUM: "Addendum",
+  PRICE_LIST: "Price list",
+  PAYMENT_STATEMENT: "Payment statement",
+};
+
 const STATUSES: Record<string, string> = {
   DRAFT: "Draft",
   SUBMITTED: "Submitted",
@@ -75,6 +82,7 @@ const PERMISSIONS: Record<string, string> = {
   "audit:view_all": "View the complete activity history",
 };
 
+export const documentTypeLabel = (code: string) => DOCUMENT_TYPES[code] ?? humanize(code);
 export const departmentLabel = (code: string) => DEPARTMENTS[code] ?? humanize(code);
 export const roleLabel = (code: string) => ROLES[code] ?? humanize(code);
 export const statusLabel = (code: string) => STATUSES[code] ?? humanize(code);
