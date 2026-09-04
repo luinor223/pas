@@ -5,7 +5,6 @@ import com.abclogistics.pas.billing.domain.StatementLine;
 import com.abclogistics.pas.billing.dto.AddLineRequest;
 import com.abclogistics.pas.billing.dto.EditLineRequest;
 import com.abclogistics.pas.billing.grpc.ContractGrpcClient;
-import com.abclogistics.pas.billing.grpc.EsignGrpcClient;
 import com.abclogistics.pas.billing.grpc.OperationsGrpcClient;
 import com.abclogistics.pas.billing.grpc.PricingGrpcClient;
 import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
@@ -46,7 +45,7 @@ class StatementTotalsTest {
         service = new StatementService(statements, lines, links, outbox,
                 mock(ContractGrpcClient.class), mock(PricingGrpcClient.class),
                 mock(OperationsGrpcClient.class), mock(WorkflowGrpcClient.class),
-                mock(EsignGrpcClient.class), mock(com.abclogistics.pas.common.audit.AuditRecorder.class),
+                mock(com.abclogistics.pas.common.audit.AuditRecorder.class),
                 new com.abclogistics.pas.billing.service.StatusTransitionService(mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class)),
                 mock(tools.jackson.databind.ObjectMapper.class, org.mockito.Mockito.RETURNS_DEEP_STUBS));
     }
