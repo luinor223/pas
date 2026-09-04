@@ -336,12 +336,12 @@ function CreateVersionDialog({
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <Label>Valid from *</Label>
-            <Input type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} />
+            <Label htmlFor="create-price-version-valid-from">Valid from *</Label>
+            <Input id="create-price-version-valid-from" type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} />
           </div>
           <div>
-            <Label>Valid to *</Label>
-            <Input type="date" min={validFrom} value={validTo} onChange={(event) => setValidTo(event.target.value)} />
+            <Label htmlFor="create-price-version-valid-to">Valid to *</Label>
+            <Input id="create-price-version-valid-to" type="date" min={validFrom} value={validTo} onChange={(event) => setValidTo(event.target.value)} />
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">A submitted version cannot overlap another approved or effective version for the same scope.</p>

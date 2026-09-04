@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button, type ButtonProps } from "@/shared/components/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/dialog";
@@ -38,6 +38,7 @@ function ConfirmDialogBody({
   confirmVariant = "destructive", reason, onConfirm, onCancel,
 }: Omit<ConfirmDialogProps, "open">) {
   const [text, setText] = useState("");
+  const reasonId = useId();
   const missingReason = reason?.required && text.trim() === "";
 
   return (
@@ -54,11 +55,12 @@ function ConfirmDialogBody({
           <div>{body}</div>
           {reason && (
             <div>
-              <Label>
+              <Label htmlFor={reasonId}>
                 {reason.label}{reason.required ? " *" : ""}
                 {!reason.required && <span className="font-normal text-muted-foreground"> (optional)</span>}
               </Label>
               <Textarea
+                id={reasonId}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={reason.placeholder}

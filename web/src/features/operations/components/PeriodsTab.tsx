@@ -153,8 +153,8 @@ function CreatePeriodDialog({ existing, onClose }: { existing: PeriodResponse[];
           <p className="text-sm text-muted-foreground">Volume records for this month can be added and adjusted until the period is locked.</p>
         </DialogHeader>
         <div>
-          <Label>Month *</Label>
-          <Input type="month" value={periodCode} onChange={(event) => setPeriodCode(event.target.value)} />
+          <Label htmlFor="create-period-month">Month *</Label>
+          <Input id="create-period-month" type="month" value={periodCode} onChange={(event) => setPeriodCode(event.target.value)} />
           {alreadyExists && <p role="alert" className="mt-2 text-sm text-destructive">This period already exists.</p>}
           {createMutation.isError && <p role="alert" className="mt-2 text-sm text-destructive">{getApiErrorMessage(createMutation.error, "Could not create this period")}</p>}
         </div>
