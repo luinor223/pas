@@ -8,10 +8,15 @@ export const Route = createFileRoute("/admin")({ component: AdminLayout });
 function AdminLayout() {
   const { isLoading } = useCurrentUser();
   const perms = usePermissions();
+  // Split gates: user admin vs process configuration are different permissions.
+  // The section stays visible when the caller holds any of them (sidebar hides otherwise).
+  const canManageUsers = perms.includes("user:manage");
+  const canWorkflow = perms.includes("workflow:configure");
+  const canDoctype = perms.includes("doctype:configure");
   if (isLoading) {
     return <div className="text-sm text-muted-foreground p-4">Loading...</div>;
   }
-  if (!perms.includes("user:manage")) {
+  if (!canManageUsers && !canWorkflow && !canDoctype) {
     return <Forbidden message="You do not have access to Administration." />;
   }
   return (
@@ -21,10 +26,10 @@ function AdminLayout() {
         <p className="text-sm text-muted-foreground">Manage users, roles, permissions, workflows and document types.</p>
       </div>
       <div className="flex gap-2 border-b pb-2">
-        <Link to="/admin/users" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Users</Link>
-        <Link to="/admin/roles" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Roles & Permissions</Link>
-        <Link to="/admin/workflows" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Workflows</Link>
-        <Link to="/admin/document-types" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Document Types</Link>
+        {canManageUsers && <Link to="/admin/users" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Users</Link>}
+        {canManageUsers && <Link to="/admin/roles" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Roles & Permissions</Link>}
+        {canWorkflow && <Link to="/admin/workflows" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Workflows</Link>}
+        {canDoctype && <Link to="/admin/document-types" className="text-sm px-3 py-1 rounded hover:bg-muted [&.active]:bg-primary [&.active]:text-white">Document Types</Link>}
       </div>
       <Outlet />
     </div>
