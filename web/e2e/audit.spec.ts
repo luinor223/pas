@@ -114,3 +114,25 @@ test("does not query audit data without audit permission", async ({ page }) => {
   await expect(page.getByText("You do not have access to the activity history.")).toBeVisible();
   expect(auditCalls).toBe(0);
 });
+
+test("distinguishes SUBMITTED from UNDER_REVIEW in a status transition", async ({ page }) => {
+  const record = {
+    id: "audit-2", sourceService: "contract-service", entityType: "CONTRACT", entityId: "contract-1",
+    entityNo: "CTR-2026-0008", action: "STATUS_CHANGE", actorId: "user-1", actorName: "System",
+    actorDepartment: null, beforeStatus: "SUBMITTED", afterStatus: "UNDER_REVIEW",
+    changes: { trigger: "W" }, note: "Approval instance started",
+    ipAddress: null, occurredAt: "2026-09-04T16:52:39Z",
+  };
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/audit-records") {
+      return { body: envelope([record], { page: 0, size: 15, totalElements: 1, totalPages: 1 }) };
+    }
+  });
+
+  await page.goto("/audit-log");
+  const row = page.getByRole("row").filter({ hasText: "CTR-2026-0008" });
+  // SUBMITTED and UNDER_REVIEW are distinct states; labelling both "Under Review" made this read as a no-op
+  await expect(row.getByText("Submitted", { exact: true })).toBeVisible();
+  await expect(row.getByText("Under review", { exact: true })).toBeVisible();
+  await expect(row.getByText("Under Review", { exact: true })).toHaveCount(0);
+});

@@ -267,7 +267,8 @@ test("preserves deep-link context when navigating to a newly created addendum an
   await page.goto(`/addenda?contractId=${CONTRACT_ID}&changeType=TERM_EXTENSION`);
   await page.getByRole("button", { name: "+ New Addendum" }).click();
   const dialog = page.getByRole("dialog", { name: "Create addendum" });
-  await expect(dialog.getByLabel("Contract *")).toHaveAttribute("placeholder", /CTR-2026-0001 · Customer/);
+  await expect(dialog.getByLabel("Contract *")).toHaveValue(/CTR-2026-0001 · Customer/);
+  await expect(dialog.getByRole("listbox")).toHaveCount(0);
   await expect(dialog.locator("select").first()).toHaveValue("TERM_EXTENSION");
   await dialog.locator('input[type="date"]').nth(1).fill("2027-09-30");
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
@@ -338,7 +339,7 @@ test("waits for deep-link eligibility before opening the create form", async ({ 
   await expect(newButton).toBeEnabled();
   await newButton.click();
   await expect(page.getByRole("dialog", { name: "Create addendum" }).getByLabel("Contract *"))
-    .toHaveAttribute("placeholder", /CTR-DEEP-LINK · Deep Link Customer/);
+    .toHaveValue(/CTR-DEEP-LINK · Deep Link Customer/);
 });
 
 test("searches eligible contracts instead of limiting creation to the first 100", async ({ page }) => {
@@ -503,7 +504,7 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
   expect(uploadRequest?.body).toContain(`filename="${attachment.fileName}"`);
 
   await page.getByRole("button", { name: "Submit for approval" }).click();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Submitted").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit for approval" })).toHaveCount(0);
   expect(submitRequests).toBe(1);
 });
@@ -619,7 +620,7 @@ test("blocks upload and delete while submission is in flight", async ({ page }) 
   expect(deleteRequests).toBe(0);
 
   releaseSubmit();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Submitted").first()).toBeVisible();
   await expect(page.getByText("The addendum was updated, but its latest refresh failed. The confirmed update is still shown.")).toBeVisible();
   for (const action of ["Edit", "Submit for approval", "Revise", "Cancel", "Upload attachment", "Delete"]) {
     await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
@@ -886,7 +887,7 @@ test("keeps a pending cancellation actionable and explains that it must be retri
 
   await expect(page.getByText(/addendum keeps its current status.*Retry this call/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Under review").first()).toBeVisible();
 });
 
 test("shows a completed approval and keeps an approved addendum read-only", async ({ page }) => {

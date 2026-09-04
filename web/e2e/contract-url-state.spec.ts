@@ -311,7 +311,8 @@ test("edits contract details and enables submission after the required attachmen
 
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   const editDialog = page.getByRole("dialog", { name: `Edit contract ${contract.contractNo}` });
-  await expect(editDialog.getByLabel("Customer *")).toHaveAttribute("placeholder", /CUS-URL.*URL Logistics/);
+  await expect(editDialog.getByLabel("Customer *")).toHaveValue(/CUS-URL.*URL Logistics/);
+  await expect(editDialog.getByRole("listbox")).toHaveCount(0);
   await editDialog.getByLabel("Description").fill("Updated from contract details");
   await editDialog.getByRole("button", { name: "Save changes" }).click();
   await expect(editDialog).toHaveCount(0);
@@ -332,7 +333,7 @@ test("edits contract details and enables submission after the required attachmen
   await expect(page.getByText("Upload at least one attachment before submitting this contract for approval.")).toHaveCount(0);
 
   await submit.click();
-  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(page.getByText("Submitted").first()).toBeVisible();
   await expect(submit).toHaveCount(0);
   expect(submitRequests).toBe(1);
 });
