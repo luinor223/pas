@@ -26,7 +26,7 @@ import { DateRangeFields, isInvalidDateRange } from "@/shared/components/date-ra
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
 import { FilterBar } from "@/shared/components/filter-bar";
 import { SearchInput } from "@/shared/components/search-input";
-import { formatDate, formatMoney } from "@/shared/lib/format";
+import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 import { SERVICE_GROUPS } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
 import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
@@ -105,7 +105,12 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
   const columns = useMemo<ColumnDef<ContractResponse>[]>(() => [
     {
       accessorKey: "contractNo", header: "CONTRACT NO.",
-      cell: ({ row }) => <Link to="/contracts" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
+      cell: ({ row }) => (
+        <div>
+          <Link to="/contracts" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>
+          <div className="mt-0.5 text-xs text-muted-foreground">Created {formatDateTime(row.original.createdAt)}</div>
+        </div>
+      ),
     },
     { accessorKey: "customerName", header: "CUSTOMER", cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span> },
     { accessorKey: "serviceGroup", header: "SERVICE GROUP", cell: ({ row }) => <span className="text-sm capitalize">{row.original.serviceGroup.toLowerCase().replace(/_/g, " ")}</span> },

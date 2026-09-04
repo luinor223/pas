@@ -52,11 +52,12 @@ test("contract list requests server pages without a client sort", async ({ page 
       const p = url.searchParams.get("page") ?? "0";
       requests.push([p, url.searchParams.get("sort"), url.searchParams.get("cursor")]);
       const n = p === "1" ? 16 : 1;
-      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", version: 0 }], meta(Number(p))) };
+      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", createdAt: "2026-01-01T00:00:00Z", version: 0 }], meta(Number(p))) };
     }
   });
   await page.goto("/contracts");
   await expect(page.locator("thead button")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /CTR-1/ }).getByText(/^Created /)).toBeVisible();
   await page.getByRole("button", { name: "Next page" }).click();
   await expect(page.getByText("CTR-16")).toBeVisible();
   await page.getByRole("button", { name: "Previous page" }).click();
@@ -77,11 +78,12 @@ test("addendum list requests server pages without a client sort", async ({ page 
       const p = url.searchParams.get("page") ?? "0";
       requests.push([p, url.searchParams.get("sort"), url.searchParams.get("cursor")]);
       const n = p === "1" ? 16 : 1;
-      return { body: envelope([{ id: `60000000-0000-4000-8000-${String(n).padStart(12, "0")}`, addendumNo: `ADD-${n}`, contractId: "50000000-0000-4000-8000-000000000001", contractNo: "CTR-1", changeType: "TERM_EXTENSION", effectiveFrom: "2026-01-01", status: "DRAFT", services: [], version: 0 }], meta(Number(p))) };
+      return { body: envelope([{ id: `60000000-0000-4000-8000-${String(n).padStart(12, "0")}`, addendumNo: `ADD-${n}`, contractId: "50000000-0000-4000-8000-000000000001", contractNo: "CTR-1", changeType: "TERM_EXTENSION", effectiveFrom: "2026-01-01", status: "DRAFT", services: [], createdAt: "2026-01-01T00:00:00Z", version: 0 }], meta(Number(p))) };
     }
   }, { permissions: [...currentUser.permissions, "addendum:read"] });
   await page.goto("/addenda");
   await expect(page.locator("thead button")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /ADD-1/ }).getByText(/^Created /)).toBeVisible();
   await page.getByRole("button", { name: "Next page" }).click();
   await expect(page.getByText("ADD-16")).toBeVisible();
   await page.getByRole("button", { name: "Previous page" }).click();
@@ -104,7 +106,7 @@ test("contract list can recover when its snapshot cursor expires while navigatin
       requests.push([p, cursor]);
       if (p === "0" && cursor) return { status: 422, body: { message: "The page cursor is invalid or has expired; return to the first page." } };
       const n = p === "1" ? 16 : 1;
-      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", version: 0 }], meta(Number(p))) };
+      return { body: envelope([{ id: `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`, contractNo: `CTR-${n}`, customerId: "40000000-0000-4000-8000-000000000001", customerName: "Customer", serviceGroup: "TRANSPORTATION", value: 1, currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", status: "DRAFT", createdAt: "2026-01-01T00:00:00Z", version: 0 }], meta(Number(p))) };
     }
   });
 

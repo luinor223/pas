@@ -4,6 +4,7 @@ import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.AddendumServiceLine;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -25,6 +26,7 @@ public record AddendumResponse(
         boolean canRevise,
         boolean canCancel,
         List<ServiceLine> services,
+        Instant createdAt,
         int version) {
 
     @Schema(name = "AddendumResponseServiceLine")
@@ -55,6 +57,7 @@ public record AddendumResponse(
                 capabilities.canRevise(),
                 capabilities.canCancel(),
                 addendum.getServices().stream().map(AddendumResponse::line).toList(),
+                addendum.getCreatedAt(),
                 addendum.getVersion());
     }
 

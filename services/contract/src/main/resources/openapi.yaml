@@ -1298,6 +1298,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AddendumResponseServiceLine"
+        createdAt:
+          type: string
+          format: date-time
         version:
           type: integer
           format: int32

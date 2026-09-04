@@ -26,6 +26,7 @@ import { FilterBar } from "@/shared/components/filter-bar";
 import { SearchInput } from "@/shared/components/search-input";
 import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES, addendumChangeTypeLabel } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
+import { formatDateTime } from "@/shared/lib/format";
 import { ContractPicker } from "./ContractPicker";
 import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
@@ -132,7 +133,12 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
   const columns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
     {
       accessorKey: "addendumNo", header: "NO",
-      cell: ({ row }) => <Link to="/addenda" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
+      cell: ({ row }) => (
+        <div>
+          <Link to="/addenda" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.addendumNo}</Link>
+          <div className="mt-0.5 text-xs text-muted-foreground">Created {formatDateTime(row.original.createdAt)}</div>
+        </div>
+      ),
     },
     {
       accessorKey: "contractNo", header: "CONTRACT",

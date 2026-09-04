@@ -601,6 +601,8 @@ export interface components {
             canRevise?: boolean;
             canCancel?: boolean;
             services?: components["schemas"]["AddendumResponseServiceLine"][];
+            /** Format: date-time */
+            createdAt?: string;
             /** Format: int32 */
             version?: number;
         };
