@@ -243,6 +243,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function matchCrumb(pathname: string): { group: string; label: string } {
+  if (pathname.startsWith("/admin")) return { group: "System", label: "Administration" };
   const hit = Object.entries(CRUMB).find(([to]) => to !== "/" && pathname.startsWith(to));
   return hit ? hit[1] : { group: "Overview", label: "Dashboard" };
 }

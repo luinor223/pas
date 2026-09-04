@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useRef, useEffect } from "react";
+import { ChevronRight } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,7 +18,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { FilterBar } from "@/shared/components/filter-bar";
-import { RowMenu } from "@/shared/components/row-menu";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { Forbidden } from "@/shared/components/Forbidden";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
@@ -46,9 +46,10 @@ export function WorkflowDefinitions() {
   const canConfigure = useHasPermission("workflow:configure");
   const [docType, setDocType] = useState("All");
   const [openCreate, setOpenCreate] = useState(false);
-  // Wizard step 2: edit steps of this definition right after creation (or via Edit action).
+  // Wizard step 2: edit steps of this definition right after creation (or from details).
   const [editStepsId, setEditStepsId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState<WorkflowDefinitionResponse | null>(null);
 
   const docTypesQ = useQuery(documentTypesQuery);
@@ -82,6 +83,15 @@ export function WorkflowDefinitions() {
     onSuccess: () => {
       invalidate();
       setConfirmActivate(null);
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => workflowApi.deleteDefinition(id),
+    onSuccess: () => {
+      invalidate();
+      setConfirmDelete(false);
+      setDetailId(null);
     },
   });
 
@@ -139,26 +149,10 @@ export function WorkflowDefinitions() {
       cell: ({ row }) => <span className="text-xs">{formatDateTime(row.original.createdAt)}</span>,
     },
     {
-      id: "actions",
-      header: () => <span className="sr-only">Actions</span>,
+      id: "open",
+      header: () => <span className="sr-only">View details</span>,
       enableSorting: false,
-      cell: ({ row }) => {
-        const d = row.original;
-        const items = [
-          { label: "View steps", onClick: () => setDetailId(d.id) },
-          ...(d.active
-            ? []
-            : [
-                { label: "Edit steps", onClick: () => setEditStepsId(d.id) },
-                { label: "Activate this version", onClick: () => setConfirmActivate(d) },
-              ]),
-        ];
-        return (
-          <div className="flex justify-end">
-            <RowMenu items={items} title={`Actions for ${d.name}`} />
-          </div>
-        );
-      },
+      cell: () => <span className="text-muted-foreground"><ChevronRight size={16} aria-hidden="true" /></span>,
     },
   ], []);
 
@@ -195,7 +189,12 @@ export function WorkflowDefinitions() {
           ) : defsQ.isError ? (
             <div className="text-sm text-destructive">Failed to load definitions: {getApiErrorMessage(defsQ.error, "")}</div>
           ) : (
-              <DataTable columns={columns} data={defs} emptyMessage="No definitions yet · create the first version." />
+            <DataTable
+              columns={columns}
+              data={defs}
+              emptyMessage="No definitions yet · create the first version."
+              onRowClick={(d) => { deleteMut.reset(); setConfirmDelete(false); setDetailId(d.id); }}
+            />
           )}
         </CardContent>
       </Card>
@@ -239,30 +238,93 @@ export function WorkflowDefinitions() {
         />
       )}
 
-      {/* Read-only step viewer */}
+      {/* Row-click detail: full info, steps, and all draft actions */}
       <Dialog open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{detailDef?.name} · steps</DialogTitle></DialogHeader>
           {detailDef && (
-            <ol className="space-y-2">
-              {detailDef.steps.length === 0 && <p className="text-sm text-muted-foreground">No steps defined yet.</p>}
-              {detailDef.steps.map((s, i) => (
-                <li key={s.id} className="flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">{i + 1}</span>
-                  <div className="min-w-0">
-                    <div className="font-medium">{s.name}</div>
-                    <div className="text-xs text-muted-foreground">{roleLabel(s.approverRole)} · SLA {s.slaHours}h</div>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <>
+              <DialogHeader>
+                <DialogTitle>{detailDef.name}</DialogTitle>
+                <p className="text-sm text-muted-foreground">
+                  {detailDef.documentTypeName} · v{detailDef.versionNo}
+                </p>
+              </DialogHeader>
+
+              {!confirmDelete ? (
+                <div className="space-y-4">
+                  <dl className="grid gap-x-8 gap-y-3 rounded-md border bg-muted/20 p-4 text-sm sm:grid-cols-2">
+                    <DetailItem label="Document type" value={detailDef.documentTypeName} />
+                    <DetailItem label="Version" value={`v${detailDef.versionNo}`} />
+                    <DetailItem
+                      label="Status"
+                      value={detailDef.active
+                        ? <Badge className="bg-green-100 text-green-800">Active</Badge>
+                        : <Badge variant="secondary">Draft</Badge>}
+                    />
+                    <DetailItem label="Created" value={formatDateTime(detailDef.createdAt)} />
+                    <DetailItem
+                      label="Chain"
+                      value={detailDef.steps.map((s) => roleLabel(s.approverRole)).join(" → ") || "No steps yet"}
+                    />
+                  </dl>
+
+                  <ol className="space-y-2">
+                    {detailDef.steps.length === 0 && <p className="text-sm text-muted-foreground">No steps defined yet.</p>}
+                    {detailDef.steps.map((s, i) => (
+                      <li key={s.id} className="flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">{i + 1}</span>
+                        <div className="min-w-0">
+                          <div className="font-medium">{s.name}</div>
+                          <div className="text-xs text-muted-foreground">{roleLabel(s.approverRole)} · SLA {s.slaHours}h</div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+
+                  <DialogFooter className="flex-col gap-2 sm:flex-row">
+                    {!detailDef.active && (
+                      <Button type="button" variant="destructive" onClick={() => setConfirmDelete(true)}>
+                        Delete version
+                      </Button>
+                    )}
+                    <span className="flex-1" />
+                    <Button variant="outline" onClick={() => setDetailId(null)}>Close</Button>
+                    {!detailDef.active && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => { setConfirmActivate(detailDef); setDetailId(null); }}
+                        >
+                          Activate
+                        </Button>
+                        <Button onClick={() => { setDetailId(null); setEditStepsId(detailDef.id); }}>Edit steps</Button>
+                      </>
+                    )}
+                  </DialogFooter>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm">
+                    Delete <span className="font-medium">{detailDef.name}</span> (v{detailDef.versionNo}) and its steps?
+                    Only unused drafts can be removed — the active version and any version an approval ever ran on are kept as history.
+                  </p>
+                  {deleteMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(deleteMut.error, "Delete failed")}</div>}
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>Back</Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={deleteMut.isPending}
+                      onClick={() => deleteMut.mutate(detailDef.id)}
+                    >
+                      {deleteMut.isPending ? "Deleting..." : "Delete version"}
+                    </Button>
+                  </DialogFooter>
+                </div>
+              )}
+            </>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailId(null)}>Close</Button>
-            {detailDef && !detailDef.active && (
-              <Button onClick={() => { setDetailId(null); setEditStepsId(detailDef.id); }}>Edit steps</Button>
-            )}
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -379,5 +441,14 @@ function StepEditorDialog({ definition, roleCodes, rolesLoading, onClose, onSave
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-medium">{value}</dd>
+    </div>
   );
 }

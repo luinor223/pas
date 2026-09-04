@@ -25,6 +25,7 @@ export const workflowApi = {
       .then((r) => r.data),
   activateDefinition: (id: string) =>
     api.post<WorkflowDefinitionResponse>(`/workflow-definitions/${id}/activate`).then((r) => r.data),
+  deleteDefinition: (id: string) => api.delete(`/workflow-definitions/${id}`).then((r) => r.data),
 
   listDocumentTypes: () =>
     api.get<DocumentTypeResponse[]>("/document-types").then((r) => r.data),

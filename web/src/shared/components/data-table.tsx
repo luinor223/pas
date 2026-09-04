@@ -25,9 +25,11 @@ type DataTableProps<T> = {
     totalItems: number;
     onPageChange: (page: number) => void;
   };
+  /** Mouse convenience (audit-style): whole row opens details. Text selection never counts as a click. */
+  onRowClick?: (row: T) => void;
 };
 
-export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No results", rowClassName, serverPagination }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No results", rowClassName, serverPagination, onRowClick }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const table = useReactTable({
     data,
@@ -84,7 +86,14 @@ export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No 
             </TableRow>
           ) : (
             rows.map((row) => (
-              <TableRow key={row.id} className={rowClassName?.(row.original)}>
+              <TableRow
+                key={row.id}
+                className={`${onRowClick ? "cursor-pointer hover:bg-muted/50" : ""} ${rowClassName?.(row.original) ?? ""}`}
+                onClick={onRowClick ? () => {
+                  if (window.getSelection()?.toString()) return;
+                  onRowClick(row.original);
+                } : undefined}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                 ))}
