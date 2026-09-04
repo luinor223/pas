@@ -1188,6 +1188,16 @@ components:
           type: string
         editable:
           type: boolean
+        canEdit:
+          type: boolean
+        canSubmit:
+          type: boolean
+        submitBlockedReason:
+          type: string
+        canRevise:
+          type: boolean
+        canCancel:
+          type: boolean
         canCreateAddendum:
           type: boolean
         version:
@@ -1274,6 +1284,16 @@ components:
           type: string
         status:
           type: string
+        canEdit:
+          type: boolean
+        canSubmit:
+          type: boolean
+        submitBlockedReason:
+          type: string
+        canRevise:
+          type: boolean
+        canCancel:
+          type: boolean
         services:
           type: array
           items:

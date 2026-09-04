@@ -17,14 +17,16 @@ const contract = {
   description: "URL state contract", serviceGroup: "TRANSPORTATION", value: 1_000_000,
   currency: "VND", validFrom: "2026-01-01", validTo: "2026-12-31", paymentTerm: "NET30",
   billingCycle: "MONTHLY", vatRate: 10, penaltyTerms: null, serviceClause: null, status: "ACTIVE",
-  editable: false, canCreateAddendum: true, version: 0, createdAt: "2026-01-01T00:00:00Z",
+  editable: false, canEdit: false, canSubmit: false, submitBlockedReason: null, canRevise: false,
+  canCancel: false, canCreateAddendum: true, version: 0, createdAt: "2026-01-01T00:00:00Z",
   createdByName: "Sales User", updatedAt: "2026-01-01T00:00:00Z",
 };
 
 const addendum = {
   id: ADDENDUM_ID, addendumNo: "ADD-URL", contractId: CONTRACT_ID, contractNo: contract.contractNo,
   changeType: "TERM_EXTENSION", description: "URL state addendum", effectiveFrom: "2026-06-01",
-  newValidTo: "2027-06-30", paymentTermOverride: null, status: "ACTIVE", services: [], version: 0,
+  newValidTo: "2027-06-30", paymentTermOverride: null, status: "ACTIVE", canEdit: false,
+  canSubmit: false, submitBlockedReason: null, canRevise: false, canCancel: true, services: [], version: 0,
 };
 
 const pageMeta = (page: number, cursor = "url-snapshot") => ({

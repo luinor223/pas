@@ -59,28 +59,28 @@ public class AddendumController {
                                        @PageableDefault(size = 20) Pageable pageable) {
         PageSnapshot snapshot = pageSnapshots.resolve(cursor);
         Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.ADDENDUM_SORTS);
-        return SnapshotPage.of(addenda.search(contractId, status, changeType, q,
-                        effectiveFromFrom, effectiveFromTo, snapshot.createdAt(), safe)
-                .map(AddendumResponse::of), snapshot.cursor());
+        return SnapshotPage.of(addenda.toResponses(addenda.search(contractId, status, changeType, q,
+                        effectiveFromFrom, effectiveFromTo, snapshot.createdAt(), safe)),
+                snapshot.cursor());
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('addendum:read')")
     public AddendumResponse get(@PathVariable UUID id) {
-        return AddendumResponse.of(addenda.get(id));
+        return addenda.toResponse(addenda.get(id));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('addendum:write') and hasAuthority('contract:read')")
     public AddendumResponse create(@Valid @RequestBody AddendumRequest request) {
-        return AddendumResponse.of(addenda.create(request));
+        return addenda.toResponse(addenda.create(request));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('addendum:write')")
     public AddendumResponse update(@PathVariable UUID id, @Valid @RequestBody AddendumRequest request) {
-        return AddendumResponse.of(addenda.update(id, request));
+        return addenda.toResponse(addenda.update(id, request));
     }
 
     @PostMapping("/{id}/submit")
@@ -103,7 +103,7 @@ public class AddendumController {
     @PostMapping("/{id}/revise")
     @PreAuthorize("hasAuthority('addendum:write')")
     public AddendumResponse revise(@PathVariable UUID id) {
-        return AddendumResponse.of(addenda.revise(id));
+        return addenda.toResponse(addenda.revise(id));
     }
 
     @GetMapping("/{id}/progress")

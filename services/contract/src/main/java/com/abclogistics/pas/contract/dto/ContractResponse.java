@@ -27,6 +27,11 @@ public record ContractResponse(
         String serviceClause,
         String status,
         boolean editable,
+        boolean canEdit,
+        boolean canSubmit,
+        String submitBlockedReason,
+        boolean canRevise,
+        boolean canCancel,
         boolean canCreateAddendum,
         int version,
         Instant createdAt,
@@ -34,13 +39,22 @@ public record ContractResponse(
         Instant updatedAt
 ) {
     public static ContractResponse of(Contract c) {
+        return of(c, false);
+    }
+
+    public static ContractResponse of(Contract c, boolean hasAttachment) {
+        DocumentActionCapabilities capabilities =
+                DocumentActionCapabilities.forContract(c, hasAttachment);
         return new ContractResponse(
                 c.getId(), c.getContractNo(),
                 c.getCustomer().getId(), c.getCustomer().getName(),
                 c.getDescription(), c.getServiceGroup().name(), c.getValue(), c.getCurrency(),
                 c.getValidFrom(), c.getValidTo(), c.getPaymentTerm(), c.getBillingCycle().name(),
                 c.getVatRate(), c.getPenaltyTerms(), c.getServiceClause(),
-                c.getStatus().name(), c.getStatus().isEditable(), canCreateAddendum(c), c.getVersion(),
+                c.getStatus().name(), c.getStatus().isEditable(),
+                capabilities.canEdit(), capabilities.canSubmit(), capabilities.submitBlockedReason(),
+                capabilities.canRevise(),
+                capabilities.canCancel(), canCreateAddendum(c), c.getVersion(),
                 c.getCreatedAt(), c.getCreatedByName(), c.getUpdatedAt());
     }
 

@@ -16,6 +16,11 @@ public interface AttachmentRepository extends JpaRepository<Attachment, UUID> {
 
     boolean existsByOwnerTypeAndOwnerId(EntityType ownerType, UUID ownerId);
 
+    @Query("select distinct a.ownerId from Attachment a "
+            + "where a.ownerType = :ownerType and a.ownerId in :ownerIds")
+    List<UUID> findOwnerIdsWithAttachments(@Param("ownerType") EntityType ownerType,
+                                           @Param("ownerIds") Collection<UUID> ownerIds);
+
     @Query("select a.storagePath from Attachment a where a.storagePath in :paths")
     List<String> findStoragePathsIn(@Param("paths") Collection<String> paths);
 }

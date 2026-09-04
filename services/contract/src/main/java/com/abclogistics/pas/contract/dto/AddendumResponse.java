@@ -19,6 +19,11 @@ public record AddendumResponse(
         LocalDate newValidTo,
         String paymentTermOverride,
         String status,
+        boolean canEdit,
+        boolean canSubmit,
+        String submitBlockedReason,
+        boolean canRevise,
+        boolean canCancel,
         List<ServiceLine> services,
         int version) {
 
@@ -27,6 +32,12 @@ public record AddendumResponse(
                               String serviceName, String unit, String scopeNote) { }
 
     public static AddendumResponse of(Addendum addendum) {
+        return of(addendum, false);
+    }
+
+    public static AddendumResponse of(Addendum addendum, boolean hasAttachment) {
+        DocumentActionCapabilities capabilities =
+                DocumentActionCapabilities.forAddendum(addendum, hasAttachment);
         return new AddendumResponse(
                 addendum.getId(),
                 addendum.getAddendumNo(),
@@ -38,6 +49,11 @@ public record AddendumResponse(
                 addendum.getNewValidTo(),
                 addendum.getPaymentTermOverride(),
                 addendum.getStatus().name(),
+                capabilities.canEdit(),
+                capabilities.canSubmit(),
+                capabilities.submitBlockedReason(),
+                capabilities.canRevise(),
+                capabilities.canCancel(),
                 addendum.getServices().stream().map(AddendumResponse::line).toList(),
                 addendum.getVersion());
     }

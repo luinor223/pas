@@ -78,6 +78,7 @@ export type ContractResponse = Override<
     vatRate: number | null;
     penaltyTerms: string | null;
     serviceClause: string | null;
+    submitBlockedReason: string | null;
     createdByName: string | null;
   }
 >;
@@ -98,6 +99,7 @@ export type AddendumResponse = Override<
     description: string | null;
     newValidTo: string | null;
     paymentTermOverride: string | null;
+    submitBlockedReason: string | null;
     services: AddendumServiceLine[];
   }
 >;

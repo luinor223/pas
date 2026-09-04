@@ -91,7 +91,6 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
   if (q.isError) return <div className="text-sm text-destructive">Failed to load contract</div>;
   if (!c) return null;
 
-  const readOnly = c.status !== "DRAFT" && c.status !== "REVISION_REQUESTED";
   const pdf = (attQ.data ?? []).find((a) => (a.contentType ?? "").includes("pdf") || a.fileName.toLowerCase().endsWith(".pdf"));
   return (
     <div className="space-y-4">
@@ -116,7 +115,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
           >
             Download PDF
           </Button>
-          {readOnly && <Badge variant="secondary">Read-only while {c.status.toLowerCase().replace(/_/g, " ")}</Badge>}
+          {!c.canEdit && <Badge variant="secondary">Read-only contract</Badge>}
         </div>
       </div>
 
@@ -151,7 +150,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
                 {c.description && <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{c.description}</div></div>}
               </CardContent>
             </Card>
-            <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} />
+            <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} />
           </div>
 
           <div className="space-y-4">
@@ -179,7 +178,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
         </Card>
       )}
       {tab === "approval-history" && <Card><CardHeader><CardTitle className="text-base">Approval History</CardTitle></CardHeader><CardContent><HistoryTimeline history={histQ.data} isLoading={histQ.isLoading} /></CardContent></Card>}
-      {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} />}
+      {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} />}
       </div>
     </div>
   );

@@ -3,11 +3,19 @@ import { currentUser, envelope, installApiMocks } from "./support/api";
 
 const meta = (page: number) => ({ page, size: 15, totalElements: 16, totalPages: 2, cursor: "snapshot-token" });
 
-const contractRow = (id: string, status: string, canCreateAddendum: boolean) => ({
+const contractRow = (id: string, status: string, canCreateAddendum: boolean, capabilities: Partial<{
+  canEdit: boolean; canSubmit: boolean; submitBlockedReason: string | null; canRevise: boolean; canCancel: boolean;
+}> = {}) => ({
   id, contractNo: `CTR-${id.slice(-1)}`, customerId: "40000000-0000-4000-8000-000000000001",
   customerName: "Customer", description: null, serviceGroup: "TRANSPORTATION", value: 1, currency: "VND",
-  validFrom: "2026-01-01", validTo: "2026-12-31", paymentTerm: null, billingCycle: "MONTHLY",
-  vatRate: null, penaltyTerms: null, serviceClause: null, status, editable: status === "DRAFT",
+  validFrom: "2026-01-01", validTo: "2026-12-31", paymentTerm: "NET30", billingCycle: "MONTHLY",
+  vatRate: 10, penaltyTerms: null, serviceClause: null, status, editable: status === "DRAFT",
+  canEdit: status === "DRAFT" || status === "REVISION_REQUESTED",
+  canSubmit: status === "DRAFT",
+  submitBlockedReason: null,
+  canRevise: status === "REJECTED",
+  canCancel: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACTIVE"].includes(status),
+  ...capabilities,
   canCreateAddendum, version: 0, createdAt: "2026-01-01T00:00:00Z", createdByName: null,
   updatedAt: "2026-01-01T00:00:00Z",
 });
@@ -114,29 +122,38 @@ test("contract list can recover when its snapshot cursor expires while navigatin
     (p === "1" || p === "0") && cursor === "snapshot-token")).toBe(true);
 });
 
-test("contract actions follow backend addendum capabilities", async ({ page }) => {
+test("contract actions follow backend capabilities and do not send unavailable actions", async ({ page }) => {
   let addendumRequests = 0;
+  let lifecycleRequests = 0;
   await installApiMocks(page, (_request, url) => {
     if (url.pathname === "/api/v1/contracts") {
       return { body: envelope([
-        contractRow("50000000-0000-4000-8000-000000000001", "DRAFT", false),
+        contractRow("50000000-0000-4000-8000-000000000001", "DRAFT", false, {
+          canEdit: false, canSubmit: false, canRevise: false, canCancel: false,
+        }),
         contractRow("50000000-0000-4000-8000-000000000002", "APPROVED", true),
       ], { page: 0, size: 15, totalElements: 2, totalPages: 1, cursor: "actions-token" }) };
     }
     if (url.pathname === "/api/v1/addenda") addendumRequests += 1;
-  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+    if (/^\/api\/v1\/contracts\/[^/]+\/(submit|revise|cancel)$/.test(url.pathname)) lifecycleRequests += 1;
+  }, { permissions: [...currentUser.permissions, "contract:write", "addendum:read", "addendum:write"] });
 
   await page.goto("/contracts");
   const actionButtons = page.getByRole("button", { name: "Row actions" });
   await actionButtons.nth(0).click();
   await expect(page.getByRole("menuitem", { name: "Create addendum" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { name: "Renew contract" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Submit for approval" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Revise" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Cancel contract" })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await actionButtons.nth(1).click();
   await expect(page.getByRole("menuitem", { name: "Create addendum" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Renew contract" })).toBeVisible();
   expect(addendumRequests).toBe(0);
+  expect(lifecycleRequests).toBe(0);
 });
 
 test("contract forms request only active customers", async ({ page }) => {

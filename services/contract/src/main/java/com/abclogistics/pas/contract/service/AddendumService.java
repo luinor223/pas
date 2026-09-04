@@ -17,6 +17,7 @@ import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.StatusHistory;
 import com.abclogistics.pas.contract.domain.TriggerKind;
 import com.abclogistics.pas.contract.dto.AddendumRequest;
+import com.abclogistics.pas.contract.dto.AddendumResponse;
 import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.event.WorkflowStartRequested;
 import com.abclogistics.pas.contract.repository.AddendumRepository;
@@ -39,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /** Addendum lifecycle (4.3). Same status machine and D4 submit as a contract. */
@@ -114,6 +116,24 @@ public class AddendumService {
     public Addendum get(UUID id) {
         return addenda.findById(id)
                 .orElseThrow(() -> new NotFoundException("Addendum %s not found".formatted(id)));
+    }
+
+    @Transactional(readOnly = true)
+    public AddendumResponse toResponse(Addendum addendum) {
+        return AddendumResponse.of(addendum,
+                attachments.existsByOwnerTypeAndOwnerId(EntityType.ADDENDUM, addendum.getId()));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AddendumResponse> toResponses(Page<Addendum> page) {
+        if (page.isEmpty()) {
+            return page.map(addendum -> AddendumResponse.of(addendum, false));
+        }
+        List<UUID> ids = page.getContent().stream().map(Addendum::getId).toList();
+        Set<UUID> withAttachments = Set.copyOf(
+                attachments.findOwnerIdsWithAttachments(EntityType.ADDENDUM, ids));
+        return page.map(addendum ->
+                AddendumResponse.of(addendum, withAttachments.contains(addendum.getId())));
     }
 
     @Transactional

@@ -28,7 +28,7 @@ import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
 import { FilterBar } from "@/shared/components/filter-bar";
 import { SearchInput } from "@/shared/components/search-input";
 import { formatDate, formatMoney } from "@/shared/lib/format";
-import { isUserCancellableStatus, SERVICE_GROUPS } from "../contractOptions";
+import { SERVICE_GROUPS } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
 import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
@@ -62,7 +62,6 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
   const navigate = useNavigate({ from: "/contracts" });
   const canRead = useHasPermission("contract:read");
   const canWrite = useHasPermission("contract:write");
-  const canCancelActive = useHasPermission("contract:cancel_active");
   const q = search.q ?? "";
   const customerId = search.customerId ?? "";
   const status = search.status ?? "";
@@ -159,18 +158,16 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
       id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
-        const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
-        const cancellable = isUserCancellableStatus(c.status) && (c.status !== "ACTIVE" || canCancelActive);
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
           { label: "View details", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id } }) },
           { label: "Download", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id, tab: "attachments" } }) },
         ];
-        if (canWrite && editable) items.push({ label: "Edit", onClick: () => onEdit(c) });
-        if (canWrite && c.status === "DRAFT") items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
-        if (canWrite && c.status === "REJECTED") items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
+        if (c.canEdit) items.push({ label: "Edit", onClick: () => onEdit(c) });
+        if (c.canSubmit) items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
+        if (c.canRevise) items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
         if (c.canCreateAddendum) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
         if (c.canCreateAddendum) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
-        if (canWrite && cancellable) items.push({ label: "Cancel contract", onClick: () => setConfirmCancel(c), danger: true });
+        if (c.canCancel) items.push({ label: "Cancel contract", onClick: () => setConfirmCancel(c), danger: true });
         return (
           <div className="text-right">
             <RowMenu items={items} />
@@ -178,7 +175,7 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
         );
       },
     },
-  ], [canWrite, canCancelActive, navigate, search, searchText]);
+  ], [navigate, search, searchText]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to contracts.</CardContent></Card>;
 

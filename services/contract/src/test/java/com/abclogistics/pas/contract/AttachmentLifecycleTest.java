@@ -173,6 +173,26 @@ class AttachmentLifecycleTest {
     }
 
     @Test
+    void submissionCapabilityTracksCommittedAttachmentChanges() {
+        UUID contractId = draftContract();
+
+        assertThat(contracts.toResponse(contracts.get(contractId)).canSubmit()).isFalse();
+        assertThat(contracts.toResponse(contracts.get(contractId)).submitBlockedReason())
+                .contains("attachment");
+
+        Attachment saved = upload(contractId, "ready.pdf", "application/pdf", "ready");
+
+        assertThat(contracts.toResponse(contracts.get(contractId)).canSubmit()).isTrue();
+        assertThat(contracts.toResponse(contracts.get(contractId)).submitBlockedReason()).isNull();
+
+        tx.executeWithoutResult(s -> attachments.delete(saved.getId()));
+
+        assertThat(contracts.toResponse(contracts.get(contractId)).canSubmit()).isFalse();
+        assertThat(contracts.toResponse(contracts.get(contractId)).submitBlockedReason())
+                .contains("attachment");
+    }
+
+    @Test
     void downloadReturnsTheBytesThatWereUploaded() throws Exception {
         UUID contractId = draftContract();
         Attachment saved = upload(contractId, "terms.txt", "text/plain", "the exact bytes");
