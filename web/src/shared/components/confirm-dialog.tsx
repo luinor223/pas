@@ -60,6 +60,7 @@ function ConfirmDialogBody({
                 {!reason.required && <span className="font-normal text-muted-foreground"> (optional)</span>}
               </Label>
               <Textarea
+                data-autofocus
                 id={reasonId}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -78,7 +79,7 @@ function ConfirmDialogBody({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onCancel}>{cancelLabel}</Button>
+          <Button data-autofocus={reason ? undefined : true} variant="outline" disabled={pending} onClick={onCancel}>{cancelLabel}</Button>
           <Button
             variant={confirmVariant}
             disabled={pending || missingReason}

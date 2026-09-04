@@ -89,7 +89,4 @@ public class WorkflowStepInstance {
     public void setActivatedAt(Instant activatedAt) { this.activatedAt = activatedAt; }
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
     public void setOverdueNotifiedAt(Instant overdueNotifiedAt) { this.overdueNotifiedAt = overdueNotifiedAt; }
-    public void setActedBy(UUID actedBy) { this.actedBy = actedBy; }
-    public void setActedByName(String actedByName) { this.actedByName = actedByName; }
-    public void setVersion(int version) { this.version = version; }
 }

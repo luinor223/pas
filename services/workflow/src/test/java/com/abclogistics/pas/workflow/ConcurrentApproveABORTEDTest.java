@@ -7,6 +7,7 @@ import com.abclogistics.pas.workflow.domain.WorkflowInstance;
 import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.error.AbortedException;
 import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
+import com.abclogistics.pas.workflow.repository.WorkflowActionRepository;
 import com.abclogistics.pas.workflow.service.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.service.WorkflowInstanceService;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Tag("integration")
 @Testcontainers
@@ -62,6 +64,7 @@ class ConcurrentApproveABORTEDTest {
 
     @Autowired WorkflowInstanceService instanceService;
     @Autowired WorkflowStepInstanceRepository stepRepo;
+    @Autowired WorkflowActionRepository actionRepo;
     @Autowired StubIdentityGrpcClient identityClient;
 
     private UUID actorId;
@@ -140,5 +143,35 @@ class ConcurrentApproveABORTEDTest {
         // verify step now APPROVED
         WorkflowStepInstance after = stepRepo.findById(stepId).orElseThrow();
         assertThat(after.getStatus()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void assigneeWithoutTheCurrentApproverRoleCannotAct() {
+        WorkflowInstance instance = instanceService.startInstance("CONTRACT", UUID.randomUUID(), "CTR-ROLE", "Cust", "NORMAL", UUID.randomUUID(), "Tester", UUID.randomUUID());
+        WorkflowStepInstance step = stepRepo.findByInstance_IdAndStepOrder(instance.getId(), 1).orElseThrow();
+        var principal = new AuthenticatedUser(actorId, "actor", actorName, "SALES", List.of("LEGAL_REVIEWER"));
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal, null, List.of(() -> "approval:act")));
+
+        assertThatThrownBy(() -> instanceService.actOnStep(step.getId(), "APPROVE", null))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        assertThat(stepRepo.findById(step.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void retryWithTheSameIdempotencyKeyReturnsSuccessWithoutAnotherAction() {
+        setAuth(actorId, actorName);
+        WorkflowInstance instance = instanceService.startInstance("CONTRACT", UUID.randomUUID(), "CTR-IDEMP", "Cust", "NORMAL", UUID.randomUUID(), "Tester", UUID.randomUUID());
+        WorkflowStepInstance step = stepRepo.findByInstance_IdAndStepOrder(instance.getId(), 1).orElseThrow();
+        UUID key = UUID.randomUUID();
+
+        instanceService.actOnStep(step.getId(), "APPROVE", null, key);
+        instanceService.actOnStep(step.getId(), "APPROVE", null, key);
+
+        assertThat(actionRepo.findAll()).filteredOn(action -> key.equals(action.getIdempotencyKey())).hasSize(1);
+
+        UUID differentUser = UUID.randomUUID();
+        setAuth(differentUser, "Different reviewer");
+        assertThatThrownBy(() -> instanceService.actOnStep(step.getId(), "APPROVE", null, key))
+                .isInstanceOf(FailedPreconditionException.class);
     }
 }

@@ -13,6 +13,7 @@ import { authApi } from "@/features/auth/services/authApi";
 import { useQuery } from "@tanstack/react-query";
 import { unreadCountQuery } from "@/features/notification/hooks/notificationQueries";
 import { departmentLabel } from "@/shared/lib/labels";
+import { approvalInboxQuery } from "@/features/approval/hooks/approvalQueries";
 
 type Item = { to: string; label: string; icon: React.ReactNode; permission?: string };
 type Group = { heading: string; items: Item[] };
@@ -58,6 +59,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // Counters are computed unfiltered, so a one-row page is enough for the badge.
   const unread = useQuery({ ...unreadCountQuery(), enabled: perms.includes("notification:read") }).data ?? 0;
+  const pendingApprovals = useQuery({
+    ...approvalInboxQuery("ASSIGNED", { page: 0, size: 1 }),
+    enabled: Boolean(user),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  }).data?.totalItems ?? 0;
 
   const crumb = CRUMB[pathname] ?? matchCrumb(pathname);
   const initials = (user?.fullName ?? "?").split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
@@ -145,7 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         }
                       >
                         <span className={`shrink-0 ${active ? "text-white" : "text-white/60"}`}>{i.icon}</span>
-                        {!sidebarCollapsed && i.label}
+                        {!sidebarCollapsed && <><span>{i.label}</span>{i.to === "/approvals" && pendingApprovals > 0 && <span className="ml-auto rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-foreground">{pendingApprovals > 99 ? "99+" : pendingApprovals}</span>}</>}
                       </Link>
                     );
                   })}

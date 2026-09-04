@@ -36,12 +36,15 @@ public class WorkflowAction {
     @Column
     private String comment;
 
+    @Column(name = "idempotency_key")
+    private UUID idempotencyKey;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     protected WorkflowAction() {}
 
-    public WorkflowAction(WorkflowStepInstance stepInstance, String action, UUID actorId, String actorName, String comment) {
+    public WorkflowAction(WorkflowStepInstance stepInstance, String action, UUID actorId, String actorName, String comment, UUID idempotencyKey) {
         if (!"APPROVE".equals(action) && (comment == null || comment.isBlank())) {
             throw new IllegalArgumentException("Comment required for " + action);
         }
@@ -50,6 +53,7 @@ public class WorkflowAction {
         this.actorId = actorId;
         this.actorName = actorName;
         this.comment = comment;
+        this.idempotencyKey = idempotencyKey;
         this.createdAt = Instant.now();
     }
 
@@ -59,5 +63,6 @@ public class WorkflowAction {
     public UUID getActorId() { return actorId; }
     public String getActorName() { return actorName; }
     public String getComment() { return comment; }
+    public UUID getIdempotencyKey() { return idempotencyKey; }
     public Instant getCreatedAt() { return createdAt; }
 }

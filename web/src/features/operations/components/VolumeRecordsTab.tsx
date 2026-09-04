@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
@@ -20,6 +20,7 @@ import { ContractPicker } from "@/features/contract/components/ContractPicker";
 import { serviceItemsQuery } from "@/features/pricing/hooks/pricingQueries";
 import { formatDateTime } from "@/shared/lib/format";
 import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 import { volumesQuery } from "../hooks/operationsQueries";
 import { formatPeriod, formatQuantity } from "../operationsFormat";
 import { operationsApi } from "../services/operationsApi";
@@ -61,6 +62,9 @@ export function VolumeRecordsTab({
   const canCreate = canWrite;
   const referenceError = periodsError ?? serviceItems.error;
   const referencesLoading = periodsLoading || serviceItems.isLoading;
+
+  const recoverFirstPage = useCallback(() => navigate({ search: (previous) => ({ ...previous, page: undefined }), replace: true }), [navigate]);
+  useRecoverOutOfRangePage({ ready: volumes.isSuccess, page, totalPages: volumes.data?.totalPages ?? 0, totalItems, recover: recoverFirstPage });
 
   function clearFilters() {
     navigate({ search: (previous) => ({ ...previous, q: undefined, periodCode: undefined, contractId: undefined, serviceCode: undefined, page: undefined }), replace: true });

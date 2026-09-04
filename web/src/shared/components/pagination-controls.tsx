@@ -20,11 +20,17 @@ export function PaginationControls({
   const current = Math.min(Math.max(0, page), pages - 1);
   const first = totalItems === 0 ? 0 : current * pageSize + 1;
   const last = Math.min(totalItems, (current + 1) * pageSize);
+  const outOfRange = page >= pages;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
       <span>{first}–{last} of {totalItems} · {pageSize} per page</span>
       <div className="flex items-center gap-2">
+        {outOfRange && (
+          <Button type="button" size="sm" variant="outline" onClick={() => onPageChange(0)}>
+            Back to first page
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"

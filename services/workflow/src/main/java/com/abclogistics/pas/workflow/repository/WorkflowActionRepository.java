@@ -11,21 +11,16 @@ import java.util.List;
 import java.util.UUID;
 
 public interface WorkflowActionRepository extends JpaRepository<WorkflowAction, UUID> {
+    java.util.Optional<WorkflowAction> findByIdempotencyKey(UUID idempotencyKey);
     List<WorkflowAction> findByStepInstance_IdOrderByCreatedAtAsc(UUID stepInstanceId);
-    List<WorkflowAction> findByStepInstance_Instance_IdOrderByCreatedAtAsc(UUID instanceId);
-    List<WorkflowAction> findByActorIdOrderByCreatedAtDesc(UUID actorId);
-
     boolean existsByStepInstance_Instance_Id(UUID instanceId);
-
-    @org.springframework.data.jpa.repository.Query("select a from WorkflowAction a join fetch a.stepInstance si join fetch si.instance where a.actorId = :actorId order by a.createdAt desc")
-    List<WorkflowAction> findByActorIdWithFetchOrderByCreatedAtDesc(@org.springframework.data.repository.query.Param("actorId") UUID actorId);
 
     @Query(value = """
             select a from WorkflowAction a
             join fetch a.stepInstance si join fetch si.instance wi
             where a.actorId = :userId
             """ + InboxQueryFilters.COMMON + """
-            order by a.createdAt desc
+            order by a.createdAt desc, a.id desc
             """, countQuery = """
             select count(a) from WorkflowAction a
             join a.stepInstance si join si.instance wi

@@ -36,7 +36,7 @@ class InboxServiceTest {
         WorkflowInstance instance = WorkflowInstance.create(
                 null, UUID.randomUUID(), "CONTRACT", UUID.randomUUID(),
                 "CTR-2026-0012", "Saigon Port Services", "HIGH", userId, "Submitter");
-        instance.setId(instanceId);
+        org.springframework.test.util.ReflectionTestUtils.setField(instance, "id", instanceId);
         WorkflowStepInstance step = new WorkflowStepInstance(
                 instance, 1, "Legal review", "LEGAL_REVIEWER", 48, "ACTIVE");
         ReflectionTestUtils.setField(step, "id", stepId);

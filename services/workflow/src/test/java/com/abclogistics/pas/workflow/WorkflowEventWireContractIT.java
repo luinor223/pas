@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -70,6 +71,7 @@ class WorkflowEventWireContractIT {
     @Autowired WorkflowStepInstanceRepository steps;
     @Autowired OutboxRepository outbox;
     @Autowired StubIdentityGrpcClient identity;
+    @Autowired JdbcTemplate jdbc;
 
     private final ObjectMapper mapper = new ObjectMapper();
     private UUID requester;
@@ -86,7 +88,7 @@ class WorkflowEventWireContractIT {
                 "DIRECTOR", List.of(approver)));
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 new AuthenticatedUser(requester, "approver", REQUESTER_NAME, "LEGAL",
-                        List.of("LEGAL_REVIEWER")),
+                        List.of("SALES_MANAGER", "LEGAL_REVIEWER", "DIRECTOR")),
                 null, List.of(() -> "approval:act")));
     }
 
@@ -176,6 +178,61 @@ class WorkflowEventWireContractIT {
             assertThat(item.currentStepName()).isNotBlank();
             assertThat(item.stepInstanceId()).isNotNull();
         });
+    }
+
+    @Test
+    void inboxQueriesExecuteAgainstPostgresWithFiltersCountsAndTerminalRows() {
+        WorkflowInstance matching = startInstance();
+        instances.startInstance("PRICE_LIST", UUID.randomUUID(), "PRC-OTHER", "Other customer",
+                "HIGH", requester, REQUESTER_NAME, UUID.randomUUID());
+
+        var assigned = inbox.assignedToMe(requester, 0, 1, "ACME", "contract", "normal");
+        assertThat(assigned.totalItems()).isEqualTo(1);
+        assertThat(assigned.totalPages()).isEqualTo(1);
+        assertThat(assigned.items()).singleElement().satisfies(item -> {
+            assertThat(item.instanceId()).isEqualTo(matching.getId());
+            assertThat(item.stepInstanceId()).isNotNull();
+        });
+        assertThat(inbox.assignedToMe(requester, 0, 15, "Sales review", null, null).totalItems()).isGreaterThanOrEqualTo(1);
+        assertThat(inbox.submittedByMe(requester, 0, 15, REQUESTER_NAME, null, null).totalItems()).isGreaterThanOrEqualTo(2);
+
+        WorkflowStepInstance first = steps.findByInstance_IdAndStepOrder(matching.getId(), 1).orElseThrow();
+        instances.actOnStep(first.getId(), "APPROVE", null);
+        var completed = inbox.completed(requester, 0, 15, "HD-2026", "CONTRACT", "NORMAL");
+        assertThat(completed.totalItems()).isEqualTo(1);
+        assertThat(completed.items()).singleElement().extracting(item -> item.instanceId()).isEqualTo(matching.getId());
+
+        approveEveryStep(matching);
+        var submitted = inbox.submittedByMe(requester, 0, 15, "HD-2026", "CONTRACT", "NORMAL");
+        assertThat(submitted.items()).singleElement().satisfies(item -> {
+            assertThat(item.status()).isEqualTo("APPROVED");
+            assertThat(item.stepInstanceId()).isNull();
+        });
+    }
+
+    @Test
+    void finalApprovalEmitsOneCompletionAndNoDuplicateFinalStepNotificationEvent() {
+        approveEveryStep(startInstance());
+
+        assertThat(published()).filteredOn(event -> "workflow.completed".equals(event.getEventType())).hasSize(1);
+        assertThat(published()).filteredOn(event -> "workflow.step_actioned".equals(event.getEventType())).hasSize(2);
+    }
+
+    @Test
+    void tiedInboxTimestampsRemainStableAcrossPages() {
+        for (int index = 0; index < 16; index++) {
+            instances.startInstance("CONTRACT", UUID.randomUUID(), "TIE-%02d".formatted(index), "Tie customer",
+                    "NORMAL", requester, REQUESTER_NAME, UUID.randomUUID());
+        }
+        jdbc.update("update workflow.workflow_instance set created_at = timestamp with time zone '2026-01-01 00:00:00Z' where requested_by = ?", requester);
+
+        var first = inbox.submittedByMe(requester, 0, 10, "TIE-", null, null);
+        var second = inbox.submittedByMe(requester, 1, 10, "TIE-", null, null);
+        var ids = java.util.stream.Stream.concat(first.items().stream(), second.items().stream())
+                .map(item -> item.instanceId()).collect(java.util.stream.Collectors.toSet());
+
+        assertThat(first.totalItems()).isEqualTo(16);
+        assertThat(ids).hasSize(16);
     }
 
     private WorkflowInstance startInstance() {

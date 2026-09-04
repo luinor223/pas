@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.Locale;
 
 @RestController
 @RequestMapping("/inbox")
@@ -33,7 +34,7 @@ public class InboxController {
         if (userId == null) throw new org.springframework.security.access.AccessDeniedException("Authentication required");
         int pageNumber = Math.max(0, page);
         int pageSize = Math.max(1, Math.min(size, 100));
-        return switch (tab.toUpperCase()) {
+        return switch (tab.toUpperCase(Locale.ROOT)) {
             case "ASSIGNED" -> inboxService.assignedToMe(userId, pageNumber, pageSize, q, documentType, priority);
             case "SUBMITTED" -> inboxService.submittedByMe(userId, pageNumber, pageSize, q, documentType, priority);
             case "COMPLETED" -> inboxService.completed(userId, pageNumber, pageSize, q, documentType, priority);

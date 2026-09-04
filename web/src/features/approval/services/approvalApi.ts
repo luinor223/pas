@@ -5,6 +5,6 @@ import type { ApprovalAction, ApprovalInboxResponse, ApprovalTab } from "../type
 export const approvalApi = {
   inbox: (tab: ApprovalTab, params: { page: number; size: number; q?: string; documentType?: string; priority?: string }) =>
     api.get<ApprovalInboxResponse>(`/inbox${toParams({ tab, ...params })}`).then((response) => response.data),
-  act: (stepInstanceId: string, action: ApprovalAction, comment?: string) =>
-    api.post(`/workflow-steps/${stepInstanceId}/actions`, { action, comment: comment || null }).then(() => undefined),
+  act: (stepInstanceId: string, action: ApprovalAction, idempotencyKey: string, comment?: string) =>
+    api.post(`/workflow-steps/${stepInstanceId}/actions`, { action, idempotencyKey, comment: comment || null }).then(() => undefined),
 };

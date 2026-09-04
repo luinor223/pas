@@ -17,9 +17,6 @@ public interface WorkflowStepInstanceRepository extends JpaRepository<WorkflowSt
 
     Optional<WorkflowStepInstance> findByInstance_IdAndStepOrder(UUID instanceId, int stepOrder);
 
-    @Query("select s from WorkflowStepInstance s where s.instance.id = :instanceId and s.status = :status")
-    List<WorkflowStepInstance> findByInstanceIdAndStatus(@Param("instanceId") UUID instanceId, @Param("status") String status);
-
     // D5 optimistic-lock: update only if version and status ACTIVE match
     @Modifying
     @Query("update WorkflowStepInstance s set s.status = :newStatus, s.completedAt = :now, s.actedBy = :actorId, s.actedByName = :actorName, s.version = s.version + 1 where s.id = :id and s.version = :expectedVersion and s.status = 'ACTIVE'")

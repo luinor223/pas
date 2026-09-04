@@ -33,7 +33,10 @@ test("filters approvals in the URL and confirms approval", async ({ page }) => {
   await expect(page.getByRole("dialog")).toContainText("Approve CTR-2026-0001?");
   const actionRequest = page.waitForRequest((request) => request.url().endsWith("/workflow-steps/step-1/actions") && request.method() === "POST");
   await page.getByRole("button", { name: "Approve request" }).click();
-  expect((await actionRequest).postDataJSON()).toEqual({ action: "APPROVE", comment: null });
+  const actionBody = (await actionRequest).postDataJSON();
+  expect(actionBody).toMatchObject({ action: "APPROVE", comment: null });
+  expect(actionBody.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(page.getByRole("status")).toContainText("CTR-2026-0001 approved");
   await expect(page.getByText("No approvals match your filters")).toBeVisible();
 });
 
@@ -44,14 +47,80 @@ test("requires and submits a rejection reason", async ({ page }) => {
   });
 
   await page.goto("/approvals");
-  await page.getByRole("button", { name: "Reject" }).click();
-  const dialog = page.getByRole("dialog");
+  const rejectButton = page.getByRole("button", { name: "Reject" });
+  await rejectButton.focus();
+  await rejectButton.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Reject request" });
+  await expect(dialog.getByRole("textbox")).toBeFocused();
   const confirm = dialog.getByRole("button", { name: "Reject request" });
   await expect(confirm).toBeDisabled();
   await dialog.getByRole("textbox").fill("The commercial terms need correction.");
   const actionRequest = page.waitForRequest((request) => request.url().endsWith("/workflow-steps/step-1/actions") && request.method() === "POST");
   await confirm.click();
-  expect((await actionRequest).postDataJSON()).toEqual({ action: "REJECT", comment: "The commercial terms need correction." });
+  expect((await actionRequest).postDataJSON()).toMatchObject({ action: "REJECT", comment: "The commercial terms need correction." });
+});
+
+test("traps dialog focus, closes with Escape, and restores the trigger", async ({ page }) => {
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/inbox") return { body: envelope({ items: [approvalItem], page: 0, size: 15, totalItems: 1, totalPages: 1 }) };
+  });
+  await page.goto("/approvals");
+  const reject = page.getByRole("button", { name: "Reject" });
+  await reject.focus();
+  await reject.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Reject request" });
+  for (let i = 0; i < 5; i += 1) await page.keyboard.press("Tab");
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(reject).toBeFocused();
+});
+
+test("opens approval actions when randomUUID is unavailable on a non-secure origin", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, "randomUUID", { configurable: true, value: undefined });
+  });
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/inbox") return { body: envelope({ items: [approvalItem], page: 0, size: 15, totalItems: 1, totalPages: 1 }) };
+    if (url.pathname.endsWith("/workflow-steps/step-1/actions")) return { body: envelope(null) };
+  });
+
+  await page.goto("/approvals");
+  expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe("undefined");
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: /Approve CTR-2026-0001/ });
+  await expect(dialog).toBeVisible();
+  const requestPromise = page.waitForRequest((request) => request.url().endsWith("/workflow-steps/step-1/actions") && request.method() === "POST");
+  await dialog.getByRole("button", { name: "Approve request" }).click();
+  expect((await requestPromise).postDataJSON().idempotencyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(pageErrors).toEqual([]);
+});
+
+test("recovers an out-of-range inbox page", async ({ page }) => {
+  await installApiMocks(page, (_request, url) => {
+    const requestedPage = url.searchParams.get("page");
+    if (url.pathname === "/api/v1/inbox" && requestedPage === "1") return { body: envelope({ items: [], page: 1, size: 15, totalItems: 15, totalPages: 1 }) };
+    if (url.pathname === "/api/v1/inbox") return { body: envelope({ items: [approvalItem], page: 0, size: 15, totalItems: 15, totalPages: 1 }) };
+  });
+  await page.goto("/approvals?page=1");
+  await expect(page).not.toHaveURL(/page=/);
+  await expect(page.getByText("CTR-2026-0001")).toBeVisible();
+});
+
+test("links every reviewable document type", async ({ page }) => {
+  const items = [
+    approvalItem,
+    { ...approvalItem, instanceId: "instance-2", stepInstanceId: "step-2", documentTypeCode: "ADDENDUM", documentId: "addendum-1", documentNo: "ADD-001" },
+    { ...approvalItem, instanceId: "instance-3", stepInstanceId: "step-3", documentTypeCode: "PAYMENT_STATEMENT", documentId: "statement-1", documentNo: "PS-001" },
+  ];
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/inbox") return { body: envelope({ items, page: 0, size: 15, totalItems: 3, totalPages: 1 }) };
+  });
+  await page.goto("/approvals");
+  await expect(page.getByRole("link", { name: "ADD-001" })).toHaveAttribute("href", /addenda\?id=addendum-1/);
+  await expect(page.getByRole("link", { name: "PS-001" })).toHaveAttribute("href", /payment-statements\?id=statement-1/);
 });
 
 test("restores completed-tab filters and page from the URL", async ({ page }) => {

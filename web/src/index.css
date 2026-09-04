@@ -31,6 +31,7 @@
   --color-st-rejected: #b91c1c;      --color-st-rejected-bg: #fee2e2;
   --color-st-signing: #7c3aed;       --color-st-signing-bg: #ede9fe;
   --color-st-expired: #64748b;       --color-st-expired-bg: #f1f5f9;
+  --color-priority-high: #9a3412;    --color-priority-high-bg: #ffedd5;
 
   /* semantic deltas */
   --color-positive: #059669;

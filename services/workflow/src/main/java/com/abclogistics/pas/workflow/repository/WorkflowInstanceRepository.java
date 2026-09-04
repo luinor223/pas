@@ -16,15 +16,11 @@ public interface WorkflowInstanceRepository extends JpaRepository<WorkflowInstan
 
     Optional<WorkflowInstance> findByIdempotencyKey(UUID idempotencyKey);
 
-    Optional<WorkflowInstance> findByDocumentTypeCodeAndDocumentIdAndStatus(String documentTypeCode, UUID documentId, String status);
-
     @Query("select wi from WorkflowInstance wi where wi.documentTypeCode = :docType and wi.documentId = :docId and wi.status = 'IN_PROGRESS'")
     Optional<WorkflowInstance> findInProgressByDocument(@Param("docType") String docType, @Param("docId") UUID docId);
 
     @Query("select wi from WorkflowInstance wi where wi.documentTypeCode = :docType and wi.documentId = :docId order by wi.createdAt desc")
     List<WorkflowInstance> findByDocumentOrderByCreatedAtDesc(@Param("docType") String docType, @Param("docId") UUID docId);
-
-    List<WorkflowInstance> findByRequestedBy(UUID requestedBy);
 
     interface InstanceWithCurrentStep {
         WorkflowInstance getInstance();
@@ -36,7 +32,7 @@ public interface WorkflowInstanceRepository extends JpaRepository<WorkflowInstan
             left join WorkflowStepInstance si on si.instance = wi and si.stepOrder = wi.currentStepOrder
             where wi.requestedBy = :userId
             """ + InboxQueryFilters.COMMON + """
-            order by wi.createdAt desc
+            order by wi.createdAt desc, wi.id desc
             """, countQuery = """
             select count(wi) from WorkflowInstance wi
             left join WorkflowStepInstance si on si.instance = wi and si.stepOrder = wi.currentStepOrder
@@ -47,6 +43,4 @@ public interface WorkflowInstanceRepository extends JpaRepository<WorkflowInstan
             @Param("documentType") String documentType, @Param("priority") String priority,
             Pageable pageable);
 
-    @Query("select wi from WorkflowInstance wi where wi.status = 'IN_PROGRESS' and wi.currentStepOrder is not null")
-    List<WorkflowInstance> findAllInProgress();
 }

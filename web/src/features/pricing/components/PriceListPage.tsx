@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -23,6 +23,7 @@ import { contractLookupsQuery, customerLookupsQuery } from "@/features/contract/
 import { SERVICE_GROUPS } from "@/features/contract/contractOptions";
 import { humanize } from "@/shared/lib/text";
 import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 import { priceListQuery, priceListsQuery, priceListVersionByIdQuery } from "../hooks/pricingQueries";
 import { pricingApi } from "../services/pricingApi";
 import type { CreatePriceListRequest, PriceListResponse } from "../types/pricingTypes";
@@ -58,6 +59,9 @@ export function PriceListPage() {
   const customers = useQuery({ ...customerLookupsQuery(customerIds), enabled: canRead && customerIds.length > 0 });
   const contractsById = useMemo(() => new Map((contracts.data ?? []).map((contract) => [contract.id, contract])), [contracts.data]);
   const customersById = useMemo(() => new Map((customers.data ?? []).map((customer) => [customer.id, customer])), [customers.data]);
+
+  const recoverFirstPage = useCallback(() => navigate({ search: (previous) => ({ ...previous, page: undefined }), replace: true }), [navigate]);
+  useRecoverOutOfRangePage({ ready: listsQuery.isSuccess, page, totalPages: listsQuery.data?.totalPages ?? 0, totalItems: listsQuery.data?.totalItems ?? 0, recover: recoverFirstPage });
 
   const columns = useMemo<ColumnDef<PriceListResponse>[]>(() => [
     {

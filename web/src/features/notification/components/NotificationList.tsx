@@ -15,6 +15,7 @@ import { PaginationControls } from "@/shared/components/pagination-controls";
 import { inboxQuery } from "../hooks/notificationQueries";
 import { notificationApi } from "../services/notificationApi";
 import type { NotificationCategory, NotificationResponse } from "../types/notificationTypes";
+import { documentTarget } from "@/shared/lib/document-links";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -194,22 +195,9 @@ export function NotificationList() {
   );
 }
 
-type DocumentTarget = {
-  to: "/contracts" | "/price-lists" | "/volume-records";
-  search: Record<string, string>;
-};
-
-function documentTarget(n: NotificationResponse): DocumentTarget | undefined {
-  if (!n.documentId || !n.documentType) return undefined;
-  if (n.documentType === "CONTRACT") return { to: "/contracts", search: { id: n.documentId } };
-  if (n.documentType === "PRICE_LIST") return { to: "/price-lists", search: { versionId: n.documentId } };
-  if (n.documentType === "OPERATION_PERIOD") return { to: "/volume-records", search: { tab: "periods" } };
-  return undefined;
-}
-
 function NotificationRow({ n, onOpen }: { n: NotificationResponse; onOpen: () => void }) {
   const unread = n.readAt === null;
-  const target = documentTarget(n);
+  const target = documentTarget(n.documentType, n.documentId);
   const linked = Boolean(target);
   const handleOpen = () => { if (unread) onOpen(); };
 
