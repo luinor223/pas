@@ -32,15 +32,22 @@ test("explains calculation prerequisites and shows a missing-period response", a
   }, { permissions: [...currentUser.permissions, "statement:read", "statement:write"] });
 
   await page.goto("/payment-statements");
+
+  await page.getByRole("button", { name: "Process guide" }).click();
+  const guide = page.getByRole("dialog", { name: "Business record process guide" });
+  await expect(guide).toContainText("Complete the records in this order");
+  const flow = guide.getByRole("list", { name: "Complete business record flow" });
+  await expect(flow.getByRole("listitem")).toHaveCount(8);
+  await expect(flow.getByText(/Customers.*Sales/)).toBeVisible();
+  await expect(flow.getByText(/Contracts.*Sales, Legal & Director/)).toBeVisible();
+  await expect(flow.getByText(/Price Lists.*Sales & approvers/)).toBeVisible();
+  await expect(flow.getByText(/Volume Records.*Operations/)).toBeVisible();
+  await expect(flow.getByText(/Payment Statements.*Accounting/)).toBeVisible();
+  await guide.getByRole("button", { name: "Close" }).click();
+
   await page.getByRole("button", { name: "+ New Statement" }).click();
   const dialog = page.getByRole("dialog", { name: "Calculate payment statement" });
-
-  const guide = dialog.getByRole("complementary", { name: "Preparation guide" });
-  await expect(guide).toContainText("Complete these records in order before calculating");
-  await expect(guide.getByText(/Contracts:.*create and approve the contract/)).toBeVisible();
-  await expect(guide.getByText(/Price Lists:.*price every recorded service/)).toBeVisible();
-  await expect(guide.getByText(/Volume Records:.*lock the period/)).toBeVisible();
-  await expect(guide.getByText(/Payment Statements:.*return here and calculate/)).toBeVisible();
+  await expect(dialog.getByText(/Process guide in the bottom-left corner/)).toBeVisible();
 
   const picker = dialog.getByRole("combobox", { name: "Contract *" });
   await picker.click();
