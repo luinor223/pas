@@ -306,6 +306,8 @@ services:
       OPERATIONS_GRPC_PORT: 50054
       WORKFLOW_GRPC_HOST: workflow-service
       WORKFLOW_GRPC_PORT: 50056
+      ESIGN_GRPC_HOST: esign-service
+      ESIGN_GRPC_PORT: 50057
     depends_on:
       postgres:
         condition: service_healthy
