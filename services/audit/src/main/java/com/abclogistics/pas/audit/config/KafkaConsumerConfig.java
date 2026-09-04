@@ -1,21 +1,19 @@
 package com.abclogistics.pas.audit.config;
 
-import com.abclogistics.pas.common.correlation.CorrelationRecordInterceptor;
 import com.abclogistics.pas.common.events.ConsumerErrorHandling;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
-import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.ExponentialBackOff;
 
 import java.time.Duration;
 
-/** This service's retry/DLT policy; the behaviour lives in {@link ConsumerErrorHandling}. */
+/** This service's retry/DLT policy, applied by Boot's auto-configured listener factory;
+ *  behaviour lives in {@link ConsumerErrorHandling}. */
 @Configuration
 public class KafkaConsumerConfig {
 
@@ -32,18 +30,6 @@ public class KafkaConsumerConfig {
         this.retryBackoff = retryBackoff;
         this.maxRetryBackoff = maxRetryBackoff;
         this.dltSuffix = dltSuffix;
-    }
-
-    @Bean
-    ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
-            ConsumerFactory<String, String> consumerFactory, DefaultErrorHandler errorHandler,
-            CorrelationRecordInterceptor correlationRecordInterceptor) {
-        ConcurrentKafkaListenerContainerFactory<String, String> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(consumerFactory);
-        factory.setCommonErrorHandler(errorHandler);
-        factory.setRecordInterceptor(correlationRecordInterceptor);
-        return factory;
     }
 
     @Bean

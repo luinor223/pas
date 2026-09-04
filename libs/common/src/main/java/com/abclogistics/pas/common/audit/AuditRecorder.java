@@ -8,7 +8,6 @@ import com.abclogistics.pas.common.security.SystemActor;
 import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -16,8 +15,8 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-/** Writes {@code audit.recorded} to the caller's outbox transaction. */
-@Component
+/** Writes {@code audit.recorded} to the caller's outbox transaction. Registered by
+ *  {@link com.abclogistics.pas.common.outbox.OutboxAutoConfiguration}. */
 public class AuditRecorder {
 
     private final OutboxRepository outbox;
