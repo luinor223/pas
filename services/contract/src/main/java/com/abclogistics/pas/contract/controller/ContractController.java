@@ -64,6 +64,12 @@ public class ContractController {
         return ContractResponse.of(contracts.get(id));
     }
 
+    @GetMapping("/lookup")
+    @PreAuthorize("hasAuthority('contract:read')")
+    public List<ContractResponse> lookup(@RequestParam List<UUID> ids) {
+        return contracts.lookupResponses(ids.stream().distinct().limit(100).toList());
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('contract:write')")

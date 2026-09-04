@@ -50,6 +50,12 @@ public class CustomerController {
         return customers.toResponse(customers.get(id));
     }
 
+    @GetMapping("/lookup")
+    @PreAuthorize("hasAuthority('customer:read')")
+    public List<CustomerResponse> lookup(@RequestParam List<UUID> ids) {
+        return customers.lookupResponses(ids.stream().distinct().limit(100).toList());
+    }
+
     @GetMapping("/{id}/contacts")
     @PreAuthorize("hasAuthority('customer:read')")
     public List<CustomerContactResponse> contacts(@PathVariable UUID id) {

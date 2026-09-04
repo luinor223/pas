@@ -61,15 +61,26 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
         Page<Customer> page = search(query, status, pageable);
-        List<UUID> ids = page.getContent().stream().map(Customer::getId).toList();
+        Map<UUID, CustomerResponse> responses = listResponses(page.getContent()).stream()
+                .collect(Collectors.toMap(CustomerResponse::id, Function.identity()));
+        return page.map(customer -> responses.get(customer.getId()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<CustomerResponse> lookupResponses(List<UUID> ids) {
+        return listResponses(customers.findAllById(ids));
+    }
+
+    private List<CustomerResponse> listResponses(List<Customer> values) {
+        List<UUID> ids = values.stream().map(Customer::getId).toList();
         Map<UUID, CustomerContact> primaries = ids.isEmpty() ? Map.of()
                 : contacts.findByCustomerIdInAndPrimaryTrue(ids).stream()
                         .collect(Collectors.toMap(c -> c.getCustomer().getId(), Function.identity()));
         Map<UUID, Long> counts = ids.isEmpty() ? Map.of()
                 : contracts.countByCustomerIds(ids).stream()
                         .collect(Collectors.toMap(r -> (UUID) r[0], r -> (Long) r[1]));
-        return page.map(c -> CustomerResponse.ofList(c, primaries.get(c.getId()),
-                counts.getOrDefault(c.getId(), 0L)));
+        return values.stream().map(c -> CustomerResponse.ofList(c, primaries.get(c.getId()),
+                counts.getOrDefault(c.getId(), 0L))).toList();
     }
 
     @Transactional(readOnly = true)

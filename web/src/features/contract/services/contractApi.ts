@@ -49,6 +49,7 @@ export const contractApi = {
       toPage<CustomerResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
     ),
   getCustomer: (id: string) => api.get<CustomerResponse>(`/customers/${id}`).then((r) => r.data),
+  lookupCustomers: (ids: string[]) => api.get<CustomerResponse[]>(`/customers/lookup?ids=${ids.join(",")}`).then((r) => r.data),
   getCustomerContacts: (id: string) =>
     api.get<import("../types/contractTypes").CustomerContactResponse[]>(`/customers/${id}/contacts`).then((r) => r.data),
   createCustomer: (data: CustomerRequest) => api.post<CustomerResponse>("/customers", data).then((r) => r.data),
@@ -62,6 +63,7 @@ export const contractApi = {
       toPage<ContractResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
     ),
   getContract: (id: string) => api.get<ContractResponse>(`/contracts/${id}`).then((r) => r.data),
+  lookupContracts: (ids: string[]) => api.get<ContractResponse[]>(`/contracts/lookup?ids=${ids.join(",")}`).then((r) => r.data),
   createContract: (data: ContractRequest) => api.post<ContractResponse>("/contracts", data).then((r) => r.data),
   updateContract: (id: string, data: ContractRequest) => api.put<ContractResponse>(`/contracts/${id}`, data).then((r) => r.data),
   submitContract: (id: string) => api.post<SubmitResponse>(`/contracts/${id}/submit`).then((r) => r.data),

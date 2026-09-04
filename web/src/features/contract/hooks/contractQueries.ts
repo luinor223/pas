@@ -7,11 +7,17 @@ export const customersQuery = (params: CustomerListParams = {}) =>
 export const customerQuery = (id: string) =>
   queryOptions({ queryKey: ["customer", id], queryFn: () => contractApi.getCustomer(id), enabled: !!id });
 
+export const customerLookupsQuery = (ids: string[]) =>
+  queryOptions({ queryKey: ["customer-lookups", ids], queryFn: () => contractApi.lookupCustomers(ids), enabled: ids.length > 0 });
+
 export const contractsQuery = (params: ContractListParams = {}) =>
   queryOptions({ queryKey: ["contracts", params], queryFn: () => contractApi.listContracts(params) });
 
 export const contractQuery = (id: string) =>
   queryOptions({ queryKey: ["contract", id], queryFn: () => contractApi.getContract(id), enabled: !!id });
+
+export const contractLookupsQuery = (ids: string[]) =>
+  queryOptions({ queryKey: ["contract-lookups", ids], queryFn: () => contractApi.lookupContracts(ids), enabled: ids.length > 0 });
 
 export const contractProgressQuery = (id: string) =>
   queryOptions({ queryKey: ["contract-progress", id], queryFn: () => contractApi.progressContract(id), enabled: !!id });

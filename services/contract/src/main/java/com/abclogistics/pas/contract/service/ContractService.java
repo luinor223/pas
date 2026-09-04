@@ -17,6 +17,7 @@ import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
+import com.abclogistics.pas.contract.dto.ContractResponse;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.event.EsignSessionRequested;
@@ -116,6 +117,11 @@ public class ContractService {
     public Contract get(UUID id) {
         return contracts.findById(id)
                 .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(id)));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ContractResponse> lookupResponses(List<UUID> ids) {
+        return contracts.findAllById(ids).stream().map(ContractResponse::of).toList();
     }
 
     @Transactional
