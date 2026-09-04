@@ -12,6 +12,7 @@ import com.abclogistics.pas.workflow.dto.UpdateStepsRequest;
 import com.abclogistics.pas.workflow.dto.WorkflowDefinitionResponse;
 import com.abclogistics.pas.workflow.repository.DocumentTypeConfigRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowDefinitionRepository;
+import com.abclogistics.pas.workflow.repository.WorkflowInstanceRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowStepDefinitionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,15 +26,18 @@ public class WorkflowDefinitionService {
 
     private final DocumentTypeConfigRepository docTypeRepo;
     private final WorkflowDefinitionRepository definitionRepo;
+    private final WorkflowInstanceRepository instanceRepo;
     private final WorkflowStepDefinitionRepository stepRepo;
     private final AuditRecorder audit;
 
     public WorkflowDefinitionService(DocumentTypeConfigRepository docTypeRepo,
-                                     WorkflowDefinitionRepository definitionRepo,
-                                     WorkflowStepDefinitionRepository stepRepo,
-                                     AuditRecorder audit) {
+                                      WorkflowDefinitionRepository definitionRepo,
+                                      WorkflowInstanceRepository instanceRepo,
+                                      WorkflowStepDefinitionRepository stepRepo,
+                                      AuditRecorder audit) {
         this.docTypeRepo = docTypeRepo;
         this.definitionRepo = definitionRepo;
+        this.instanceRepo = instanceRepo;
         this.stepRepo = stepRepo;
         this.audit = audit;
     }
@@ -133,8 +137,30 @@ public class WorkflowDefinitionService {
         return toResponse(target);
     }
 
-    private WorkflowDefinitionResponse toResponse(WorkflowDefinition def) {
-        List<WorkflowStepDefinition> steps = stepRepo.findByDefinition_IdOrderByStepOrderAsc(def.getId());
+    /**
+     * Deletes an unused draft definition with its steps. The active version and
+     * any definition an instance ever pinned are history and cannot be removed:
+     * instances outlive definitions. The reference check is one indexed EXISTS
+     * ({@code idx_workflow_instance_definition}) — no entity load, no N+1.
+     */
+    @Transactional
+    public void delete(UUID id) {
+        WorkflowDefinition def = definitionRepo.findWithLockById(id)
+                .orElseThrow(() -> new NotFoundException("Workflow definition not found: " + id));
+        if (def.isActive()) {
+            throw new FailedPreconditionException("Cannot delete the active definition");
+        }
+        if (instanceRepo.existsByDefinition_Id(id)) {
+            throw new FailedPreconditionException("Cannot delete a definition instances still reference");
+        }
+        stepRepo.deleteByDefinition_Id(id);
+        definitionRepo.delete(def);
+        audit.record("WORKFLOW_DEFINITION", id, def.getName(), "workflow.definition_deleted",
+                null, null, null, Map.of("documentType", def.getDocumentType().getCode(),
+                        "versionNo", def.getVersionNo()));
+    }
+
+    private WorkflowDefinitionResponse toResponse(WorkflowDefinition def) {        List<WorkflowStepDefinition> steps = stepRepo.findByDefinition_IdOrderByStepOrderAsc(def.getId());
         List<WorkflowDefinitionResponse.StepDefinitionDto> stepDtos = steps.stream()
                 .map(s -> new WorkflowDefinitionResponse.StepDefinitionDto(s.getId(), s.getStepOrder(), s.getName(), s.getApproverRole(), s.getSlaHours()))
                 .toList();
