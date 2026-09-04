@@ -4,7 +4,6 @@ import com.abclogistics.pas.pricing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.pricing.domain.PriceList;
 import com.abclogistics.pas.pricing.domain.PriceListVersion;
 import com.abclogistics.pas.pricing.domain.PriceListVersionStatus;
-import com.abclogistics.pas.pricing.domain.StatusHistory;
 import com.abclogistics.pas.pricing.domain.TriggerKind;
 import com.abclogistics.pas.pricing.listener.WorkflowEventListener;
 import com.abclogistics.pas.pricing.repository.PriceListVersionRepository;

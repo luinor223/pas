@@ -3,7 +3,6 @@ package com.abclogistics.pas.workflow;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.identity.grpc.UserRef;
-import com.abclogistics.pas.workflow.client.IdentityGrpcClient;
 import com.abclogistics.pas.workflow.domain.WorkflowInstance;
 import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.error.AbortedException;
@@ -130,7 +129,6 @@ class ConcurrentApproveABORTEDTest {
 
         // One must succeed (no exception), one must be ABORTED
         int successes = (ex1.get() == null ? 1 : 0) + (ex2.get() == null ? 1 : 0);
-        int aborts = ((ex1.get() instanceof AbortedException) ? 1 : 0) + ((ex2.get() instanceof AbortedException) ? 1 : 0);
         // The loser may also be FailedPrecondition if step flipped to APPROVED before second SELECT
         // but our implementation throws Aborted only for version mismatch; if step status check fails first we get FailedPrecondition.
         // Accept either Aborted or FailedPrecondition as loser.

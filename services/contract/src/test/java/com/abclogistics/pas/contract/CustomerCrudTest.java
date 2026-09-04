@@ -268,7 +268,7 @@ class CustomerCrudTest {
                         .headers(salesHeaders())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Wire Co\"}"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.message").value(
                         "contacts is required on update; send [] to remove all contacts"));
 

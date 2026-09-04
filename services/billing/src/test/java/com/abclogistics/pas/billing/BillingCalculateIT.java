@@ -9,7 +9,6 @@ import com.abclogistics.pas.billing.client.ContractGrpcClient;
 import com.abclogistics.pas.billing.client.OperationsGrpcClient;
 import com.abclogistics.pas.billing.client.PricingGrpcClient;
 import com.abclogistics.pas.billing.client.WorkflowGrpcClient;
-import com.abclogistics.pas.billing.listener.BillingEventListener;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
 import com.abclogistics.pas.billing.service.StatementService;
