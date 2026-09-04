@@ -1,5 +1,6 @@
 package com.abclogistics.pas.billing.client;
 
+import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
 import com.abclogistics.pas.contract.grpc.ContractInternalGrpc;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
@@ -23,7 +24,7 @@ public class ContractGrpcClient {
 
     public ContractGrpcClient(@Value("${contract.grpc.host:localhost}") String host,
                                @Value("${contract.grpc.port:50052}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
         this.stub = ContractInternalGrpc.newBlockingStub(channel);
     }
 

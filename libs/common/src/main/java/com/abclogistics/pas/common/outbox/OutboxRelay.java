@@ -1,5 +1,6 @@
 package com.abclogistics.pas.common.outbox;
 
+import com.abclogistics.pas.common.correlation.CorrelationSupport;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
@@ -52,6 +53,9 @@ public abstract class OutboxRelay {
         record.headers().add(header("event_id", event.getId().toString()));
         record.headers().add(header("event_type", event.getEventType()));
         record.headers().add(header("document_type", event.getAggregateType()));
+        if (event.getCorrelationId() != null) {
+            record.headers().add(header(CorrelationSupport.KAFKA_HEADER, event.getCorrelationId()));
+        }
         return record;
     }
 
@@ -86,6 +90,9 @@ public abstract class OutboxRelay {
                 log.debug("Outbox event {} claim lost (concurrent worker won), skipping", event.getId());
                 continue;
             }
+            if (event.getCorrelationId() != null) {
+                CorrelationSupport.set(event.getCorrelationId());
+            }
             try {
                 dispatch(event);
                 markPublished(event.getId());
@@ -93,13 +100,15 @@ public abstract class OutboxRelay {
             } catch (Exception e) {
                 if (isPermanentFailure(e)) {
                     // permanent refusal: park, else it re-claims every poll for ever
-                    log.error("Outbox dispatch permanently refused for event {} ({}) to {}: {} — parking",
-                            event.getId(), event.getEventType(), destination(event), e.getMessage());
+                    log.error("Outbox dispatch permanently refused for event {} ({}) to {} — parking",
+                            event.getId(), event.getEventType(), destination(event), e);
                     markParked(event.getId(), e);
                 } else {
                     log.warn("Outbox dispatch failed for event {} ({}), will retry: {}", event.getId(), event.getEventType(), e.getMessage());
                     markFailed(event.getId());
                 }
+            } finally {
+                CorrelationSupport.clear();
             }
         }
     }

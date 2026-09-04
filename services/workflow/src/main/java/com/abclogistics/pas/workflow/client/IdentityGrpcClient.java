@@ -1,5 +1,6 @@
 package com.abclogistics.pas.workflow.client;
 
+import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
 import com.abclogistics.pas.identity.grpc.IdentityInternalGrpc;
 import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;
 import com.abclogistics.pas.identity.grpc.UserRef;
@@ -26,6 +27,7 @@ public class IdentityGrpcClient {
                               @Value("${identity.grpc.port:50051}") int port) {
         this.channel = ManagedChannelBuilder.forAddress(host, port)
                 .usePlaintext()
+                .intercept(new CorrelationClientInterceptor())
                 .build();
         this.stub = IdentityInternalGrpc.newBlockingStub(channel);
     }

@@ -1,5 +1,6 @@
 package com.abclogistics.pas.billing.client;
 
+import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
 import com.abclogistics.pas.operations.grpc.ListVolumesRequest;
 import com.abclogistics.pas.operations.grpc.ListVolumesResponse;
 import com.abclogistics.pas.operations.grpc.OperationsInternalGrpc;
@@ -23,7 +24,7 @@ public class OperationsGrpcClient {
 
     public OperationsGrpcClient(@Value("${operations.grpc.host:localhost}") String host,
                                  @Value("${operations.grpc.port:50054}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
         this.stub = OperationsInternalGrpc.newBlockingStub(channel);
     }
 

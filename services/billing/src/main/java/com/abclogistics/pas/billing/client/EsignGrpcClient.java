@@ -1,5 +1,6 @@
 package com.abclogistics.pas.billing.client;
 
+import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
 import com.abclogistics.pas.esign.grpc.*;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -21,7 +22,7 @@ public class EsignGrpcClient {
 
     public EsignGrpcClient(@Value("${esign.grpc.host:localhost}") String host,
                             @Value("${esign.grpc.port:50057}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
         this.stub = EsignInternalGrpc.newBlockingStub(channel);
     }
 

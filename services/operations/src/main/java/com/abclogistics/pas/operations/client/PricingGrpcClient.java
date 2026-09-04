@@ -3,6 +3,7 @@ package com.abclogistics.pas.operations.client;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemRequest;
 import com.abclogistics.pas.pricing.grpc.GetServiceItemResponse;
 import com.abclogistics.pas.pricing.grpc.PricingInternalGrpc;
+import com.abclogistics.pas.common.correlation.CorrelationClientInterceptor;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
@@ -24,7 +25,7 @@ public class PricingGrpcClient implements PricingClient {
     public PricingGrpcClient(
             @Value("${pricing.grpc.host:localhost}") String host,
             @Value("${pricing.grpc.port:50053}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().intercept(new CorrelationClientInterceptor()).build();
         this.stub = PricingInternalGrpc.newBlockingStub(channel);
     }
 

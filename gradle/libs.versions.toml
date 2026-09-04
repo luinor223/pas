@@ -43,6 +43,7 @@ springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-u
 
 # --- gRPC ---
 spring-grpc-starter = { module = "org.springframework.grpc:spring-grpc-server-spring-boot-starter" }
+spring-grpc-core = { module = "org.springframework.grpc:spring-grpc-core", version.ref = "springGrpc" }
 grpc-api = { module = "io.grpc:grpc-api", version.ref = "grpcJava" }
 protoc = { module = "com.google.protobuf:protoc", version.ref = "protobuf" }
 protoc-gen-grpc-java = { module = "io.grpc:protoc-gen-grpc-java", version.ref = "grpcJava" }
