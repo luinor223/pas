@@ -18,6 +18,8 @@ COMPOSE := docker compose
 # Cross-platform Gradle wrapper: use Unix script via sh (works on macOS/Linux and Windows Git Bash).
 # On pure Windows cmd without bash, fallback is gradlew.bat (see test-win).
 GRADLE := sh ./gradlew
+ARCH := $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+JIB_PLATFORM := linux/$(ARCH)
 
 # ---------------------------------------------------------------------------
 # help
@@ -26,9 +28,9 @@ GRADLE := sh ./gradlew
 help: ## Show this help
 	@echo "PAS Makefile - available targets:"
 	@echo "  keys / generate-keys / generate-ssh / gen-keys  Generate JWT RS256 keypair + patch Traefik jwt.yml"
-	@echo "  up                                              Build (if needed) and start stack (docker compose up --build -d)"
-	@echo "  build                                           Build image (uses cache)"
-	@echo "  rebuild                                         Force rebuild --no-cache"
+	@echo "  up                                              Build images (Jib) and start stack (docker compose up -d)"
+	@echo "  build                                           Build every service image with Jib (local daemon)"
+	@echo "  rebuild                                         Clean then rebuild every service image with Jib"
 	@echo "  ps                                              Show containers"
 	@echo "  logs / logs-identity / logs-workflow / logs-contract / logs-notification / logs-audit  Tail logs"
 	@echo "  down                                            Stop stack, keep volumes/cache"
@@ -66,15 +68,15 @@ keys-check: ## Fail if private key missing (used by up)
 # ---------------------------------------------------------------------------
 .PHONY: up build rebuild ps logs logs-identity logs-workflow logs-contract logs-notification logs-audit down down-v clean nuke
 
-up: keys-check ## Build (if needed) and start stack detached (docker compose up --build -d)
-	$(COMPOSE) up --build -d
+up: build ## Build service images (Jib) and start the stack detached
+	$(COMPOSE) up -d
 	@echo ">> Stack up: http://localhost:18080 (gateway)  http://localhost:18090 (traefik dashboard)"
 
-build: keys-check ## Build every service image (uses Docker layer cache)
-	$(COMPOSE) build
+build: keys-check ## Build every service image with Jib into the local Docker daemon (native arch)
+	$(GRADLE) jibDockerBuild -Djib.from.platforms=$(JIB_PLATFORM)
 
-rebuild: keys-check ## Force rebuild ignoring cache (slow)
-	$(COMPOSE) build --no-cache
+rebuild: keys-check ## Clean then rebuild every service image with Jib
+	$(GRADLE) clean jibDockerBuild -Djib.from.platforms=$(JIB_PLATFORM)
 
 ps: ## Show compose containers
 	$(COMPOSE) ps

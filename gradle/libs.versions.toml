@@ -13,6 +13,7 @@ springGrpc = "1.0.3"
 protobuf = "4.33.4"
 grpcJava = "1.77.1"
 protobufPlugin = "0.9.5"
+jib = "3.5.4"
 
 [libraries]
 # Starter versions come from the Boot BOM.
@@ -64,3 +65,4 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
 spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "dependencyManagement" }
 protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
+jib = { id = "com.google.cloud.tools.jib", version.ref = "jib" }
