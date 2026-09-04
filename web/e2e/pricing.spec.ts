@@ -51,9 +51,9 @@ test("creates a service-group price list with an unambiguous scope", async ({ pa
   await page.goto("/price-lists");
   await page.getByRole("button", { name: "New price list" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.locator("select").first().selectOption("SERVICE_GROUP");
-  await dialog.locator("select").nth(1).selectOption("WAREHOUSING");
-  await dialog.getByPlaceholder("Describe when or why this price list is used...").fill("Standard warehouse rates");
+  await dialog.getByLabel("Applies to").selectOption("SERVICE_GROUP");
+  await dialog.getByLabel("Service group *").selectOption("WAREHOUSING");
+  await dialog.getByLabel(/Note/).fill("Standard warehouse rates");
   const createRequest = page.waitForRequest((request) => request.url().endsWith("/price-lists") && request.method() === "POST");
   await dialog.getByRole("button", { name: "Create price list" }).click();
   expect((await createRequest).postDataJSON()).toEqual({ customerId: null, contractId: null, serviceGroup: "WAREHOUSING", note: "Standard warehouse rates" });
@@ -76,4 +76,52 @@ test("requests the next server page without offering page-local sorting", async 
   await page.getByRole("button", { name: "Next page" }).click();
   await nextRequest;
   await expect(page.getByText("PRC-002")).toBeVisible();
+});
+
+test("translates an overlapping-version API error into useful guidance", async ({ page }) => {
+  await installApiMocks(page, (request, url) => {
+    if (url.pathname === "/api/v1/price-lists" && request.method() === "GET") {
+      return { body: envelope({ items: [{ id: "price-1", priceListNo: "PRC-0001", customerId: null, contractId: null, serviceGroup: "WAREHOUSING", scopeKey: "SERVICE_GROUP:WAREHOUSING", note: null }], page: 0, size: 15, totalItems: 1, totalPages: 1 }) };
+    }
+    if (url.pathname === "/api/v1/price-lists/price-1/versions" && request.method() === "GET") return { body: envelope([]) };
+    if (url.pathname === "/api/v1/price-lists/price-1/versions" && request.method() === "POST") {
+      return { status: 409, body: { message: "validity overlaps an existing effective version of the same scope" } };
+    }
+  });
+
+  await page.goto("/price-lists");
+  await page.getByRole("button", { name: "PRC-0001" }).click();
+  await page.getByRole("button", { name: "New version" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Valid from *").fill("2026-10-01");
+  await dialog.getByLabel("Valid to *").fill("2026-12-31");
+  await dialog.getByRole("button", { name: "Create version" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Choose a non-overlapping period");
+});
+
+test("selects and closes the contract picker with the keyboard", async ({ page }) => {
+  const contract = { id: "contract-1", contractNo: "CTR-2026-0001", customerName: "Saigon Port Services", status: "ACTIVE" };
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/price-lists") {
+      return { body: envelope({ items: [], page: 0, size: 15, totalItems: 0, totalPages: 0 }) };
+    }
+    if (url.pathname === "/api/v1/contracts") {
+      return { body: envelope([contract], { page: 0, size: 10, totalElements: 1, totalPages: 1 }) };
+    }
+    if (url.pathname === "/api/v1/contracts/contract-1") return { body: envelope(contract) };
+  });
+
+  await page.goto("/price-lists");
+  await page.getByRole("button", { name: "New price list" }).click();
+  const picker = page.getByRole("combobox", { name: "Approved or active contract *" });
+  await picker.focus();
+  await expect(page.getByRole("option", { name: /CTR-2026-0001/ })).toBeVisible();
+  await picker.press("ArrowDown");
+  await picker.press("Enter");
+  await expect(picker).toHaveValue(/CTR-2026-0001/);
+
+  await picker.focus();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await picker.press("Escape");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
 });

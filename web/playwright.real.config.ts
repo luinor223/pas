@@ -1,24 +1,20 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./e2e",
-  fullyParallel: true,
+  testDir: "./e2e-real",
+  fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  retries: process.env.CI ? 1 : 0,
+  workers: 1,
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: process.env.PAS_E2E_BASE_URL ?? "http://127.0.0.1:18080",
     launchOptions: { slowMo: Number(process.env.PLAYWRIGHT_SLOW_MO ?? 0) },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  webServer: {
-    command: "bun run test:e2e:server",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  expect: { timeout: 10_000 },
+  timeout: 45_000,
+  projects: [{ name: "chromium-real-stack", use: { ...devices["Desktop Chrome"] } }],
 });

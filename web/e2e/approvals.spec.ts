@@ -66,3 +66,20 @@ test("restores completed-tab filters and page from the URL", async ({ page }) =>
   await expect(page.getByLabel("Filter by priority")).toHaveValue("HIGH");
   await expect(page.getByText("Page 3 of 3")).toBeVisible();
 });
+
+test("restores the previous approval tab with browser Back", async ({ page }) => {
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/inbox") {
+      return { body: envelope({ items: [], page: 0, size: 15, totalItems: 0, totalPages: 0 }) };
+    }
+  });
+
+  await page.goto("/approvals");
+  await page.getByRole("tab", { name: "Submitted by me" }).click();
+  await expect(page).toHaveURL(/tab=SUBMITTED/);
+  await page.getByRole("tab", { name: "Completed" }).click();
+  await expect(page).toHaveURL(/tab=COMPLETED/);
+  await page.goBack();
+  await expect(page.getByRole("tab", { name: "Submitted by me" })).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/tab=SUBMITTED/);
+});

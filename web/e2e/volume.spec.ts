@@ -72,7 +72,7 @@ test("keeps volume records read-only without write permission", async ({ page })
     if (url.pathname === "/api/v1/periods") return { body: envelope([basePeriod]) };
     if (url.pathname === "/api/v1/volume-records" && request.method() === "GET") return { body: envelope(volumePage()) };
     if (url.pathname === "/api/v1/service-items") return { body: envelope([]) };
-  }, { permissions: ["volume:read", "notification:read"] });
+  }, { permissions: ["volume:read", "notification:read", "contract:read"] });
 
   await page.goto("/volume-records");
   await expect(page.getByText("VOL-2026-0001")).toBeVisible();

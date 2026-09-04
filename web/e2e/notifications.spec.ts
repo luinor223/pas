@@ -58,3 +58,23 @@ test("requests the selected notification category", async ({ page }) => {
   await categoryRequest;
   await expect(page.getByText("No expiring notifications")).toBeVisible();
 });
+
+for (const linked of [
+  { documentType: "PRICE_LIST", documentId: "version-1", documentNo: "PRC-0001", expectedUrl: /\/price-lists\?versionId=version-1/ },
+  { documentType: "OPERATION_PERIOD", documentId: "period-1", documentNo: "September 2026", expectedUrl: /\/volume-records\?tab=periods/ },
+]) {
+  test(`opens a ${linked.documentType.toLowerCase()} notification deep link`, async ({ page }) => {
+    await installApiMocks(page, (_request, url) => {
+      if (url.pathname === "/api/v1/notifications" && url.searchParams.get("size") === "15") {
+        return { body: envelope({
+          items: [{ id: `notification-${linked.documentId}`, category: "SYSTEM", eventType: "record.updated", documentType: linked.documentType, documentId: linked.documentId, documentNo: linked.documentNo, title: `${linked.documentNo} was updated`, body: "Open the record to review the latest details.", createdAt: "2026-09-04T01:00:00Z", readAt: "2026-09-04T02:00:00Z" }],
+          total: 1, unreadCount: 0, counts: { all: 1, unread: 0, SYSTEM: 1 },
+        }) };
+      }
+    });
+
+    await page.goto("/notifications");
+    await page.getByRole("link", { name: new RegExp(`${linked.documentNo} was updated`) }).click();
+    await expect(page).toHaveURL(linked.expectedUrl);
+  });
+}
