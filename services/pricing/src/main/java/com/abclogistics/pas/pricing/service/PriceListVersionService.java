@@ -192,7 +192,7 @@ public class PriceListVersionService {
         payload.put("idempotency_key", idempotencyKey.toString());
         payload.put("priority", "NORMAL");
         payload.put("customer_name", "");   // pricing holds customer_id only, no name snapshot
-        payload.put("requested_by_id", SecurityUtils.currentUserIdOrSystem().toString());
+        payload.put("requested_by", SecurityUtils.currentUserIdOrSystem().toString());
         payload.put("requested_by_name", SecurityUtils.currentUserNameOrSystem());
         return objectMapper.writeValueAsString(payload);
     }
