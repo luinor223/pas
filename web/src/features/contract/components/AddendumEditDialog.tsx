@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import type { AddendumResponse } from "../types/contractTypes";
 import { contractApi } from "../services/contractApi";
-import { ADDENDUM_CHANGE_TYPES } from "../contractOptions";
+import { ADDENDUM_CHANGE_TYPES, addendumChangeTypeLabel } from "../contractOptions";
 import { Button } from "@/shared/components/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/dialog";
 import { Input } from "@/shared/components/input";
@@ -13,7 +13,6 @@ import { Label } from "@/shared/components/label";
 import { Select } from "@/shared/components/select";
 import { Textarea } from "@/shared/components/textarea";
 import { getApiErrorMessage } from "@/shared/api/errors";
-import { humanize } from "@/shared/lib/text";
 
 const serviceSchema = z.object({
   serviceItemId: z.string().optional().nullable(),
@@ -85,7 +84,7 @@ export function AddendumEditDialog({ addendum, onClose, onSaved }: { addendum: A
         <DialogHeader><DialogTitle>Edit {addendum.addendumNo}</DialogTitle></DialogHeader>
         <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))} className="space-y-3">
           <div><div className="text-xs text-muted-foreground">PARENT CONTRACT</div><div className="text-sm">{addendum.contractNo}</div></div>
-          <div><Label htmlFor={`${fieldId}-type`}>Change type *</Label><Select id={`${fieldId}-type`} {...form.register("changeType")}>{ADDENDUM_CHANGE_TYPES.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}</Select></div>
+          <div><Label htmlFor={`${fieldId}-type`}>Change type *</Label><Select id={`${fieldId}-type`} {...form.register("changeType")}>{ADDENDUM_CHANGE_TYPES.map((type) => <option key={type} value={type}>{addendumChangeTypeLabel(type)}</option>)}</Select></div>
           <div><Label htmlFor={`${fieldId}-description`}>Description</Label><Textarea id={`${fieldId}-description`} {...form.register("description")} /></div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div><Label htmlFor={`${fieldId}-effective`}>Effective from *</Label><Input id={`${fieldId}-effective`} type="date" {...form.register("effectiveFrom")} />{form.formState.errors.effectiveFrom && <p className="text-xs text-destructive">{form.formState.errors.effectiveFrom.message}</p>}</div>

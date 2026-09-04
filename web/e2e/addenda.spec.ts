@@ -97,6 +97,33 @@ test("preserves list filters when opening a row and returning with the detail Ba
   await expect(page.getByRole("heading", { name: /Addenda/ })).toBeVisible();
 });
 
+test("shows business change labels and includes expired addenda in the status filter", async ({ page }) => {
+  const requestedStatuses: Array<string | null> = [];
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") {
+      requestedStatuses.push(url.searchParams.get("status"));
+      return { body: envelope([{ ...addendum, changeType: "UNIT_PRICE_CHANGE", status: "EXPIRED" }], pageMeta) };
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto("/addenda");
+  const table = page.getByRole("table");
+  await expect(table.getByText("Unit price change", { exact: true })).toBeVisible();
+  await expect(table.getByText("UNIT_PRICE_CHANGE", { exact: true })).toHaveCount(0);
+  const statusFilter = page.getByLabel("Filter by status");
+  await expect(statusFilter.getByRole("option", { name: "Expired" })).toHaveAttribute("value", "EXPIRED");
+  await statusFilter.selectOption("EXPIRED");
+  await expect.poll(() => requestedStatuses.at(-1)).toBe("EXPIRED");
+  await expect(page).toHaveURL(/status=EXPIRED/);
+
+  await page.getByRole("button", { name: "+ New Addendum" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create addendum" });
+  await dialog.getByLabel("Change type *").selectOption("TERM_EXTENSION");
+  await dialog.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(dialog.getByText("New valid-to date is required for a term extension")).toBeVisible();
+  await expect(dialog.getByText("TERM_EXTENSION", { exact: true })).toHaveCount(0);
+});
+
 test("shows read-only detail access without write permission", async ({ page }) => {
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };

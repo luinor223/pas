@@ -20,7 +20,7 @@ export type CustomerRouteSearch = {
   page?: number; cursor?: string; contractsPage?: number; contractsCursor?: string;
 };
 export type AddendumRouteSearch = {
-  id?: string; contractId?: string; changeType?: "UNIT_PRICE_CHANGE" | "TERM_EXTENSION" | "ADDED_SERVICE" | "PAYMENT_TERMS";
+  id?: string; contractId?: string; changeType?: (typeof ADDENDUM_CHANGE_TYPES)[number];
   status?: typeof ADDENDUM_STATUSES[number]; q?: string; page?: number; cursor?: string;
 };
 
@@ -52,3 +52,4 @@ export function optionalCursor(value: unknown): string | undefined {
 export function optionalEnum<const T extends readonly string[]>(value: unknown, allowed: T): T[number] | undefined {
   return typeof value === "string" && allowed.includes(value) ? value as T[number] : undefined;
 }
+import { ADDENDUM_CHANGE_TYPES } from "./contractOptions";

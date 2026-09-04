@@ -24,13 +24,12 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
 import { FilterBar } from "@/shared/components/filter-bar";
 import { SearchInput } from "@/shared/components/search-input";
-import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES } from "../contractOptions";
+import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES, addendumChangeTypeLabel } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
-import { humanize } from "@/shared/lib/text";
 import { ContractPicker } from "./ContractPicker";
 import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
-import type { AddendumRouteSearch } from "../contractSearchParams";
+import { ADDENDUM_STATUSES, type AddendumRouteSearch } from "../contractSearchParams";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -51,9 +50,9 @@ const schema = z.object({
   services: z.array(lineSchema).optional(),
   version: z.number().optional().nullable(),
 }).superRefine((d, ctx) => {
-  if (d.changeType === "TERM_EXTENSION" && !d.newValidTo) ctx.addIssue({ code: "custom", path: ["newValidTo"], message: "Required for TERM_EXTENSION" });
-  if (d.changeType === "PAYMENT_TERMS" && !d.paymentTermOverride) ctx.addIssue({ code: "custom", path: ["paymentTermOverride"], message: "Required for PAYMENT_TERMS" });
-  if (d.changeType === "ADDED_SERVICE" && (!d.services || d.services.length === 0)) ctx.addIssue({ code: "custom", path: ["services"], message: "At least one service" });
+  if (d.changeType === "TERM_EXTENSION" && !d.newValidTo) ctx.addIssue({ code: "custom", path: ["newValidTo"], message: "New valid-to date is required for a term extension" });
+  if (d.changeType === "PAYMENT_TERMS" && !d.paymentTermOverride) ctx.addIssue({ code: "custom", path: ["paymentTermOverride"], message: "Payment term is required for a payment terms change" });
+  if (d.changeType === "ADDED_SERVICE" && (!d.services || d.services.length === 0)) ctx.addIssue({ code: "custom", path: ["services"], message: "Add at least one service" });
 });
 
 type FormData = z.infer<typeof schema>;
@@ -139,7 +138,7 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
       accessorKey: "contractNo", header: "CONTRACT",
       cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.contractId } as never} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
     },
-    { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
+    { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{addendumChangeTypeLabel(row.original.changeType)}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
   ], [search, searchText]);
@@ -164,11 +163,11 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
         </CardHeader>
         <CardContent className="space-y-3">
           <FilterBar>
-                        <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as AddendumRouteSearch["status"] })}>
-              <option value="">Status: All</option>{["DRAFT","SUBMITTED","UNDER_REVIEW","APPROVED","ACTIVE","REJECTED","REVISION_REQUESTED","CANCELLED"].map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as AddendumRouteSearch["status"] })}>
+              <option value="">Status: All</option>{ADDENDUM_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </Select>
             <Select className="w-full sm:w-48" aria-label="Filter by change type" value={changeType} onChange={(e) => restartListing({ changeType: (e.target.value || undefined) as AddendumRouteSearch["changeType"] })}>
-              <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
+              <option value="">Change: All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{addendumChangeTypeLabel(t)}</option>)}
             </Select>
             <ClearFiltersButton size="sm" disabled={!hasFilters} onClick={() => restartListing({ status: undefined, changeType: undefined, q: undefined })} />
           </FilterBar>
@@ -192,7 +191,7 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
               />
               {errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}
             </div>
-            <div><Label htmlFor={`${formId}-change-type`}>Change type *</Label><Select id={`${formId}-change-type`} {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
+            <div><Label htmlFor={`${formId}-change-type`}>Change type *</Label><Select id={`${formId}-change-type`} {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{addendumChangeTypeLabel(t)}</option>)}</Select></div>
             <div><Label htmlFor={`${formId}-description`}>Description</Label><Textarea id={`${formId}-description`} {...register("description")} /></div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-effective-from`}>Effective from *</Label><Input id={`${formId}-effective-from`} type="date" {...register("effectiveFrom")} />{errors.effectiveFrom && <p className="text-xs text-destructive">{errors.effectiveFrom.message}</p>}</div>{watchedType==="TERM_EXTENSION" && <div><Label htmlFor={`${formId}-new-valid-to`}>New valid to *</Label><Input id={`${formId}-new-valid-to`} type="date" {...register("newValidTo")} />{errors.newValidTo && <p className="text-xs text-destructive">{String(errors.newValidTo.message)}</p>}</div>}{watchedType==="PAYMENT_TERMS" && <div><Label htmlFor={`${formId}-payment-term-override`}>Payment term override *</Label><Input id={`${formId}-payment-term-override`} {...register("paymentTermOverride")} /></div>}</div>
             {watchedType==="ADDED_SERVICE" && (

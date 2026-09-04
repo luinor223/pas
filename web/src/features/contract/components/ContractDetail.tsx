@@ -18,6 +18,7 @@ import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
 import { DocumentSigningPanel } from "./DocumentSigningPanel";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import { addendumChangeTypeLabel } from "../contractOptions";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -81,7 +82,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
       accessorKey: "addendumNo", header: "NO",
       cell: ({ row }) => <Link to="/addenda" search={{ id: row.original.id } as never} className="text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
     },
-    { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
+    { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{addendumChangeTypeLabel(row.original.changeType)}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
   ], []);

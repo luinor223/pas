@@ -7,7 +7,7 @@ import { AttachmentPanel } from "./AttachmentPanel";
 import { AddendumEditDialog } from "./AddendumEditDialog";
 import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
 import { HistoryTimeline } from "./HistoryTimeline";
-import { isUserCancellableStatus } from "../contractOptions";
+import { addendumChangeTypeLabel, isUserCancellableStatus } from "../contractOptions";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
@@ -18,7 +18,6 @@ import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { DocumentSigningPanel } from "./DocumentSigningPanel";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { formatDate } from "@/shared/lib/format";
-import { humanize } from "@/shared/lib/text";
 
 function responseStatus(error: unknown): number | undefined {
   return (error as { response?: { status?: number } })?.response?.status;
@@ -151,7 +150,7 @@ export function AddendumDetail({ id }: { id: string }) {
               <StatusBadge status={addendum.status} />
             </div>
             <div className="text-sm text-muted-foreground">
-              {humanize(addendum.changeType)} · Contract {addendum.contractNo}
+              {addendumChangeTypeLabel(addendum.changeType)} · Contract {addendum.contractNo}
             </div>
           </div>
         </div>
@@ -200,7 +199,7 @@ export function AddendumDetail({ id }: { id: string }) {
                   {addendum.contractNo}
                 </Link>
               </div>
-              <div><div className="text-xs text-muted-foreground">CHANGE TYPE</div><div>{humanize(addendum.changeType)}</div></div>
+              <div><div className="text-xs text-muted-foreground">CHANGE TYPE</div><div>{addendumChangeTypeLabel(addendum.changeType)}</div></div>
               <div><div className="text-xs text-muted-foreground">EFFECTIVE FROM</div><div>{formatDate(addendum.effectiveFrom)}</div></div>
               {addendum.newValidTo && <div><div className="text-xs text-muted-foreground">NEW VALID TO</div><div>{formatDate(addendum.newValidTo)}</div></div>}
               {addendum.paymentTermOverride && <div><div className="text-xs text-muted-foreground">PAYMENT TERM</div><div>{addendum.paymentTermOverride}</div></div>}
