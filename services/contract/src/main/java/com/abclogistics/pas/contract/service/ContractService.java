@@ -280,7 +280,7 @@ public class ContractService {
         Contract contract = get(id);
         if (contract.getStatus() != DocumentStatus.DRAFT) {
             throw new ConflictException(
-                    "Contract %s is %s; only a DRAFT can be submitted (registry §9)"
+                    "Contract %s is %s; only a DRAFT can be submitted"
                             .formatted(contract.getContractNo(), contract.getStatus()));
         }
         return contract;

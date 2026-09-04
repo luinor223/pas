@@ -26,7 +26,7 @@ public class StatusTransitionService {
         SessionStatus from = session.getStatus();
         if (!from.canTransitionTo(to, trigger)) {
             throw new FailedPreconditionException(
-                    "Signing session %s cannot move %s -> %s under trigger %s (registry §9)"
+                    "Signing session %s cannot move %s -> %s under trigger %s"
                             .formatted(session.getSessionNo(), from, to, trigger));
         }
         session.addStatusHistory(StatusHistory.create(session, from.name(), to.name(), trigger, null,

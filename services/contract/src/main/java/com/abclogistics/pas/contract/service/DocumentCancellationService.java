@@ -90,7 +90,7 @@ public class DocumentCancellationService {
         }
         if (!status.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)) {
             throw new ConflictException(
-                    "%s %s is %s and cannot be cancelled (registry §9)"
+                    "%s %s is %s and cannot be cancelled"
                             .formatted(type, document.getDocumentNo(), status));
         }
         return status;
@@ -112,7 +112,7 @@ public class DocumentCancellationService {
                 // a live instance: cancelling locally would strand it with assignees on it
                 throw new ConflictException(
                         ("%s %s is UNDER_REVIEW but has no dispatch intent to cancel against; "
-                         + "its workflow instance cannot be cancelled from here (registry §9¹)")
+                         + "its workflow instance cannot be cancelled from here")
                                 .formatted(type, id));
             }
             tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
