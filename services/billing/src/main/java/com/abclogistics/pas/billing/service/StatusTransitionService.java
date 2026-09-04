@@ -33,7 +33,7 @@ public class StatusTransitionService {
         StatementStatus from = statement.getStatus();
         if (from == null || !from.canTransitionTo(to, trigger)) {
             throw new FailedPreconditionException(
-                    "Payment statement %s cannot move %s -> %s under trigger %s (registry §9)"
+                    "Payment statement %s cannot move %s -> %s under trigger %s"
                             .formatted(statement.getStatementNo(), from, to, trigger));
         }
         record(statement, from, to, trigger, triggerRef);
