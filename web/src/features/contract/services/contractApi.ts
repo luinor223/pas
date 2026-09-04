@@ -5,10 +5,13 @@ import type {
   AttachmentResponse,
   ContractResponse,
   CustomerResponse,
+  CustomerMetricsResponse,
   ProgressResponse,
   StatusHistoryResponse,
   SubmitResponse,
   CancelResponse,
+  SigningSessionResponse,
+  SigningRequestStateResponse,
 } from "../types/contractTypes";
 import type {
   CustomerRequest,
@@ -20,6 +23,7 @@ type PageParams = {
   page?: number;
   size?: number;
   sort?: string;
+  cursor?: string;
 };
 
 export type CustomerListParams = PageParams & { q?: string; status?: string };
@@ -49,6 +53,7 @@ export const contractApi = {
       toPage<CustomerResponse>(r as unknown as { data: unknown; meta?: PageMeta }),
     ),
   getCustomer: (id: string) => api.get<CustomerResponse>(`/customers/${id}`).then((r) => r.data),
+  getCustomerMetrics: (id: string) => api.get<CustomerMetricsResponse>(`/customers/${id}/metrics`).then((r) => r.data),
   lookupCustomers: (ids: string[]) => api.get<CustomerResponse[]>(`/customers/lookup?ids=${ids.join(",")}`).then((r) => r.data),
   getCustomerContacts: (id: string) =>
     api.get<import("../types/contractTypes").CustomerContactResponse[]>(`/customers/${id}/contacts`).then((r) => r.data),
@@ -72,7 +77,10 @@ export const contractApi = {
   reviseContract: (id: string) => api.post<ContractResponse>(`/contracts/${id}/revise`).then((r) => r.data),
   progressContract: (id: string) => api.get<ProgressResponse>(`/contracts/${id}/progress`).then((r) => r.data),
   historyContract: (id: string) => api.get<StatusHistoryResponse[]>(`/contracts/${id}/history`).then((r) => r.data),
-  sendForSigningContract: (id: string) => api.post(`/contracts/${id}/send-for-signing`).then((r) => r.data),
+  sendForSigningContract: (id: string) => api.post<SigningRequestStateResponse>(`/contracts/${id}/send-for-signing`).then((r) => r.data),
+  signingRequestStateContract: (id: string) => api.get<SigningRequestStateResponse>(`/contracts/${id}/signing-request`).then((r) => r.data),
+  signingSessions: (documentType: "CONTRACT" | "ADDENDUM", documentId: string) =>
+    api.get<SigningSessionResponse[]>(`/signing-sessions/by-document/${documentType}/${documentId}`).then((r) => r.data),
 
   // Addenda
   listAddenda: (params: AddendumListParams = {}) =>
@@ -88,6 +96,8 @@ export const contractApi = {
   reviseAddendum: (id: string) => api.post<AddendumResponse>(`/addenda/${id}/revise`).then((r) => r.data),
   progressAddendum: (id: string) => api.get<ProgressResponse>(`/addenda/${id}/progress`).then((r) => r.data),
   historyAddendum: (id: string) => api.get<StatusHistoryResponse[]>(`/addenda/${id}/history`).then((r) => r.data),
+  sendForSigningAddendum: (id: string) => api.post<SigningRequestStateResponse>(`/addenda/${id}/send-for-signing`).then((r) => r.data),
+  signingRequestStateAddendum: (id: string) => api.get<SigningRequestStateResponse>(`/addenda/${id}/signing-request`).then((r) => r.data),
 
   // Attachments (query-param style)
   listAttachments: (ownerType: "CONTRACT" | "ADDENDUM", ownerId: string) =>

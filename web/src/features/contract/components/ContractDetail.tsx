@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { contractQuery, contractProgressQuery, contractHistoryQuery, addendaQuery, attachmentsQuery, customerQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
@@ -6,15 +6,19 @@ import { StatusBadge } from "@/shared/components/status-badge";
 import { Button } from "@/shared/components/button";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { AttachmentPanel } from "./AttachmentPanel";
+import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { AddendumResponse } from "../types/contractTypes";
-import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useCallback, useMemo } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { formatDate, formatDateTime, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
+import { DocumentSigningPanel } from "./DocumentSigningPanel";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import { addendumChangeTypeLabel } from "../contractOptions";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -25,23 +29,60 @@ const TABS: readonly TabItem<Tab>[] = [
   { value: "attachments", label: "Attachments" },
 ];
 
-export function ContractDetail({ id, initialTab }: { id: string; initialTab?: string }) {
+export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, relatedCursor }: {
+  id: string; tab?: Tab; relatedPage?: number; relatedCursor?: string;
+}) {
+  const navigate = useNavigate({ from: "/contracts" });
+  const queryClient = useQueryClient();
+  const tab = requestedTab ?? "overview";
   const q = useQuery(contractQuery(id));
   const progQ = useQuery(contractProgressQuery(id));
   const histQ = useQuery(contractHistoryQuery(id));
-  const addQ = useQuery(addendaQuery({ contractId: id, size: DEFAULT_PAGE_SIZE }));
+  const addQ = useQuery(addendaQuery({ contractId: id, page: relatedPage, size: DEFAULT_PAGE_SIZE, cursor: relatedCursor }));
   const attQ = useQuery(attachmentsQuery("CONTRACT", id));
-  const [tab, setTab] = useState<Tab>(
-    initialTab === "attachments" ? "attachments" : "overview",
-  );
+  const setTab = (next: Tab) => navigate({
+    to: "/contracts",
+    search: (previous) => ({
+      ...previous,
+      tab: next === "overview" ? undefined : next,
+      relatedPage: next === "addenda" ? previous.relatedPage : undefined,
+      relatedCursor: next === "addenda" ? previous.relatedCursor : undefined,
+    }),
+  });
+  const changeRelatedPage = (nextPage: number) => navigate({
+    to: "/contracts",
+    search: (previous) => ({
+      ...previous,
+      relatedPage: nextPage || undefined,
+      relatedCursor: previous.relatedCursor ?? addQ.data?.cursor,
+    }),
+  });
+  const recoverRelated = useCallback(() => {
+    queryClient.removeQueries({ queryKey: ["addenda"] });
+    navigate({
+      to: "/contracts",
+      search: (previous) => ({ ...previous, relatedPage: undefined, relatedCursor: undefined }),
+      replace: true,
+    });
+  }, [navigate, queryClient]);
+  useRecoverOutOfRangePage({
+    ready: addQ.isSuccess && tab === "addenda",
+    page: relatedPage,
+    totalPages: addQ.data?.totalPages ?? 0,
+    totalItems: addQ.data?.totalElements ?? 0,
+    recover: recoverRelated,
+  });
 
   const c = q.data;
   const custQ = useQuery(customerQuery(c?.customerId ?? ""));
   const customer = custQ.data;
 
   const addColumns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
-    { accessorKey: "addendumNo", header: "NO" },
-    { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
+    {
+      accessorKey: "addendumNo", header: "NO",
+      cell: ({ row }) => <Link to="/addenda" search={{ id: row.original.id } as never} className="text-blue-600 hover:underline">{row.original.addendumNo}</Link>,
+    },
+    { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{addendumChangeTypeLabel(row.original.changeType)}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
   ], []);
@@ -52,15 +93,6 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
 
   const readOnly = c.status !== "DRAFT" && c.status !== "REVISION_REQUESTED";
   const pdf = (attQ.data ?? []).find((a) => (a.contentType ?? "").includes("pdf") || a.fileName.toLowerCase().endsWith(".pdf"));
-  const progress = progQ.data;
-  const waiting = progress?.currentStep
-    ? `Waiting on ${progress.currentStep.name} — Assignee: ${progress.currentStep.assigneeNames.join(", ") || "—"}`
-    : progress?.workflowState === "INITIALIZATION_PENDING"
-      ? "Your submission is being prepared for approval"
-      : null;
-
-  const steps = progress?.steps ?? [];
-
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -68,7 +100,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
           <DetailBackButton to="/contracts" label="Back to contracts" />
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold">{c.contractNo}</h2>
+              <h1 className="text-xl font-bold">{c.contractNo}</h1>
               <StatusBadge status={c.status} />
             </div>
             <div className="text-sm text-muted-foreground">{c.serviceGroup.toLowerCase().replace(/_/g, " ")} services · {c.customerName}</div>
@@ -88,14 +120,16 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
         </div>
       </div>
 
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+      <TabBar id="contract-detail-tabs" panelId="contract-detail-panel" tabs={TABS} value={tab} onChange={setTab} />
 
+      <div id="contract-detail-panel" role="tabpanel" aria-labelledby={`contract-detail-tabs-tab-${tab}`} tabIndex={0}>
+      <h2 className="sr-only">{TABS.find((item) => item.value === tab)?.label}</h2>
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
             <Card>
               <CardHeader><CardTitle className="text-base">General information</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-3 gap-3 text-sm">
+              <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                 <div><div className="text-xs text-muted-foreground">CONTRACT NUMBER</div><div>{c.contractNo}</div></div>
                 <div><div className="text-xs text-muted-foreground">CUSTOMER</div><div><Link to="/customers" search={{ id: c.customerId } as never} className="text-blue-600 hover:underline">{c.customerName}</Link></div></div>
                 <div><div className="text-xs text-muted-foreground">TAX ID</div><div>{customer?.taxCode ?? (custQ.isLoading ? "…" : "—")}</div></div>
@@ -108,53 +142,24 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
             </Card>
             <Card>
               <CardHeader><CardTitle className="text-base">Commercial &amp; payment terms</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-2 gap-3 text-sm">
+              <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div><div className="text-xs text-muted-foreground">PAYMENT TERM</div><div>{c.paymentTerm ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">BILLING CYCLE</div><div className="capitalize">{c.billingCycle.toLowerCase()}</div></div>
                 <div><div className="text-xs text-muted-foreground">VAT RATE</div><div>{c.vatRate != null ? `${c.vatRate}%` : "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">PENALTY</div><div>{c.penaltyTerms ?? "—"}</div></div>
-                <div className="col-span-2"><div className="text-xs text-muted-foreground">SERVICE CLAUSE</div><div>{c.serviceClause ?? "—"}</div></div>
-                {c.description && <div className="col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{c.description}</div></div>}
+                <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">SERVICE CLAUSE</div><div>{c.serviceClause ?? "—"}</div></div>
+                {c.description && <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{c.description}</div></div>}
               </CardContent>
             </Card>
             <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} />
           </div>
 
           <div className="space-y-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Approval workflow</CardTitle></CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {progQ.isLoading ? <div className="text-muted-foreground">Loading...</div> : waiting ? (
-                  <div className="rounded bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800">{waiting}</div>
-                ) : null}
-                {steps.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">
-                    {progress?.workflowState === "INITIALIZATION_PENDING"
-                      ? "Your submission is being prepared for approval. This usually takes a moment."
-                      : "Submit the document to begin approval."}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {steps.map((s) => (
-                      <div key={s.stepNo} className="flex gap-2 items-start">
-                        <span className={`mt-1 h-4 w-4 rounded-full border flex items-center justify-center text-[10px] ${s.status === "APPROVED" ? "bg-green-600 text-white border-green-600" : s.status === "ACTIVE" ? "bg-amber-500 border-amber-500" : "border-gray-300"}`}>
-                          {s.status === "APPROVED" ? "✓" : ""}
-                        </span>
-                        <div>
-                          <div className="font-medium text-sm">{s.name} <span className="text-xs text-muted-foreground">· {s.approverRole}</span></div>
-                          <div className="text-xs text-muted-foreground">
-                            {s.action ? `${s.action.action} by ${s.action.actorName}${s.action.comment ? ` — "${s.action.comment}"` : ""}` : `${s.assigneeNames.join(", ") || "—"}${s.status === "ACTIVE" ? " - in progress" : ""}`}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ApprovalProgressPanel progress={progQ.data} isLoading={progQ.isLoading} error={progQ.error} />
+            <DocumentSigningPanel key={`CONTRACT:${c.id}`} documentType="CONTRACT" documentId={c.id} documentStatus={c.status} />
             <Card>
               <CardHeader><CardTitle className="text-base">Record metadata</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-2 gap-2 text-sm">
+              <CardContent className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                 <div><div className="text-xs text-muted-foreground">CREATED BY</div><div>{c.createdByName ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">CREATED AT</div><div className="text-xs">{formatDateTime(c.createdAt)}</div></div>
                 <div><div className="text-xs text-muted-foreground">LAST MODIFIED</div><div className="text-xs">{formatDateTime(c.updatedAt)}</div></div>
@@ -169,12 +174,13 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
         <Card>
           <CardHeader><CardTitle className="text-base">Addenda for {c.contractNo}</CardTitle></CardHeader>
           <CardContent>
-            {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={DEFAULT_PAGE_SIZE} />}
+            {addQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : addQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">Failed to load addenda</div>{relatedCursor && <Button variant="outline" size="sm" onClick={recoverRelated}>Return to first page</Button>}</div> : <DataTable columns={addColumns} data={addQ.data?.content ?? []} emptyMessage="No addenda" pageSize={DEFAULT_PAGE_SIZE} serverPagination={{ page: addQ.data?.number ?? relatedPage, totalPages: addQ.data?.totalPages ?? 0, totalItems: addQ.data?.totalElements ?? 0, onPageChange: changeRelatedPage }} />}
           </CardContent>
         </Card>
       )}
       {tab === "approval-history" && <Card><CardHeader><CardTitle className="text-base">Approval History</CardTitle></CardHeader><CardContent><HistoryTimeline history={histQ.data} isLoading={histQ.isLoading} /></CardContent></Card>}
       {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} />}
+      </div>
     </div>
   );
 }

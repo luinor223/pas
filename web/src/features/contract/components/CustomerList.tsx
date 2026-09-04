@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useCallback, useId, useState, useMemo } from "react";
 import { customersQuery, customerQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { CustomerResponse } from "../types/contractTypes";
@@ -10,7 +10,7 @@ import { Select } from "@/shared/components/select";
 import { Textarea } from "@/shared/components/textarea";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DataTable } from "@/shared/components/data-table";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { CellContext, ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { useForm, useFieldArray } from "react-hook-form";
@@ -18,7 +18,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
-import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { RowMenu } from "@/shared/components/row-menu";
@@ -27,6 +26,9 @@ import { SearchInput } from "@/shared/components/search-input";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ContactTable } from "./ContactTable";
 import { statusLabel } from "@/shared/lib/labels";
+import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import type { CustomerRouteSearch } from "../contractSearchParams";
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -51,14 +53,17 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export function CustomerList() {
+export function CustomerList({ search }: { search: CustomerRouteSearch }) {
+  const formId = useId();
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/customers" });
   const canRead = useHasPermission("customer:read");
+  const canReadContracts = useHasPermission("contract:read");
   const canWrite = useHasPermission("customer:write");
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("All");
-  const [page, setPage] = useState(0);
+  const q = search.q ?? "";
+  const status = search.status ?? "";
+  const page = search.page ?? 0;
+  const snapshotCursor = search.cursor;
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   // Customer id whose contacts are shown — the full record is fetched because
@@ -66,11 +71,32 @@ export function CustomerList() {
   const [viewContactsId, setViewContactsId] = useState<string | null>(null);
   const [confirmSuspend, setConfirmSuspend] = useState<CustomerResponse | null>(null);
 
-  const listQ = useQuery(customersQuery({ q: q || undefined, status: status === "All" ? undefined : status, page, size: PAGE_SIZE }));
+  const [searchText, setSearchText] = useDebouncedUrlValue(q, (value) => navigate({
+    to: "/customers",
+    search: (previous) => ({ ...previous, q: value || undefined, page: undefined, cursor: undefined }),
+  }));
+  const updateList = useCallback((patch: Partial<CustomerRouteSearch>, replace = false) => navigate({
+    to: "/customers",
+    search: (previous) => ({ ...previous, q: searchText || undefined, ...patch }),
+    replace,
+  }), [navigate, searchText]);
+  const restartListing = useCallback((patch: Partial<CustomerRouteSearch> = {}) =>
+    updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
+
+  const listQ = useQuery(customersQuery({ q: q || undefined, status: status || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor }));
   const viewContactsQ = useQuery({ ...customerQuery(viewContactsId ?? ""), enabled: !!viewContactsId });
 
   const customers = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
+
+  const changePage = (nextPage: number) => {
+    updateList({ page: nextPage || undefined, cursor: snapshotCursor ?? listQ.data?.cursor });
+  };
+  const recoverFirstPage = useCallback(() => {
+    qc.removeQueries({ queryKey: ["customers"] });
+    updateList({ page: undefined, cursor: undefined }, true);
+  }, [qc, updateList]);
+  useRecoverOutOfRangePage({ ready: listQ.isSuccess, page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, recover: recoverFirstPage });
 
 
 
@@ -144,7 +170,7 @@ export function CustomerList() {
   const columns = useMemo<ColumnDef<CustomerResponse>[]>(() => [
     {
       accessorKey: "code", header: "CODE",
-      cell: ({ row }) => <Link to="/customers" search={{ id: row.original.id } as never} className="font-medium text-blue-600 hover:underline">{row.original.code}</Link>,
+      cell: ({ row }) => <Link to="/customers" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.code}</Link>,
     },
     { accessorKey: "name", header: "CUSTOMER NAME", cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { accessorKey: "taxCode", header: "TAX ID", cell: ({ row }) => <span className="text-sm">{row.original.taxCode ?? "—"}</span> },
@@ -153,23 +179,23 @@ export function CustomerList() {
       id: "contact", header: "CONTACT",
       cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.primaryContact?.email ?? "—"}</span>,
     },
-    {
+    ...(canReadContracts ? [{
       id: "contracts", header: "CONTRACTS",
-      cell: ({ row }) => <span className="tabular-nums">{row.original.contractsCount}</span>,
-    },
+      cell: ({ row }: CellContext<CustomerResponse, unknown>) => <span className="tabular-nums">{row.original.contractsCount}</span>,
+    }] : []),
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     {
       id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const c = row.original;
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
-          { label: "View details", onClick: () => navigate({ to: "/customers", search: { id: c.id } as never }) },
+          { label: "View details", onClick: () => navigate({ to: "/customers", search: { ...search, q: searchText || undefined, id: c.id } }) },
           { label: "View contacts", onClick: () => setViewContactsId(c.id) },
         ];
         if (canWrite) items.push({ label: "Edit", onClick: () => onEdit(c) });
         if (canWrite && c.status === "ACTIVE") items.push({ label: "Suspend", onClick: () => setConfirmSuspend(c), danger: true });
         if (canWrite && c.status !== "ACTIVE") items.push({ label: "Activate", onClick: () => activateMut.mutate(c.id) });
-        items.push({ label: "View contracts", onClick: () => navigate({ to: "/contracts", search: { customerId: c.id } as never }) });
+        if (canReadContracts) items.push({ label: "View contracts", onClick: () => navigate({ to: "/contracts", search: { customerId: c.id } as never }) });
         return (
           <div className="text-right">
             <RowMenu items={items} />
@@ -177,7 +203,7 @@ export function CustomerList() {
         );
       },
     },
-  ], [canWrite, navigate]);
+  ], [canReadContracts, canWrite, navigate, search, searchText]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to customers.</CardContent></Card>;
 
@@ -191,20 +217,19 @@ export function CustomerList() {
               className="w-56 lg:w-72"
               label="Search customers"
               placeholder="Search code/name/tax..."
-              value={q}
-              onChange={(value) => { setQ(value); setPage(0); }}
+              value={searchText}
+              onChange={setSearchText}
             />
           {canWrite && <Button onClick={() => { reset({ name: "", shortName: "", taxCode: "", address: "", representativeName: "", representativePosition: "", segment: "", contacts: [{ fullName: "", title: "", email: "", phone: "", primary: true }] }); setOpenCreate(true); }}>+ New Customer</Button>}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <FilterBar>
-            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
-              <option value="All">Status: All</option><option value="ACTIVE">{statusLabel("ACTIVE")}</option><option value="SUSPENDED">{statusLabel("SUSPENDED")}</option>
+            <Select className="w-full sm:w-48" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as CustomerRouteSearch["status"] })}>
+              <option value="">Status: All</option><option value="ACTIVE">{statusLabel("ACTIVE")}</option><option value="SUSPENDED">{statusLabel("SUSPENDED")}</option>
             </Select>
           </FilterBar>
-          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={PAGE_SIZE} />}
-          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
+          {listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={customers} emptyMessage="No customers" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, onPageChange: changePage }} />}
         </CardContent>
       </Card>
 
@@ -236,32 +261,33 @@ export function CustomerList() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create customer</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
-            <div><Label>Name *</Label><Input {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Short name</Label><Input {...register("shortName")} /></div><div><Label>Tax code</Label><Input {...register("taxCode")} /></div></div>
-            <div><Label>Address</Label><Textarea {...register("address")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Representative</Label><Input {...register("representativeName")} /></div><div><Label>Position</Label><Input {...register("representativePosition")} /></div></div>
-            <div><Label>Segment</Label><Input {...register("segment")} placeholder="e.g. RETAIL" /></div>
+            <div><Label htmlFor={`${formId}-name`}>Name *</Label><Input id={`${formId}-name`} {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-short-name`}>Short name</Label><Input id={`${formId}-short-name`} {...register("shortName")} /></div><div><Label htmlFor={`${formId}-tax-code`}>Tax code</Label><Input id={`${formId}-tax-code`} {...register("taxCode")} /></div></div>
+            <div><Label htmlFor={`${formId}-address`}>Address</Label><Textarea id={`${formId}-address`} {...register("address")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-representative`}>Representative</Label><Input id={`${formId}-representative`} {...register("representativeName")} /></div><div><Label htmlFor={`${formId}-position`}>Position</Label><Input id={`${formId}-position`} {...register("representativePosition")} /></div></div>
+            <div><Label htmlFor={`${formId}-segment`}>Segment</Label><Input id={`${formId}-segment`} {...register("segment")} placeholder="e.g. RETAIL" /></div>
             <div>
-              <Label>Contacts</Label>
+              <div className="text-sm font-medium">Contacts</div>
               <div className="space-y-2 border rounded p-2">
                 {fields.map((f, i) => {
                   const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
                   return (
-                  <div key={f.id} className="rounded border p-2 space-y-2">
+                  <fieldset key={f.id} className="rounded border p-2 space-y-2">
+                    <legend className="px-1 text-xs font-semibold">Contact {i + 1}</legend>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label className="text-xs">Full name *</Label><Input placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
-                      <div><Label className="text-xs">Title</Label><Input placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
-                      <div><Label className="text-xs">Email</Label><Input placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
-                      <div><Label className="text-xs">Phone</Label><Input placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-name`} className="text-xs">Full name *</Label><Input id={`${formId}-contact-${i}-name`} aria-label={`Contact ${i + 1} full name`} placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-title`} className="text-xs">Title</Label><Input id={`${formId}-contact-${i}-title`} aria-label={`Contact ${i + 1} title`} placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-email`} className="text-xs">Email</Label><Input id={`${formId}-contact-${i}-email`} aria-label={`Contact ${i + 1} email`} placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-phone`} className="text-xs">Phone</Label><Input id={`${formId}-contact-${i}-phone`} aria-label={`Contact ${i + 1} phone`} placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
                     </div>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                        <input type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
-                        primary
+                        <input id={`${formId}-contact-${i}-primary`} aria-label={`Contact ${i + 1} primary contact`} type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
+                        Primary contact
                       </label>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Remove contact ${i + 1}`} onClick={() => remove(i)}>Remove</Button>
                     </div>
-                  </div>
+                  </fieldset>
                   );
                 })}
                 <Button type="button" variant="outline" size="sm" onClick={() => append({ fullName: "", title: "", email: "", phone: "", primary: false })}>+ Add contact</Button>
@@ -278,32 +304,33 @@ export function CustomerList() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Edit customer</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => updateMut.mutate(d))} className="space-y-3">
-            <div><Label>Name *</Label><Input {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Short name</Label><Input {...register("shortName")} /></div><div><Label>Tax code</Label><Input {...register("taxCode")} /></div></div>
-            <div><Label>Address</Label><Textarea {...register("address")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Representative</Label><Input {...register("representativeName")} /></div><div><Label>Position</Label><Input {...register("representativePosition")} /></div></div>
-            <div><Label>Segment</Label><Input {...register("segment")} /></div>
+            <div><Label htmlFor={`${formId}-name`}>Name *</Label><Input id={`${formId}-name`} {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-short-name`}>Short name</Label><Input id={`${formId}-short-name`} {...register("shortName")} /></div><div><Label htmlFor={`${formId}-tax-code`}>Tax code</Label><Input id={`${formId}-tax-code`} {...register("taxCode")} /></div></div>
+            <div><Label htmlFor={`${formId}-address`}>Address</Label><Textarea id={`${formId}-address`} {...register("address")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-representative`}>Representative</Label><Input id={`${formId}-representative`} {...register("representativeName")} /></div><div><Label htmlFor={`${formId}-position`}>Position</Label><Input id={`${formId}-position`} {...register("representativePosition")} /></div></div>
+            <div><Label htmlFor={`${formId}-segment`}>Segment</Label><Input id={`${formId}-segment`} {...register("segment")} /></div>
             <div>
-              <Label>Contacts</Label>
+              <div className="text-sm font-medium">Contacts</div>
               <div className="space-y-2 border rounded p-2">
                 {editLoading ? <div className="text-sm text-muted-foreground">Loading contacts...</div> : fields.map((f, i) => {
                   const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
                   return (
-                  <div key={f.id} className="rounded border p-2 space-y-2">
+                  <fieldset key={f.id} className="rounded border p-2 space-y-2">
+                    <legend className="px-1 text-xs font-semibold">Contact {i + 1}</legend>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label className="text-xs">Full name *</Label><Input {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
-                      <div><Label className="text-xs">Title</Label><Input {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
-                      <div><Label className="text-xs">Email</Label><Input {...register(`contacts.${i}.email` as const)} placeholder="Email" />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
-                      <div><Label className="text-xs">Phone</Label><Input {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-name`} className="text-xs">Full name *</Label><Input id={`${formId}-contact-${i}-name`} aria-label={`Contact ${i + 1} full name`} {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-title`} className="text-xs">Title</Label><Input id={`${formId}-contact-${i}-title`} aria-label={`Contact ${i + 1} title`} {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-email`} className="text-xs">Email</Label><Input id={`${formId}-contact-${i}-email`} aria-label={`Contact ${i + 1} email`} {...register(`contacts.${i}.email` as const)} placeholder="Email" />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-phone`} className="text-xs">Phone</Label><Input id={`${formId}-contact-${i}-phone`} aria-label={`Contact ${i + 1} phone`} {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
                     </div>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                        <input type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
-                        primary
+                        <input id={`${formId}-contact-${i}-primary`} aria-label={`Contact ${i + 1} primary contact`} type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
+                        Primary contact
                       </label>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Remove contact ${i + 1}`} onClick={() => remove(i)}>Remove</Button>
                     </div>
-                  </div>
+                  </fieldset>
                   );
                 })}
                 {editError && <div className="text-sm text-destructive">{editError}</div>}

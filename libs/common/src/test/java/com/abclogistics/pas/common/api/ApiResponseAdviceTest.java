@@ -41,6 +41,15 @@ class ApiResponseAdviceTest {
     }
 
     @Test
+    void errorFactoryProvidesAStableCodeAndRedactsUuidPathSegments() {
+        ApiError err = ApiError.of(403, "Forbidden", "ACCESS_DENIED", "Not allowed",
+                "/contracts/50000000-0000-4000-8000-000000000001/attachments");
+
+        assertThat(err.code()).isEqualTo("ACCESS_DENIED");
+        assertThat(err.path()).isEqualTo("/contracts/{id}/attachments");
+    }
+
+    @Test
     void doesNotDoubleWrap() {
         ApiResponse<Dto> already = ApiResponse.of(new Dto("x"));
         assertThat(wrap(already)).isSameAs(already);

@@ -14,6 +14,10 @@ import java.util.UUID;
 
 public interface SigningSessionRepository extends JpaRepository<SigningSession, UUID>, JpaSpecificationExecutor<SigningSession> {
 
+    @Query(value = "SELECT pg_advisory_xact_lock(hashtext(:docType), "
+            + "hashtext(CAST(:docId AS text)))", nativeQuery = true)
+    void lockDocument(@Param("docType") String documentType, @Param("docId") UUID documentId);
+
     @Query(value = "SELECT nextval('esign.signing_session_no_seq')", nativeQuery = true)
     long nextSessionNoSeq();
 
@@ -22,18 +26,23 @@ public interface SigningSessionRepository extends JpaRepository<SigningSession, 
     Optional<SigningSession> findByIdempotencyKey(UUID idempotencyKey);
 
     @Query("SELECT s FROM SigningSession s WHERE s.documentTypeCode = :docType AND s.documentId = :docId " +
-           "AND s.status IN ('PENDING_SEND', 'SIGNING') ORDER BY s.createdAt DESC")
+           "AND s.status IN ('PENDING_SEND', 'SIGNING') ORDER BY s.createdAt DESC, s.sessionOrdinal DESC")
     List<SigningSession> findActiveByDocument(@Param("docType") String docType, @Param("docId") UUID docId);
 
     @Query("SELECT s FROM SigningSession s WHERE s.documentTypeCode = :docType AND s.documentId = :docId " +
-           "ORDER BY s.createdAt DESC")
+           "ORDER BY s.createdAt DESC, s.sessionOrdinal DESC")
     List<SigningSession> findAllByDocument(@Param("docType") String docType, @Param("docId") UUID docId);
 
-    @Query("SELECT s FROM SigningSession s WHERE s.status IN ('PENDING_SEND', 'SIGNING') ORDER BY s.createdAt ASC")
+    @Query("SELECT s FROM SigningSession s WHERE s.status IN ('PENDING_SEND', 'SIGNING') " +
+           "ORDER BY s.createdAt ASC, s.sessionOrdinal ASC")
     List<SigningSession> findAllPendingOrSigning();
 
-    @Query("SELECT s FROM SigningSession s WHERE s.status = :status ORDER BY s.createdAt DESC")
+    @Query("SELECT s FROM SigningSession s WHERE s.status = :status " +
+           "ORDER BY s.createdAt DESC, s.sessionOrdinal DESC")
     Page<SigningSession> findByStatus(@Param("status") SigningSession.SessionStatus status, Pageable pageable);
+
+    @Query("SELECT s FROM SigningSession s ORDER BY s.createdAt DESC, s.sessionOrdinal DESC")
+    Page<SigningSession> findAllOrdered(Pageable pageable);
 
     boolean existsByDocumentTypeCodeAndDocumentIdAndStatusIn(String documentTypeCode, UUID documentId,
                                                               List<SigningSession.SessionStatus> statuses);

@@ -3,10 +3,13 @@ package com.abclogistics.pas.contract.service;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
+import com.abclogistics.pas.contract.dto.CustomerMetricsResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.common.error.UnprocessableEntityException;
@@ -18,6 +21,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,20 +54,31 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Customer> search(String query, String status, Pageable pageable) {
+    public Page<Customer> search(String query, String status, Instant snapshot, Pageable pageable) {
         return customers.search(
                 RequestValues.likePattern(query),
                 RequestValues.parseOptional("status", status,
                         CustomerStatus::valueOf, CustomerStatus.values()),
+                snapshot,
                 pageable);
     }
 
     @Transactional(readOnly = true)
-    public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
-        Page<Customer> page = search(query, status, pageable);
+    public Page<Customer> search(String query, String status, Pageable pageable) {
+        return search(query, status, Instant.now(), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerResponse> searchResponses(String query, String status, Instant snapshot, Pageable pageable) {
+        Page<Customer> page = search(query, status, snapshot, pageable);
         Map<UUID, CustomerResponse> responses = listResponses(page.getContent()).stream()
                 .collect(Collectors.toMap(CustomerResponse::id, Function.identity()));
         return page.map(customer -> responses.get(customer.getId()));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerResponse> searchResponses(String query, String status, Pageable pageable) {
+        return searchResponses(query, status, Instant.now(), pageable);
     }
 
     @Transactional(readOnly = true)
@@ -76,11 +91,12 @@ public class CustomerService {
         Map<UUID, CustomerContact> primaries = ids.isEmpty() ? Map.of()
                 : contacts.findByCustomerIdInAndPrimaryTrue(ids).stream()
                         .collect(Collectors.toMap(c -> c.getCustomer().getId(), Function.identity()));
-        Map<UUID, Long> counts = ids.isEmpty() ? Map.of()
+        boolean canReadContracts = SecurityUtils.hasPermission("contract:read");
+        Map<UUID, Long> counts = ids.isEmpty() || !canReadContracts ? Map.of()
                 : contracts.countByCustomerIds(ids).stream()
                         .collect(Collectors.toMap(r -> (UUID) r[0], r -> (Long) r[1]));
         return values.stream().map(c -> CustomerResponse.ofList(c, primaries.get(c.getId()),
-                counts.getOrDefault(c.getId(), 0L))).toList();
+                canReadContracts ? counts.getOrDefault(c.getId(), 0L) : null)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -93,7 +109,23 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public CustomerResponse toResponse(Customer customer) {
         return CustomerResponse.of(customer, contactsOf(customer.getId()),
-                contracts.countByCustomerId(customer.getId()));
+                SecurityUtils.hasPermission("contract:read")
+                        ? contracts.countByCustomerId(customer.getId()) : null);
+    }
+
+    @Transactional(readOnly = true)
+    public CustomerMetricsResponse metrics(UUID customerId) {
+        get(customerId); // preserve the customer API's 404 semantics
+        long activeContracts = contracts.countByCustomerIdAndStatus(
+                customerId, DocumentStatus.ACTIVE);
+        List<CustomerMetricsResponse.CurrencyValue> values = contracts
+                .sumValuesByCustomerAndStatusesGroupedByCurrency(customerId,
+                        List.of(DocumentStatus.APPROVED, DocumentStatus.ACTIVE))
+                .stream()
+                .map(row -> new CustomerMetricsResponse.CurrencyValue(
+                        (String) row[0], ((java.math.BigDecimal) row[1]).toPlainString()))
+                .toList();
+        return new CustomerMetricsResponse(activeContracts, values);
     }
 
     @Transactional(readOnly = true)
@@ -127,7 +159,9 @@ public class CustomerService {
     public Customer update(UUID id, CustomerRequest request) {
         if (request.contacts() == null) {
             throw new UnprocessableEntityException(
-                    "contacts is required on update; send [] to remove all contacts");
+                    "CUSTOMER_CONTACTS_REQUIRED",
+                    "Include customer contacts when saving. To remove all contacts, submit an empty contact list.",
+                    "Customer update omitted the contacts collection");
         }
         Customer customer = get(id);
         // taken before anything is applied: the audit row is the only record of the prior value

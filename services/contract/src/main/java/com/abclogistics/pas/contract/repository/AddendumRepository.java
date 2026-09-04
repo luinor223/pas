@@ -3,13 +3,16 @@ package com.abclogistics.pas.contract.repository;
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.ChangeType;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +24,11 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
     // contract + services outside the tx (open-in-view=false).
     @EntityGraph(attributePaths = {"contract", "services"})
     Optional<Addendum> findById(UUID id);
+
+    /** Serializes submission with attachment membership changes for this document. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Addendum a where a.id = :id")
+    Optional<Addendum> findByIdForUpdate(@Param("id") UUID id);
 
     Optional<Addendum> findByAddendumNo(String addendumNo);
 
@@ -36,6 +44,7 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
                    or lower(a.contract.contractNo) like :q)
               and (:#{#effectiveFromFrom == null} = true or a.effectiveFrom >= :effectiveFromFrom)
               and (:#{#effectiveFromTo == null} = true or a.effectiveFrom <= :effectiveFromTo)
+              and a.createdAt <= :snapshot
             """)
     Page<Addendum> search(@Param("contractId") UUID contractId,
                           @Param("status") DocumentStatus status,
@@ -43,6 +52,7 @@ public interface AddendumRepository extends JpaRepository<Addendum, UUID> {
                           @Param("q") String q,
                           @Param("effectiveFromFrom") LocalDate effectiveFromFrom,
                           @Param("effectiveFromTo") LocalDate effectiveFromTo,
+                          @Param("snapshot") Instant snapshot,
                           Pageable pageable);
 
     List<Addendum> findByContractId(UUID contractId);

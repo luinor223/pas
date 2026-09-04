@@ -37,7 +37,10 @@ public class AuthService {
         AppUser user = users.findByUsername(request.username())
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .filter(AppUser::isActive)
-                .orElseThrow(() -> new UnauthorizedException("Invalid username or password"));
+                .orElseThrow(() -> new UnauthorizedException(
+                        "INVALID_CREDENTIALS",
+                        "The username or password is incorrect.",
+                        "Invalid username or password"));
 
         user.recordLogin(Instant.now());
 
@@ -58,7 +61,10 @@ public class AuthService {
     public TokenResponse refresh(String refreshToken) {
         RefreshTokenService.Outcome outcome = refreshTokens.rotate(refreshToken);
         if (!outcome.isRotated()) {
-            throw new UnauthorizedException("Invalid refresh token");
+            throw new UnauthorizedException(
+                    "INVALID_REFRESH_TOKEN",
+                    "The refresh token is invalid or expired.",
+                    "Invalid refresh token");
         }
         JwtIssuer.IssuedToken access = jwtIssuer.issue(outcome.user());
         return new TokenResponse(

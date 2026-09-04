@@ -76,6 +76,23 @@ test("traps dialog focus, closes with Escape, and restores the trigger", async (
   await expect(reject).toBeFocused();
 });
 
+test("closes a dialog when the backdrop is clicked", async ({ page }) => {
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/inbox") return { body: envelope({ items: [approvalItem], page: 0, size: 15, totalItems: 1, totalPages: 1 }) };
+  });
+  await page.goto("/approvals");
+  const reject = page.getByRole("button", { name: "Reject" });
+  await reject.click();
+  const dialog = page.getByRole("dialog", { name: "Reject request" });
+  const bounds = await dialog.boundingBox();
+  expect(bounds).not.toBeNull();
+
+  // Click beside the dialog at the same vertical position. This guards against
+  // full-width layout wrappers accidentally intercepting backdrop clicks.
+  await page.mouse.click(8, bounds!.y + bounds!.height / 2);
+  await expect(dialog).toHaveCount(0);
+});
+
 test("opens approval actions when randomUUID is unavailable on a non-secure origin", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(Crypto.prototype, "randomUUID", { configurable: true, value: undefined });

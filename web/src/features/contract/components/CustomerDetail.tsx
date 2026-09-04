@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { customerQuery, contractsQuery } from "../hooks/contractQueries";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { customerMetricsQuery, customerQuery, contractsQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { Button } from "@/shared/components/button";
@@ -7,12 +7,15 @@ import { ContactTable } from "./ContactTable";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ContractResponse } from "../types/contractTypes";
-import { useState } from "react";
+import { useCallback, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { formatDate, formatMoney } from "@/shared/lib/format";
+import { formatDate, formatDecimalMoney, formatMoney } from "@/shared/lib/format";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { TabBar, type TabItem } from "@/shared/components/tab-bar";
+import { useHasPermission } from "@/features/auth/hooks/usePermissions";
+import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 
 type Tab = "overview" | "contracts" | "contacts";
 
@@ -22,11 +25,68 @@ const TABS: readonly TabItem<Tab>[] = [
   { value: "contacts", label: "Contacts" },
 ];
 
-export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void }) {
-  const navigate = useNavigate();
+export function CustomerDetail({ id, onEdit, tab: requestedTab, contractsPage = 0, contractsCursor }: {
+  id: string; onEdit?: () => void; tab?: Tab; contractsPage?: number; contractsCursor?: string;
+}) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate({ from: "/customers" });
+  const currentUserQ = useCurrentUser();
+  const canReadContracts = useHasPermission("contract:read");
+  const tab: Tab = requestedTab === "contracts" && !canReadContracts ? "overview" : requestedTab ?? "overview";
+  useEffect(() => {
+    if (currentUserQ.isSuccess && requestedTab === "contracts" && !canReadContracts) {
+      navigate({
+        to: "/customers",
+        search: (previous) => ({ ...previous, tab: undefined, contractsPage: undefined, contractsCursor: undefined }),
+        replace: true,
+      });
+    }
+  }, [canReadContracts, currentUserQ.isSuccess, navigate, requestedTab]);
   const q = useQuery(customerQuery(id));
-  const contractsQ = useQuery(contractsQuery({ customerId: id, size: DEFAULT_PAGE_SIZE }));
-  const [tab, setTab] = useState<Tab>("overview");
+  const metricsQ = useQuery({ ...customerMetricsQuery(id), enabled: canReadContracts && !!id });
+  const recentContractsQ = useQuery({
+    ...contractsQuery({ customerId: id, page: 0, size: 5, sort: "createdAt,desc" }),
+    enabled: canReadContracts && !!id,
+  });
+  const contractsQ = useQuery({
+    ...contractsQuery({ customerId: id, page: contractsPage, size: DEFAULT_PAGE_SIZE, sort: "createdAt,desc", cursor: contractsCursor }),
+    enabled: canReadContracts && tab === "contracts",
+  });
+  const tabs = canReadContracts ? TABS : TABS.filter((item) => item.value !== "contracts");
+  const setTab = (next: Tab) => navigate({
+    to: "/customers",
+    search: (previous) => ({
+      ...previous,
+      tab: next === "overview" ? undefined : next,
+      contractsPage: next === "contracts" ? previous.contractsPage : undefined,
+      contractsCursor: next === "contracts" ? previous.contractsCursor : undefined,
+    }),
+  });
+  const changeContractsPage = (nextPage: number) => {
+    navigate({
+      to: "/customers",
+      search: (previous) => ({
+        ...previous,
+        contractsPage: nextPage || undefined,
+        contractsCursor: previous.contractsCursor ?? contractsQ.data?.cursor,
+      }),
+    });
+  };
+  const recoverContracts = useCallback(() => {
+    queryClient.removeQueries({ queryKey: ["contracts"] });
+    navigate({
+      to: "/customers",
+      search: (previous) => ({ ...previous, contractsPage: undefined, contractsCursor: undefined }),
+      replace: true,
+    });
+  }, [navigate, queryClient]);
+  useRecoverOutOfRangePage({
+    ready: contractsQ.isSuccess && tab === "contracts",
+    page: contractsPage,
+    totalPages: contractsQ.data?.totalPages ?? 0,
+    totalItems: contractsQ.data?.totalElements ?? 0,
+    recover: recoverContracts,
+  });
 
   const c = q.data;
   if (q.isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -34,8 +94,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
   if (!c) return null;
 
   const contracts = contractsQ.data?.content ?? [];
-  const activeContracts = contracts.filter((x) => x.status === "ACTIVE").length;
-  const approvedValue = contracts.filter((x) => x.status === "APPROVED" || x.status === "ACTIVE").reduce((s, x) => s + (x.value ?? 0), 0);
+  const recentContracts = recentContractsQ.data?.content ?? [];
 
   const recentColumns: ColumnDef<ContractResponse>[] = [
     {
@@ -58,7 +117,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-sm font-bold text-blue-700">{initials}</div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold">{c.name}</h2>
+              <h1 className="text-xl font-bold">{c.name}</h1>
               <StatusBadge status={c.status} />
             </div>
             <div className="text-xs text-muted-foreground">{c.code} · Tax ID {c.taxCode ?? "—"} · Customer since {new Date(c.createdAt).getFullYear()}</div>
@@ -66,30 +125,50 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
         </div>
         <div className="flex gap-2">
           {onEdit && <Button variant="outline" onClick={onEdit}>Edit</Button>}
-          <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>View contracts</Button>
+          {canReadContracts && <Button onClick={() => navigate({ to: "/contracts", search: { customerId: c.id } as never })}>View contracts</Button>}
         </div>
       </div>
 
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+      <TabBar id="customer-detail-tabs" panelId="customer-detail-panel" tabs={tabs} value={tab} onChange={setTab} />
 
+      <div id="customer-detail-panel" role="tabpanel" aria-labelledby={`customer-detail-tabs-tab-${tab}`} tabIndex={0}>
+      <h2 className="sr-only">{tabs.find((item) => item.value === tab)?.label}</h2>
       {tab === "overview" && (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Active contracts</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : activeContracts}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved contract value</div><div className="text-2xl font-bold">{contractsQ.isLoading ? "…" : formatMoney(approvedValue, "VND")}</div><div className="mt-1 text-xs text-muted-foreground">Includes approved and active contracts</div></CardContent></Card>
-          </div>
+          {canReadContracts && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Active contracts</div><div className="text-2xl font-bold">{metricsQ.isLoading ? "…" : metricsQ.isError ? "Unavailable" : metricsQ.data?.activeContracts ?? 0}</div></CardContent></Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Approved contract value</div>
+                {metricsQ.isLoading ? (
+                  <div className="text-2xl font-bold">…</div>
+                ) : metricsQ.isError ? (
+                  <div className="text-sm text-destructive">Failed to load contract metrics</div>
+                ) : metricsQ.data?.approvedContractValues.length ? (
+                  <div className="space-y-1">
+                    {metricsQ.data.approvedContractValues.map((total) => (
+                      <div key={total.currency} className="text-2xl font-bold tabular-nums">{formatDecimalMoney(total.value, total.currency)}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No approved contract value</div>
+                )}
+                <div className="mt-1 text-xs text-muted-foreground">Includes approved and active contracts</div>
+              </CardContent>
+            </Card>
+          </div>}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
               <CardHeader><CardTitle className="text-base">Company information</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-3 gap-3 text-sm">
+              <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                 <div><div className="text-xs text-muted-foreground">LEGAL NAME</div><div>{c.name}</div></div>
                 <div><div className="text-xs text-muted-foreground">SHORT NAME</div><div>{c.shortName ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">TAX ID</div><div>{c.taxCode ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">REPRESENTATIVE</div><div>{c.representativeName ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">POSITION</div><div>{c.representativePosition ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">SEGMENT</div><div>{c.segment ?? "—"}</div></div>
-                <div className="col-span-3"><div className="text-xs text-muted-foreground">REGISTERED ADDRESS</div><div>{c.address ?? "—"}</div></div>
+                <div className="sm:col-span-3"><div className="text-xs text-muted-foreground">REGISTERED ADDRESS</div><div>{c.address ?? "—"}</div></div>
               </CardContent>
             </Card>
             <Card>
@@ -109,23 +188,36 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
             </Card>
           </div>
 
-          <Card>
+          {canReadContracts && <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Recent contracts</CardTitle>
-              <a href={`/contracts?customerId=${c.id}`} className="text-sm text-blue-600 hover:underline">View all</a>
+              <Link to="/contracts" search={{ customerId: c.id }} className="text-sm text-blue-600 hover:underline">View all</Link>
             </CardHeader>
             <CardContent>
-              {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts.slice(0, 5)} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
+              {recentContractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : recentContractsQ.isError ? <div className="text-sm text-destructive">Failed to load recent contracts</div> : <DataTable columns={recentColumns} data={recentContracts} emptyMessage="No contracts" pageSize={5} />}
             </CardContent>
-          </Card>
+          </Card>}
         </>
       )}
 
-      {tab === "contracts" && (
+      {canReadContracts && tab === "contracts" && (
         <Card>
           <CardHeader><CardTitle className="text-base">Contracts · {c.name}</CardTitle></CardHeader>
           <CardContent>
-            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : <DataTable columns={recentColumns} data={contracts} emptyMessage="No contracts" pageSize={DEFAULT_PAGE_SIZE} />}
+            {contractsQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : contractsQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">Failed to load contracts</div>{contractsCursor && <Button variant="outline" size="sm" onClick={recoverContracts}>Return to first page</Button>}</div> : (
+              <DataTable
+                columns={recentColumns}
+                data={contracts}
+                emptyMessage="No contracts"
+                pageSize={DEFAULT_PAGE_SIZE}
+                serverPagination={{
+                  page: contractsQ.data?.number ?? contractsPage,
+                  totalPages: contractsQ.data?.totalPages ?? 0,
+                  totalItems: contractsQ.data?.totalElements ?? 0,
+                  onPageChange: changeContractsPage,
+                }}
+              />
+            )}
           </CardContent>
         </Card>
       )}
@@ -138,6 +230,7 @@ export function CustomerDetail({ id, onEdit }: { id: string; onEdit?: () => void
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
   );
 }

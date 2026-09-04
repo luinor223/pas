@@ -2,6 +2,7 @@ package com.abclogistics.pas.contract.dto;
 
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.AddendumServiceLine;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -21,6 +22,7 @@ public record AddendumResponse(
         List<ServiceLine> services,
         int version) {
 
+    @Schema(name = "AddendumResponseServiceLine")
     public record ServiceLine(UUID id, UUID serviceItemId, String serviceCode,
                               String serviceName, String unit, String scopeNote) { }
 

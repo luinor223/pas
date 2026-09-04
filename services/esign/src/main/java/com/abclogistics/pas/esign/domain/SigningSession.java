@@ -40,6 +40,9 @@ public class SigningSession {
     @Column(name = "session_no", nullable = false, unique = true, updatable = false)
     private String sessionNo;
 
+    @Column(name = "session_ordinal", nullable = false, unique = true, updatable = false)
+    private long sessionOrdinal;
+
     @Column(name = "document_type_code", nullable = false, updatable = false)
     private String documentTypeCode;
 
@@ -126,6 +129,7 @@ public class SigningSession {
     /** Called after persist to set the DB-generated session_no. */
     public void setSessionNo(String sessionNo) {
         this.sessionNo = sessionNo;
+        this.sessionOrdinal = Long.parseLong(sessionNo.substring("SIG-".length()));
     }
 
     public void markSent(String providerRef) {
@@ -157,6 +161,7 @@ public class SigningSession {
     // Getters
     public UUID getId() { return id; }
     public String getSessionNo() { return sessionNo; }
+    public long getSessionOrdinal() { return sessionOrdinal; }
     public String getDocumentTypeCode() { return documentTypeCode; }
     public UUID getDocumentId() { return documentId; }
     public String getDocumentNo() { return documentNo; }

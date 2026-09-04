@@ -8,14 +8,19 @@ import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.CustomerStatus;
+import com.abclogistics.pas.contract.domain.Contract;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
+import com.abclogistics.pas.contract.dto.CustomerMetricsResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
+import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
+import com.abclogistics.pas.contract.service.PageableGuard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -24,7 +29,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -34,23 +42,38 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -104,15 +127,20 @@ class CustomerCrudTest {
     @Autowired OutboxRepository outbox;
     @Autowired StatusHistoryRepository history;
     @Autowired TransactionTemplate tx;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired ObjectMapper objectMapper;
+    @MockitoSpyBean ContractRepository contractRepository;
 
     @BeforeEach
     void authenticate() {
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(SALES, null, List.of()));
+                new UsernamePasswordAuthenticationToken(SALES, null,
+                        List.of(new SimpleGrantedAuthority("contract:read"))));
         // The HTTP tests go through HeaderAuthenticationFilter, which resolves permissions from
         // this key — without it customer:write is absent and every write would 403.
         mvc = MockMvcBuilders.webAppContextSetup(webContext).addFilters(securityFilterChain).build();
-        redisTemplate.opsForValue().set("perm:role:SALES", "[\"customer:read\",\"customer:write\"]");
+        redisTemplate.opsForValue().set("perm:role:SALES",
+                "[\"customer:read\",\"customer:write\",\"contract:read\"]");
     }
 
     @AfterEach
@@ -193,13 +221,316 @@ class CustomerCrudTest {
     }
 
     @Test
-    void detailCarriesContractsCount() {
+    void detailCarriesContractsCount() throws Exception {
         UUID id = tx.execute(s -> customers.create(request("Counted Co")).getId());
         tx.executeWithoutResult(s -> contracts.create(contractRequest(id)));
 
         CustomerResponse detail = tx.execute(s -> customers.toResponse(customers.get(id)));
 
         assertThat(detail.contractsCount()).isEqualTo(1L);
+        mvc.perform(get("/customers/{id}", id).headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contractsCount").value(1));
+    }
+
+    @Test
+    void metricsAggregateEveryContractAndKeepCurrenciesSeparate() throws Exception {
+        UUID id = tx.execute(s -> customers.create(request("Metrics Co")).getId());
+        tx.executeWithoutResult(s -> {
+            for (int i = 0; i < 16; i++) {
+                createContract(id, "1000000", "VND", DocumentStatus.ACTIVE);
+            }
+            createContract(id, "2500000", "VND", DocumentStatus.APPROVED);
+            createContract(id, "125.50", "USD", DocumentStatus.APPROVED);
+            createContract(id, "999999999", "VND", DocumentStatus.DRAFT);
+            createContract(id, "999", "USD", DocumentStatus.CANCELLED);
+        });
+
+        assertThat(tx.execute(s -> contracts.search(id, null, null, null,
+                PageRequest.of(0, 15))).getContent()).hasSize(15);
+
+        CustomerMetricsResponse metrics = tx.execute(s -> customers.metrics(id));
+        assertThat(metrics.activeContracts()).isEqualTo(16);
+        assertThat(metrics.approvedContractValues())
+                .extracting(CustomerMetricsResponse.CurrencyValue::currency,
+                        CustomerMetricsResponse.CurrencyValue::value)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("USD", "125.50"),
+                        org.assertj.core.groups.Tuple.tuple("VND", "18500000.00"));
+
+        mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeContracts").value(16))
+                .andExpect(jsonPath("$.data.approvedContractValues[0].currency").value("USD"))
+                .andExpect(jsonPath("$.data.approvedContractValues[0].value").value("125.50"))
+                .andExpect(jsonPath("$.data.approvedContractValues[1].currency").value("VND"))
+                .andExpect(jsonPath("$.data.approvedContractValues[1].value").value("18500000.00"));
+    }
+
+    @Test
+    void metricsPreserveLargeDecimalsOmitNullsAndKeepZero() throws Exception {
+        UUID id = tx.execute(s -> customers.create(request("Precise Metrics Co")).getId());
+        tx.executeWithoutResult(s -> {
+            createContract(id, "9007199254740993.11", "VND", DocumentStatus.ACTIVE);
+            createContract(id, "1.22", "VND", DocumentStatus.APPROVED);
+            createContract(id, null, "EUR", DocumentStatus.APPROVED);
+            createContract(id, "0", "JPY", DocumentStatus.APPROVED);
+        });
+
+        CustomerMetricsResponse metrics = tx.execute(s -> customers.metrics(id));
+        assertThat(metrics.activeContracts()).isEqualTo(1);
+        assertThat(metrics.approvedContractValues())
+                .extracting(CustomerMetricsResponse.CurrencyValue::currency,
+                        CustomerMetricsResponse.CurrencyValue::value)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("JPY", "0.00"),
+                        org.assertj.core.groups.Tuple.tuple("VND", "9007199254740994.33"));
+
+        mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.approvedContractValues[1].value")
+                        .value("9007199254740994.33"));
+    }
+
+    @Test
+    void customerContractPagesUseStableDefaultsForOmittedAndInvalidSorts() throws Exception {
+        UUID id = tx.execute(s -> customers.create(request("Stable Pages Co")).getId());
+        Contract first = tx.execute(s -> createContract(
+                id, "1", "VND", DocumentStatus.DRAFT));
+        Contract second = tx.execute(s -> createContract(
+                id, "2", "VND", DocumentStatus.DRAFT));
+        jdbc.update("update contract.contract set created_at = '2026-09-04T00:00:00Z' "
+                + "where id in (?, ?)", first.getId(), second.getId());
+        var firstPage = PageableGuard.sanitize(
+                PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")),
+                PageableGuard.CONTRACT_SORTS);
+        var secondPage = PageableGuard.sanitize(
+                PageRequest.of(1, 1, Sort.by(Sort.Direction.DESC, "createdAt")),
+                PageableGuard.CONTRACT_SORTS);
+
+        // PostgreSQL compares UUID bytes as unsigned values, equivalent to canonical hex text.
+        List<UUID> expected = java.util.stream.Stream.of(first.getId(), second.getId())
+                .map(UUID::toString).sorted(Comparator.reverseOrder()).map(UUID::fromString).toList();
+        assertThat(tx.execute(s -> contracts.search(id, null, null, null, firstPage)).getContent())
+                .extracting(Contract::getId).containsExactly(expected.get(0));
+        assertThat(tx.execute(s -> contracts.search(id, null, null, null, secondPage)).getContent())
+                .extracting(Contract::getId).containsExactly(expected.get(1));
+
+        for (String sortQuery : List.of("", "&sort=notAllowed,asc")) {
+            mvc.perform(get("/contracts?customerId={id}&size=1&page=0" + sortQuery, id)
+                            .headers(salesHeaders()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].id").value(expected.get(0).toString()));
+            mvc.perform(get("/contracts?customerId={id}&size=1&page=1" + sortQuery, id)
+                            .headers(salesHeaders()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].id").value(expected.get(1).toString()));
+        }
+    }
+
+    @Test
+    void snapshotCursorPreventsConcurrentInsertFromShiftingContractPages() throws Exception {
+        UUID customerId = tx.execute(s -> customers.create(request("Snapshot Pages Co")).getId());
+        List<UUID> originalIds = tx.execute(s -> List.of(
+                contracts.create(contractRequest(customerId)).getId(),
+                contracts.create(contractRequest(customerId)).getId(),
+                contracts.create(contractRequest(customerId)).getId()));
+
+        String firstBody = mvc.perform(get("/contracts")
+                        .param("customerId", customerId.toString())
+                        .param("size", "2")
+                        .param("page", "0")
+                        .headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.totalElements").value(3))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode firstJson = objectMapper.readTree(firstBody);
+        String cursor = firstJson.get("meta").get("cursor").asText();
+
+        UUID insertedId;
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            insertedId = executor.submit(() -> {
+                SecurityContextHolder.getContext().setAuthentication(
+                        new UsernamePasswordAuthenticationToken(SALES, null,
+                                List.of(new SimpleGrantedAuthority("contract:read"))));
+                try {
+                    return tx.execute(s -> contracts.create(contractRequest(customerId)).getId());
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            }).get();
+        }
+        // Make the insertion boundary unambiguous even on databases with coarse clock precision.
+        jdbc.update("update contract.contract set created_at = clock_timestamp() + interval '10 seconds' where id = ?",
+                insertedId);
+
+        String secondBody = mvc.perform(get("/contracts")
+                        .param("customerId", customerId.toString())
+                        .param("size", "2")
+                        .param("page", "1")
+                        .param("cursor", cursor)
+                        .headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.totalElements").value(3))
+                .andReturn().getResponse().getContentAsString();
+
+        List<UUID> pagedIds = new ArrayList<>();
+        firstJson.get("data").forEach(node -> pagedIds.add(UUID.fromString(node.get("id").asText())));
+        objectMapper.readTree(secondBody).get("data")
+                .forEach(node -> pagedIds.add(UUID.fromString(node.get("id").asText())));
+
+        assertThat(pagedIds).hasSize(3).doesNotHaveDuplicates();
+        assertThat(Set.copyOf(pagedIds)).isEqualTo(Set.copyOf(originalIds));
+        assertThat(pagedIds).doesNotContain(insertedId);
+    }
+
+    @Test
+    void invalidAndTamperedPageCursorsReturnSafeClientErrors() throws Exception {
+        String firstBody = mvc.perform(get("/contracts").headers(salesHeaders()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String issued = objectMapper.readTree(firstBody).get("meta").get("cursor").asText();
+        int signatureStart = issued.lastIndexOf('.') + 1;
+        char firstSignatureCharacter = issued.charAt(signatureStart);
+        String tampered = issued.substring(0, signatureStart)
+                + (firstSignatureCharacter == 'A' ? 'B' : 'A')
+                + issued.substring(signatureStart + 1);
+
+        for (String cursor : List.of("not-a-valid-cursor", tampered)) {
+            mvc.perform(get("/contracts").param("cursor", cursor).headers(salesHeaders()))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.message").value(
+                            "The page cursor is invalid or has expired; return to the first page."));
+        }
+    }
+
+    @Test
+    void metricsForACustomerWithoutContractsAreEmpty() throws Exception {
+        UUID id = tx.execute(s -> customers.create(request("Empty Metrics Co")).getId());
+
+        CustomerMetricsResponse metrics = tx.execute(s -> customers.metrics(id));
+        assertThat(metrics.activeContracts()).isZero();
+        assertThat(metrics.approvedContractValues()).isEmpty();
+
+        mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeContracts").value(0))
+                .andExpect(jsonPath("$.data.approvedContractValues").isEmpty());
+    }
+
+    @Test
+    void metricsEndpointRejectsCustomerOnlyPermission() throws Exception {
+        UUID id = tx.execute(s -> customers.create(request("Private Metrics Co")).getId());
+        tx.executeWithoutResult(s -> contracts.create(contractRequest(id)));
+        clearInvocations(contractRepository);
+        redisTemplate.opsForValue().set("perm:role:SALES", "[\"customer:read\"]");
+
+        mvc.perform(get("/customers/{id}", id).headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contractsCount").value(org.hamcrest.Matchers.nullValue()));
+        mvc.perform(get("/customers").param("q", "Private Metrics Co").headers(salesHeaders()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].contractsCount").value(org.hamcrest.Matchers.nullValue()));
+        mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                .andExpect(jsonPath("$.path").value("/customers/{id}/metrics"));
+
+        verify(contractRepository, never()).countByCustomerId(any());
+        verify(contractRepository, never()).countByCustomerIds(anyList());
+    }
+
+    @Test
+    void metricsEndpointRejectsContractOnlyPermission() throws Exception {
+        UUID id = tx.execute(s -> customers.create(request("Private Metrics Co")).getId());
+        redisTemplate.opsForValue().set("perm:role:SALES", "[\"contract:read\"]");
+
+        mvc.perform(get("/customers/{id}/metrics", id).headers(salesHeaders()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                .andExpect(jsonPath("$.path").value("/customers/{id}/metrics"));
+    }
+
+    @Test
+    void metricsEndpointReturnsNotFoundForAnUnknownCustomer() throws Exception {
+        UUID missing = UUID.fromString("00000000-0000-4000-8000-000000000099");
+
+        mvc.perform(get("/customers/{id}/metrics", missing).headers(salesHeaders()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/customers/{id}/metrics"));
+    }
+
+    @Test
+    void attachmentEndpointMissingOwnerTypeReturnsAStableSafeError() throws Exception {
+        mvc.perform(get("/attachments")
+                        .param("ownerId", UUID.randomUUID().toString())
+                        .headers(salesHeaders()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_REQUEST_VALUE"))
+                .andExpect(jsonPath("$.message").value("A required request value is missing."))
+                .andExpect(jsonPath("$.path").value("/attachments"));
+    }
+
+    @Test
+    void attachmentUploadMissingFileReturnsAStableSafeError() throws Exception {
+        mvc.perform(multipart("/attachments")
+                        .param("ownerType", "CONTRACT")
+                        .param("ownerId", UUID.randomUUID().toString())
+                        .headers(salesHeaders()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_REQUEST_VALUE"))
+                .andExpect(jsonPath("$.message").value("A required request value is missing."))
+                .andExpect(jsonPath("$.path").value("/attachments"));
+    }
+
+    @Test
+    void unknownRouteUsesTheStableEnvelopeAndRedactsItsUuid() throws Exception {
+        UUID secret = UUID.fromString("90000000-0000-4000-8000-000000000001");
+
+        mvc.perform(get("/unknown-resource/{id}", secret).headers(salesHeaders()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("The requested resource was not found."))
+                .andExpect(jsonPath("$.path").value("/unknown-resource/{id}"));
+    }
+
+    @Test
+    void generatedOpenApiPublishesTheSharedErrorContract() throws Exception {
+        String document = mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode root = objectMapper.readTree(document);
+        JsonNode error = root.path("components").path("schemas").path("ApiError");
+
+        assertThat(error.path("required").valueStream().map(JsonNode::asString).toList())
+                .contains("code", "violations", "message", "path");
+        assertThat(error.path("properties").path("code").path("type").asString())
+                .isEqualTo("string");
+        assertThat(error.path("properties").path("violations").path("items").path("$ref").asString())
+                .isEqualTo("#/components/schemas/ApiErrorFieldViolation");
+        assertThat(root.at("/paths/~1customers/get/responses/default/$ref").asString())
+                .isEqualTo("#/components/responses/ApiErrorResponse");
+    }
+
+    @Test
+    void generatedOpenApiMatchesTheVersionedContract() throws Exception {
+        String generated = mvc.perform(get("/v3/api-docs.yaml"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()
+                .replace("\r\n", "\n");
+        Path snapshot = Path.of(System.getProperty("contract.openapi.snapshot"));
+        if (Boolean.getBoolean("contract.openapi.update")) {
+            Files.writeString(snapshot, generated);
+        }
+
+        assertThat(Files.readString(snapshot).replace("\r\n", "\n"))
+                .as("Run ./gradlew :services:contract-service:test "
+                        + "--tests com.abclogistics.pas.contract.CustomerCrudTest "
+                        + "-PincludeIntegration -PupdateContractOpenApi after an intentional API change")
+                .isEqualTo(generated);
     }
 
     // ---- update --------------------------------------------------------------------------
@@ -242,8 +573,12 @@ class CustomerCrudTest {
         // PUT is full replacement, so an omitted contacts is an incomplete request — not a
         // licence to wipe the set behind the caller's back
         assertThatThrownBy(() -> tx.execute(s -> customers.update(id, noContacts)))
-                .isInstanceOf(UnprocessableEntityException.class)
-                .hasMessageContaining("contacts is required");
+                .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+                    assertThat(ex.getPublicCode()).isEqualTo("CUSTOMER_CONTACTS_REQUIRED");
+                    assertThat(ex.getPublicMessage())
+                            .isEqualTo("Include customer contacts when saving. To remove all contacts, submit an empty contact list.");
+                    assertThat(ex.getMessage()).contains("omitted the contacts collection");
+                });
         assertThat(namesOf(id)).containsExactly("Keep Me");
     }
 
@@ -269,8 +604,9 @@ class CustomerCrudTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Wire Co\"}"))
                 .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("CUSTOMER_CONTACTS_REQUIRED"))
                 .andExpect(jsonPath("$.message").value(
-                        "contacts is required on update; send [] to remove all contacts"));
+                        "Include customer contacts when saving. To remove all contacts, submit an empty contact list."));
 
         assertThat(namesOf(id)).containsExactly("Keep Me");
     }
@@ -534,6 +870,17 @@ class CustomerCrudTest {
                 new BigDecimal("1000000"), "VND",
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31),
                 "NET30", "MONTHLY", new BigDecimal("10"), null, null, null);
+    }
+
+    private Contract createContract(UUID customerId, String value, String currency,
+                                    DocumentStatus status) {
+        Contract contract = contracts.create(new ContractRequest(
+                customerId, "metric work", "TRANSPORTATION",
+                value == null ? null : new BigDecimal(value), currency,
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31),
+                "NET30", "MONTHLY", new BigDecimal("10"), null, null, null));
+        contract.setStatus(status);
+        return contract;
     }
 
     private static CustomerRequest request(String name, String taxCode) {

@@ -1,6 +1,8 @@
 package com.abclogistics.pas.contract.dto;
 
 import com.abclogistics.pas.contract.domain.Contract;
+import com.abclogistics.pas.contract.domain.DocumentStatus;
+import com.abclogistics.pas.common.security.SecurityUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -25,6 +27,7 @@ public record ContractResponse(
         String serviceClause,
         String status,
         boolean editable,
+        boolean canCreateAddendum,
         int version,
         Instant createdAt,
         String createdByName,
@@ -37,7 +40,14 @@ public record ContractResponse(
                 c.getDescription(), c.getServiceGroup().name(), c.getValue(), c.getCurrency(),
                 c.getValidFrom(), c.getValidTo(), c.getPaymentTerm(), c.getBillingCycle().name(),
                 c.getVatRate(), c.getPenaltyTerms(), c.getServiceClause(),
-                c.getStatus().name(), c.getStatus().isEditable(), c.getVersion(),
+                c.getStatus().name(), c.getStatus().isEditable(), canCreateAddendum(c), c.getVersion(),
                 c.getCreatedAt(), c.getCreatedByName(), c.getUpdatedAt());
+    }
+
+    private static boolean canCreateAddendum(Contract contract) {
+        DocumentStatus status = contract.getStatus();
+        return SecurityUtils.hasPermission("addendum:write")
+                && SecurityUtils.hasPermission("contract:read")
+                && (status == DocumentStatus.APPROVED || status == DocumentStatus.ACTIVE);
     }
 }

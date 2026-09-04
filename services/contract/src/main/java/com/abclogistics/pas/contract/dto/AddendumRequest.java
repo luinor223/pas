@@ -1,5 +1,6 @@
 package com.abclogistics.pas.contract.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -19,6 +20,7 @@ public record AddendumRequest(
         @Valid List<ServiceLine> services,
         Integer version) {
 
+    @Schema(name = "AddendumRequestServiceLine")
     public record ServiceLine(
             UUID serviceItemId,
             @NotBlank String serviceCode,

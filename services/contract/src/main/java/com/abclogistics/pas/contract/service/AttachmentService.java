@@ -97,8 +97,10 @@ public class AttachmentService {
         }
         String fileName = requireFileName(file.getOriginalFilename());
         requirePermission(ownerType, WRITE);
-        String ownerDocumentNo = requireEditableOwner(ownerType, ownerId);
 
+        // Stage bytes before taking the owner-row lock. If submission wins while storage is in
+        // progress, the locked status re-check below rejects this upload and rollback removes the
+        // staged object. Slow object storage must not extend the database critical section.
         UUID id = UUID.randomUUID();
         String storageKey;
         try (InputStream content = file.getInputStream()) {
@@ -107,6 +109,7 @@ public class AttachmentService {
             throw new UncheckedIOException("Failed to store attachment for %s %s".formatted(ownerType, ownerId), e);
         }
         deleteOnRollback(storageKey);
+        String ownerDocumentNo = requireEditableOwner(ownerType, ownerId);
 
         Attachment attachment = Attachment.create(ownerType, ownerId,
                 fileName, safeContentType(file.getContentType()), file.getSize(),
@@ -162,12 +165,12 @@ public class AttachmentService {
         DocumentStatus status;
         String documentNo;
         if (ownerType == EntityType.CONTRACT) {
-            var contract = contracts.findById(ownerId)
+            var contract = contracts.findByIdForUpdate(ownerId)
                     .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(ownerId)));
             status = contract.getStatus();
             documentNo = contract.getContractNo();
         } else {
-            var addendum = addenda.findById(ownerId)
+            var addendum = addenda.findByIdForUpdate(ownerId)
                     .orElseThrow(() -> new NotFoundException("Addendum %s not found".formatted(ownerId)));
             status = addendum.getStatus();
             documentNo = addendum.getAddendumNo();

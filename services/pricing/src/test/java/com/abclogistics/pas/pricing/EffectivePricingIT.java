@@ -14,6 +14,7 @@ import com.abclogistics.pas.pricing.service.EffectivePriceService.ResolvedPriceL
 import com.abclogistics.pas.pricing.service.PriceListService;
 import com.abclogistics.pas.pricing.service.PriceListService.LineInput;
 import com.abclogistics.pas.pricing.service.PriceListVersionService;
+import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -112,6 +113,24 @@ class EffectivePricingIT {
         versions.saveAndFlush(v1);
         v2.setStatus(PriceListVersionStatus.APPROVED);
         assertThatThrownBy(() -> versions.saveAndFlush(v2)).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void blockingOverlapHasAReviewedPublicErrorAndPrivateRuleDiagnostic() {
+        PriceList list = lists.create(UUID.randomUUID(), null, "WAREHOUSING", null);
+        PriceListVersion candidate = version(
+                list.getId(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 9, 30));
+        PriceListVersion approved = version(
+                list.getId(), LocalDate.of(2026, 6, 1), LocalDate.of(2026, 12, 31));
+        approved.setStatus(PriceListVersionStatus.APPROVED);
+        versions.saveAndFlush(approved);
+
+        assertThatThrownBy(() -> versionService.submit(candidate.getId()))
+                .isInstanceOfSatisfying(ConflictException.class, ex -> {
+                    assertThat(ex.getPublicCode()).isEqualTo("PRICE_LIST_DATE_OVERLAP");
+                    assertThat(ex.getPublicMessage()).doesNotContain("PRC-03");
+                    assertThat(ex.getMessage()).contains("PRC-03");
+                });
     }
 
     @Test

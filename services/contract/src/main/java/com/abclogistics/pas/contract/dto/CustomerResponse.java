@@ -20,12 +20,12 @@ public record CustomerResponse(
         String status,
         List<CustomerContactResponse> contacts,
         CustomerContactResponse primaryContact,
-        long contractsCount,
+        Long contractsCount,
         Instant createdAt,
         String createdByName,
         Instant updatedAt
 ) {
-    public static CustomerResponse of(Customer c, List<CustomerContact> contacts, long contractsCount) {
+    public static CustomerResponse of(Customer c, List<CustomerContact> contacts, Long contractsCount) {
         List<CustomerContactResponse> mapped = contacts.stream().map(CustomerContactResponse::of).toList();
         CustomerContactResponse primary = contacts.stream()
                 .filter(CustomerContact::isPrimary)
@@ -42,7 +42,7 @@ public record CustomerResponse(
                 c.getCreatedAt(), c.getCreatedByName(), c.getUpdatedAt());
     }
 
-    public static CustomerResponse ofList(Customer c, CustomerContact primary, long contractsCount) {
+    public static CustomerResponse ofList(Customer c, CustomerContact primary, Long contractsCount) {
         return new CustomerResponse(
                 c.getId(), c.getCode(), c.getName(), c.getShortName(), c.getTaxCode(),
                 c.getAddress(), c.getRepresentativeName(), c.getRepresentativePosition(),

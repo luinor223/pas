@@ -55,7 +55,7 @@ test("opens the document behind a workflow audit record", async ({ page }) => {
         entityId: "step-1", entityNo: "CTR-2026-0042", action: "workflow.step_approved",
         actorId: "user-1", actorName: "Nguyen An", actorDepartment: "IT",
         beforeStatus: null, afterStatus: null,
-        changes: { documentType: "CONTRACT", documentId: "contract-42", instanceId: "instance-1", stepOrder: 1 },
+        changes: { documentType: "CONTRACT", documentId: "70000000-0000-4000-8000-000000000042", instanceId: "instance-1", stepOrder: 1 },
         note: null, ipAddress: null, occurredAt: "2026-09-03T10:30:00Z",
       }], { page: 0, size: 15, totalElements: 1, totalPages: 1 }) };
     }
@@ -65,7 +65,7 @@ test("opens the document behind a workflow audit record", async ({ page }) => {
   await page.getByRole("button", { name: /View details for/i }).click();
   await page.getByRole("link", { name: "Open record" }).click();
 
-  await expect(page).toHaveURL(/\/contracts\?id=contract-42/);
+  await expect(page).toHaveURL(/\/contracts\?id=70000000-0000-4000-8000-000000000042/);
 });
 
 test("recovers when an audit page no longer exists", async ({ page }) => {

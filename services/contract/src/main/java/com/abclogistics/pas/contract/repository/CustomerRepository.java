@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,6 +24,8 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
                               or lower(c.code) like :q
                               or lower(c.taxCode) like :q)
               and (:status is null or c.status = :status)
+              and c.createdAt <= :snapshot
             """)
-    Page<Customer> search(@Param("q") String q, @Param("status") CustomerStatus status, Pageable pageable);
+    Page<Customer> search(@Param("q") String q, @Param("status") CustomerStatus status,
+                          @Param("snapshot") Instant snapshot, Pageable pageable);
 }

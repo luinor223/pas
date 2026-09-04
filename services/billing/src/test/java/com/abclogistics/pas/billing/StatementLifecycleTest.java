@@ -171,8 +171,28 @@ class StatementLifecycleTest {
 
         assertThatThrownBy(() -> service.createAdjustment("PMT-2026-0013",
                 new AdjustmentRequest("oops", List.of())))
-                .isInstanceOf(UnprocessableEntityException.class)
-                .hasMessageContaining("PAY-04");
+                .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+                    assertThat(ex.getPublicCode()).isEqualTo("ADJUSTMENT_LINES_REQUIRED");
+                    assertThat(ex.getPublicMessage()).isEqualTo("Add at least one line to the adjustment.");
+                    assertThat(ex.getMessage()).contains("PAY-04");
+                });
+    }
+
+    @Test
+    void adjustmentRejectsANegativeTotalWithoutPublishingInternalNames() {
+        PaymentStatement original = bare(PaymentStatement.StatementStatus.ISSUED);
+        original.setVatRate(new BigDecimal("8.00"));
+        when(statements.findByStatementNo("PMT-2026-0013")).thenReturn(Optional.of(original));
+        AdjustmentRequest request = new AdjustmentRequest("negative", List.of(
+                new AdjustmentRequest.AdjustmentLineInput("CNT", "Container handling", "TEU",
+                        new BigDecimal("-100.00"), new BigDecimal("2"), null)));
+
+        assertThatThrownBy(() -> service.createAdjustment("PMT-2026-0013", request))
+                .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+                    assertThat(ex.getPublicCode()).isEqualTo("ADJUSTMENT_TOTAL_INVALID");
+                    assertThat(ex.getPublicMessage()).isEqualTo("The adjustment total cannot be negative.");
+                    assertThat(ex.getMessage()).contains("total_amount", "PAY-04");
+                });
     }
 
     private static PaymentStatement bare(PaymentStatement.StatementStatus status) {

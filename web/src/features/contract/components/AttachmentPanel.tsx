@@ -4,35 +4,50 @@ import { contractApi } from "../services/contractApi";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { getApiErrorMessage } from "@/shared/api/errors";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import type { AttachmentResponse } from "../types/contractTypes";
 import { formatDateTime } from "@/shared/lib/format";
+import { FileText, Upload } from "lucide-react";
+import { cn } from "@/shared/lib/cn";
 
-export function AttachmentPanel({ ownerType, ownerId }: { ownerType: "CONTRACT" | "ADDENDUM"; ownerId: string }) {
+export function AttachmentPanel({ ownerType, ownerId, editable = true, mutationsDisabled = false }: { ownerType: "CONTRACT" | "ADDENDUM"; ownerId: string; editable?: boolean; mutationsDisabled?: boolean }) {
   const qc = useQueryClient();
   const canWrite = useHasPermission(ownerType === "CONTRACT" ? "contract:write" : "addendum:write");
+  const canManage = canWrite && editable;
   const q = useQuery(attachmentsQuery(ownerType, ownerId));
   const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState<AttachmentResponse | null>(null);
 
   const uploadMut = useMutation({
+    mutationKey: ["attachment-mutation", ownerType, ownerId],
     mutationFn: () => {
       if (!file) throw new Error("No file selected");
       return contractApi.uploadAttachment(ownerType, ownerId, file);
     },
-    onSuccess: () => {
+    onSuccess: (uploaded) => {
       setFile(null);
-      qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      qc.setQueryData<AttachmentResponse[]>(["attachments", ownerType, ownerId], (current) => [
+        ...(current ?? []).filter((attachment) => attachment.id !== uploaded.id),
+        uploaded,
+      ]);
+      return qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] });
     },
   });
 
   const deleteMut = useMutation({
+    mutationKey: ["attachment-mutation", ownerType, ownerId],
     mutationFn: (id: string) => contractApi.deleteAttachment(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] });
+    onSuccess: (_response, deletedId) => {
+      qc.setQueryData<AttachmentResponse[]>(["attachments", ownerType, ownerId], (current) =>
+        (current ?? []).filter((attachment) => attachment.id !== deletedId),
+      );
       setConfirmDelete(null);
+      return qc.invalidateQueries({ queryKey: ["attachments", ownerType, ownerId] });
     },
   });
 
@@ -40,9 +55,9 @@ export function AttachmentPanel({ ownerType, ownerId }: { ownerType: "CONTRACT" 
     <Card>
       <CardHeader><CardTitle className="text-base">Attachments</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {q.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : q.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(q.error, "Failed")}</div> : q.data?.length === 0 ? <div className="text-sm text-muted-foreground">No attachments. {canWrite ? "A document needs at least one attachment before it can be submitted." : ""}</div> : (
+        {q.isLoading && !q.data ? <div className="text-sm text-muted-foreground">Loading...</div> : !q.data ? <div className="text-sm text-destructive">{getApiErrorMessage(q.error, "Failed")}</div> : q.data.length === 0 ? <div className="text-sm text-muted-foreground">No attachments. {canManage ? "A document needs at least one attachment before it can be submitted." : ""}</div> : (
           <div className="space-y-1">
-            {q.data?.map((a) => (
+            {q.data.map((a) => (
               <div key={a.id} className="flex items-center justify-between border rounded p-2 text-sm">
                 <div>
                   <div className="font-medium">{a.fileName}</div>
@@ -50,16 +65,65 @@ export function AttachmentPanel({ ownerType, ownerId }: { ownerType: "CONTRACT" 
                 </div>
                 <div className="flex gap-1">
                   <Button size="sm" variant="outline" onClick={() => window.open(contractApi.downloadAttachmentUrl(a.id), "_blank")}>Download</Button>
-                  {canWrite && <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(a)}>Delete</Button>}
+                  {canManage && <Button size="sm" variant="destructive" disabled={mutationsDisabled} onClick={() => setConfirmDelete(a)}>Delete</Button>}
                 </div>
               </div>
             ))}
           </div>
         )}
-        {canWrite && (
-          <div className="flex gap-2 items-center">
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
-            <Button size="sm" onClick={() => uploadMut.mutate()} disabled={!file || uploadMut.isPending}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
+        {q.isError && q.data && <div role="alert" className="text-xs text-amber-700">Attachments were updated, but the latest refresh failed. The confirmed changes are still shown.</div>}
+        {canManage && (
+          <div className="space-y-3">
+            <input
+              ref={fileInputRef}
+              aria-label="Choose attachment file"
+              type="file"
+              disabled={mutationsDisabled || uploadMut.isPending}
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+            <div
+              onDragEnter={(event) => {
+                event.preventDefault();
+                if (!mutationsDisabled && !uploadMut.isPending) setIsDragging(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDragging(false);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                setIsDragging(false);
+                if (!mutationsDisabled && !uploadMut.isPending) setFile(event.dataTransfer.files?.[0] ?? null);
+              }}
+              className={cn(
+                "flex min-h-36 flex-col items-center justify-center rounded-lg border-2 border-dashed bg-muted/20 px-6 py-5 text-center transition-colors",
+                isDragging && "border-primary bg-primary/5",
+                mutationsDisabled || uploadMut.isPending ? "opacity-60" : "hover:border-primary/60 hover:bg-primary/5",
+              )}
+            >
+              {file ? <FileText className="mb-2 h-8 w-8 text-primary" aria-hidden="true" /> : <Upload className="mb-2 h-8 w-8 text-primary" aria-hidden="true" />}
+              <p className="text-sm font-medium">{file ? file.name : "Add an attachment"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {file ? `${(file.size / 1024).toFixed(1)} KB selected` : "Drag and drop a file here, or choose one from your device."}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-3 bg-background"
+                disabled={mutationsDisabled || uploadMut.isPending}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {file ? "Choose a different file" : "Choose file"}
+              </Button>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => uploadMut.mutate()} disabled={mutationsDisabled || !file || uploadMut.isPending}>
+                <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {uploadMut.isPending ? "Uploading..." : "Upload attachment"}
+              </Button>
+            </div>
           </div>
         )}
         {uploadMut.isError && <div className="text-xs text-destructive">{getApiErrorMessage(uploadMut.error, "Upload failed")}</div>}
@@ -74,12 +138,13 @@ export function AttachmentPanel({ ownerType, ownerId }: { ownerType: "CONTRACT" 
           }
           confirmLabel="Delete file"
           pendingLabel="Deleting..."
-          pending={deleteMut.isPending}
+          pending={deleteMut.isPending || mutationsDisabled}
           error={deleteMut.isError ? deleteMut.error : undefined}
-          onConfirm={() => confirmDelete && deleteMut.mutate(confirmDelete.id)}
+          onConfirm={() => confirmDelete && !mutationsDisabled && deleteMut.mutate(confirmDelete.id)}
           onCancel={() => setConfirmDelete(null)}
         />
         {!canWrite && <div className="text-xs text-muted-foreground">You do not have permission to change attachments.</div>}
+        {canWrite && !editable && <div className="text-xs text-muted-foreground">Attachments cannot be changed in this status.</div>}
       </CardContent>
     </Card>
   );

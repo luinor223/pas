@@ -5,9 +5,9 @@ import { Label } from "@/shared/components/label";
 import { useEntityCombobox } from "@/shared/hooks/use-entity-combobox";
 import { contractQuery, contractsQuery } from "../hooks/contractQueries";
 
-export function ContractPicker({ value, onChange, label = "Contract", placeholder = "Search contract number or customer...", statuses, allowClear = true, className }: {
+export function ContractPicker({ value, onChange, label = "Contract", placeholder = "Search contract number or customer...", statuses, eligibleForAddendum = false, allowClear = true, className }: {
   value: string; onChange: (id: string) => void; label?: string; placeholder?: string;
-  statuses?: string[]; allowClear?: boolean; className?: string;
+  statuses?: string[]; eligibleForAddendum?: boolean; allowClear?: boolean; className?: string;
 }) {
   const selectedQuery = useQuery({ ...contractQuery(value), enabled: Boolean(value) });
   const selected = selectedQuery.data;
@@ -18,7 +18,10 @@ export function ContractPicker({ value, onChange, label = "Contract", placeholde
       ...contractsQuery({ q: combo.debounced || undefined, status, size: 10 }), enabled: combo.open,
     })),
   });
-  const results = Array.from(new Map(resultQueries.flatMap((query) => query.data?.content ?? []).map((contract) => [contract.id, contract])).values());
+  const results = Array.from(new Map(resultQueries
+    .flatMap((query) => query.data?.content ?? [])
+    .filter((contract) => !eligibleForAddendum || contract.canCreateAddendum)
+    .map((contract) => [contract.id, contract])).values());
   optionIds = results.map((item) => item.id);
   const loading = resultQueries.some((query) => query.isLoading);
   const failed = resultQueries.some((query) => query.isError);

@@ -1,13 +1,17 @@
 package com.abclogistics.pas.contract.controller.http;
 
+import com.abclogistics.pas.common.api.ApiResponse;
 import com.abclogistics.pas.contract.dto.CustomerContactResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
+import com.abclogistics.pas.contract.dto.CustomerMetricsResponse;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
 import com.abclogistics.pas.contract.dto.SuspendRequest;
+import com.abclogistics.pas.contract.dto.SnapshotPage;
 import com.abclogistics.pas.contract.service.CustomerService;
+import com.abclogistics.pas.contract.service.PageSnapshot;
+import com.abclogistics.pas.contract.service.PageSnapshotCodec;
 import com.abclogistics.pas.contract.service.PageableGuard;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -30,24 +34,34 @@ import java.util.UUID;
 public class CustomerController {
 
     private final CustomerService customers;
+    private final PageSnapshotCodec pageSnapshots;
 
-    public CustomerController(CustomerService customers) {
+    public CustomerController(CustomerService customers, PageSnapshotCodec pageSnapshots) {
         this.customers = customers;
+        this.pageSnapshots = pageSnapshots;
     }
 
     @GetMapping
     @PreAuthorize("hasAuthority('customer:read')")
-    public Page<CustomerResponse> list(@RequestParam(required = false) String q,
+    public ApiResponse<List<CustomerResponse>> list(@RequestParam(required = false) String q,
                                        @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String cursor,
                                        @PageableDefault(size = 20) Pageable pageable) {
+        PageSnapshot snapshot = pageSnapshots.resolve(cursor);
         Pageable safe = PageableGuard.sanitize(pageable, PageableGuard.CUSTOMER_SORTS);
-        return customers.searchResponses(q, status, safe);
+        return SnapshotPage.of(customers.searchResponses(q, status, snapshot.createdAt(), safe), snapshot.cursor());
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('customer:read')")
     public CustomerResponse get(@PathVariable UUID id) {
         return customers.toResponse(customers.get(id));
+    }
+
+    @GetMapping("/{id}/metrics")
+    @PreAuthorize("hasAuthority('customer:read') and hasAuthority('contract:read')")
+    public CustomerMetricsResponse metrics(@PathVariable UUID id) {
+        return customers.metrics(id);
     }
 
     @GetMapping("/lookup")

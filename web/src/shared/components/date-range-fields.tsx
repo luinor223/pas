@@ -1,5 +1,6 @@
 import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
+import { useId } from "react";
 
 type DateRangeFieldsProps = {
   from: string;
@@ -29,6 +30,9 @@ export function DateRangeFields({
   layout = "grid",
 }: DateRangeFieldsProps) {
   const invalid = isInvalidDateRange(from, to);
+  const generatedId = useId();
+  const fromId = `${generatedId}-from`;
+  const toId = `${generatedId}-to`;
 
   if (layout === "inline") {
     return (
@@ -67,8 +71,9 @@ export function DateRangeFields({
   return (
     <div className="contents">
       <div className="min-w-0">
-        <Label>{fromLabel}</Label>
+        <Label htmlFor={fromId}>{fromLabel}</Label>
         <Input
+          id={fromId}
           type={type}
           value={from}
           max={to || undefined}
@@ -77,8 +82,9 @@ export function DateRangeFields({
         />
       </div>
       <div className="min-w-0">
-        <Label>{toLabel}</Label>
+        <Label htmlFor={toId}>{toLabel}</Label>
         <Input
+          id={toId}
           type={type}
           value={to}
           min={from || undefined}

@@ -1,0 +1,25 @@
+# Context for the JVM service images (context is the repo root).
+
+.git
+.gitignore
+.dockerignore
+
+# Gradle outputs and local state; gradle/ (version catalog) is a build input.
+**/build/
+.gradle/
+**/.gradle/
+
+# Built from its own context (web/Dockerfile.dev).
+web/
+
+.idea/
+.vscode/
+.claude/
+*.iml
+
+docs/
+infra/
+scripts/
+*.md
+docker-compose*.yml
+Makefile

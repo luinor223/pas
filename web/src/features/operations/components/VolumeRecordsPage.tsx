@@ -34,6 +34,8 @@ export function VolumeRecordsPage({
       </CardHeader>
       <CardContent className="space-y-4">
         <TabBar
+          id="volume-record-tabs"
+          panelId="volume-record-panel"
           tabs={[
             { value: "RECORDS", label: "Volume records", count: periods.data?.reduce((total, period) => total + period.volumeCount, 0) },
             { value: "PERIODS", label: "Periods", count: periods.data?.length },
@@ -41,7 +43,7 @@ export function VolumeRecordsPage({
           value={tab}
           onChange={onTabChange}
         />
-        <div role="tabpanel">
+        <div id="volume-record-panel" role="tabpanel" aria-labelledby={`volume-record-tabs-tab-${tab}`} tabIndex={0}>
           {tab === "RECORDS" ? (
             <VolumeRecordsTab
               periods={periods.data ?? []}

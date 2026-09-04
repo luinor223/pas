@@ -43,6 +43,16 @@ export function formatMoney(value: number | null | undefined, currency = "VND"):
   return `${amount} ${currency}`;
 }
 
+/** Formats an API decimal string without converting it to an imprecise JavaScript number. */
+export function formatDecimalMoney(value: string, currency: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match) return INVALID;
+  const [, sign, integer, rawFraction = ""] = match;
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const fraction = rawFraction.replace(/0+$/, "");
+  return `${sign}${grouped}${fraction ? `,${fraction}` : ""} ${currency}`;
+}
+
 /** Current local date for an HTML date input (YYYY-MM-DD). */
 export function localDateInputValue(date = new Date()): string {
   const year = date.getFullYear();

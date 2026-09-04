@@ -7,6 +7,9 @@ export const customersQuery = (params: CustomerListParams = {}) =>
 export const customerQuery = (id: string) =>
   queryOptions({ queryKey: ["customer", id], queryFn: () => contractApi.getCustomer(id), enabled: !!id });
 
+export const customerMetricsQuery = (id: string) =>
+  queryOptions({ queryKey: ["customer-metrics", id], queryFn: () => contractApi.getCustomerMetrics(id), enabled: !!id });
+
 export const customerLookupsQuery = (ids: string[]) =>
   queryOptions({ queryKey: ["customer-lookups", ids], queryFn: () => contractApi.lookupCustomers(ids), enabled: ids.length > 0 });
 
@@ -36,6 +39,22 @@ export const addendumProgressQuery = (id: string) =>
 
 export const addendumHistoryQuery = (id: string) =>
   queryOptions({ queryKey: ["addendum-history", id], queryFn: () => contractApi.historyAddendum(id), enabled: !!id });
+
+export const signingSessionsQuery = (documentType: "CONTRACT" | "ADDENDUM", documentId: string) =>
+  queryOptions({
+    queryKey: ["signing-sessions", documentType, documentId],
+    queryFn: () => contractApi.signingSessions(documentType, documentId),
+    enabled: !!documentId,
+  });
+
+export const signingRequestStateQuery = (documentType: "CONTRACT" | "ADDENDUM", documentId: string) =>
+  queryOptions({
+    queryKey: ["signing-request-state", documentType, documentId],
+    queryFn: () => documentType === "CONTRACT"
+      ? contractApi.signingRequestStateContract(documentId)
+      : contractApi.signingRequestStateAddendum(documentId),
+    enabled: !!documentId,
+  });
 
 export const attachmentsQuery = (ownerType: "CONTRACT" | "ADDENDUM", ownerId: string) =>
   queryOptions({

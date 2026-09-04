@@ -9,6 +9,7 @@ import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.repository.ProcessedEventRepository;
 import com.abclogistics.pas.contract.service.StatusTransitionService;
+import com.abclogistics.pas.contract.service.SigningRequestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -22,12 +23,13 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
 
-/** Consumes workflow.instance_started / workflow.completed. Idempotent, and order-tolerant (§9¹). */
+/** Consumes workflow lifecycle and signing-completion events. Idempotent and order-tolerant (§9¹). */
 @Component
 public class WorkflowEventListener {
 
     static final String INSTANCE_STARTED = "workflow.instance_started";
     static final String COMPLETED = "workflow.completed";
+    static final String SIGNING_COMPLETED = "esign.session_completed";
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowEventListener.class);
 
@@ -36,15 +38,18 @@ public class WorkflowEventListener {
     private final StatusTransitionService transitions;
     private final ProcessedEventRepository processed;
     private final ObjectMapper objectMapper;
+    private final SigningRequestService signingRequests;
 
     public WorkflowEventListener(ContractRepository contracts, AddendumRepository addenda,
                                  StatusTransitionService transitions,
-                                 ProcessedEventRepository processed, ObjectMapper objectMapper) {
+                                 ProcessedEventRepository processed, ObjectMapper objectMapper,
+                                 SigningRequestService signingRequests) {
         this.contracts = contracts;
         this.addenda = addenda;
         this.transitions = transitions;
         this.processed = processed;
         this.objectMapper = objectMapper;
+        this.signingRequests = signingRequests;
     }
 
     @Transactional
@@ -57,23 +62,42 @@ public class WorkflowEventListener {
                         @Header(KafkaHeaders.RECEIVED_KEY) String key) {
         String type = eventType == null ? "" : eventType;
         // ours before anything about its shape. pas.events carries every service's traffic, and
-        // this listener owns exactly two types; everything else is skipped before it is parsed
-        if (!INSTANCE_STARTED.equals(type) && !COMPLETED.equals(type)) {
+        // this listener owns only these document lifecycle types; skip everything else before parse
+        if (!INSTANCE_STARTED.equals(type) && !COMPLETED.equals(type)
+                && !SIGNING_COMPLETED.equals(type)) {
             return;
         }
         if (ownedType(documentType) == null) {
             return;   // a PRICE_LIST or PAYMENT_STATEMENT approval; another owner's document
         }
         if (eventId == null) {
-            // Both workflow event types owned by this listener are outboxed and must carry event_id.
+            // Every owned event is outboxed and must carry event_id for consumer deduplication.
             throw new IllegalStateException("Record on pas.events has no event_id header, key=" + key);
         }
         UUID documentId = documentId(key);
         switch (type) {
             case INSTANCE_STARTED -> onInstanceStarted(payload, documentType, eventId, documentId);
             case COMPLETED -> onCompleted(payload, documentType, eventId, documentId);
+            case SIGNING_COMPLETED -> onSigningCompleted(payload, documentType, eventId, documentId);
             default -> { }   // unreachable: the guard above already narrowed the type
         }
+    }
+
+    @Transactional
+    public void onSigningCompleted(String payload, String documentType,
+                                   String eventId, UUID documentId) {
+        UUID id = UUID.fromString(eventId);
+        if (processed.existsById(id)) {
+            return;
+        }
+        processed.save(ProcessedEvent.of(id));
+        UUID idempotencyKey = uuid(payload, "idempotency_key");
+        UUID sessionId = uuid(payload, "session_id");
+        if (idempotencyKey == null && sessionId == null) {
+            throw new IllegalStateException(
+                    "esign.session_completed has neither idempotency_key nor session_id");
+        }
+        signingRequests.release(documentType, documentId, idempotencyKey, sessionId);
     }
 
     private static UUID documentId(String key) {

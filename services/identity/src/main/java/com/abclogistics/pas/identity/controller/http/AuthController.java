@@ -62,7 +62,10 @@ public class AuthController {
                                  HttpServletResponse response) {
         String token = refreshToken(cookieToken, request);
         if (token == null) {
-            throw new UnauthorizedException("Missing refresh token");
+            throw new UnauthorizedException(
+                    "REFRESH_TOKEN_REQUIRED",
+                    "A refresh token is required.",
+                    "Missing refresh token");
         }
         TokenResponse result = authService.refresh(token);
         cookies.writeSession(response, result.accessToken(), result.refreshToken());

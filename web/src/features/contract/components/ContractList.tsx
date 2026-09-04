@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useCallback, useId, useState, useMemo } from "react";
 import { contractsQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { ContractResponse } from "../types/contractTypes";
@@ -18,7 +18,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
-import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CustomerPicker } from "./CustomerPicker";
@@ -31,6 +30,9 @@ import { SearchInput } from "@/shared/components/search-input";
 import { formatDate, formatMoney } from "@/shared/lib/format";
 import { isUserCancellableStatus, SERVICE_GROUPS } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
+import { useDebouncedUrlValue } from "@/shared/hooks/use-debounced-url-value";
+import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
+import type { ContractRouteSearch } from "../contractSearchParams";
 
 const STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "EXPIRED", "REJECTED", "REVISION_REQUESTED", "CANCELLED"];
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
@@ -54,31 +56,53 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export function ContractList() {
+export function ContractList({ search }: { search: ContractRouteSearch }) {
+  const formId = useId();
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/contracts" });
   const canRead = useHasPermission("contract:read");
   const canWrite = useHasPermission("contract:write");
-  const canEsign = useHasPermission("esign:send");
   const canCancelActive = useHasPermission("contract:cancel_active");
-  const [q, setQ] = useState("");
-  const [customerId, setCustomerId] = useState(() => new URLSearchParams(window.location.search).get("customerId") ?? "");
-  const [status, setStatus] = useState("");
-  const [serviceGroup, setServiceGroup] = useState("");
-  const [validFromFrom, setValidFromFrom] = useState("");
-  const [validToTo, setValidToTo] = useState("");
-  const [page, setPage] = useState(0);
+  const q = search.q ?? "";
+  const customerId = search.customerId ?? "";
+  const status = search.status ?? "";
+  const serviceGroup = search.serviceGroup ?? "";
+  const validFromFrom = search.validFromFrom ?? "";
+  const validToTo = search.validToTo ?? "";
+  const page = search.page ?? 0;
+  const snapshotCursor = search.cursor;
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVersion, setEditVersion] = useState<number | null>(null);
   const invalidFilterRange = isInvalidDateRange(validFromFrom, validToTo);
   const hasFilters = !!(q || customerId || status || serviceGroup || validFromFrom || validToTo);
 
-  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE };
+  const [searchText, setSearchText] = useDebouncedUrlValue(q, (value) => navigate({
+    to: "/contracts",
+    search: (previous) => ({ ...previous, q: value || undefined, page: undefined, cursor: undefined }),
+  }));
+  const updateList = useCallback((patch: Partial<ContractRouteSearch>, replace = false) => navigate({
+    to: "/contracts",
+    search: (previous) => ({ ...previous, q: searchText || undefined, ...patch }),
+    replace,
+  }), [navigate, searchText]);
+  const restartListing = useCallback((patch: Partial<ContractRouteSearch> = {}) =>
+    updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
+
+  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor };
   const listQ = useQuery({ ...contractsQuery(listParams), enabled: canRead && !invalidFilterRange });
 
   const contracts = listQ.data?.content ?? [];
   const total = listQ.data?.totalElements ?? 0;
+
+  const changePage = (nextPage: number) => {
+    updateList({ page: nextPage || undefined, cursor: snapshotCursor ?? listQ.data?.cursor });
+  };
+  const recoverFirstPage = useCallback(() => {
+    qc.removeQueries({ queryKey: ["contracts"] });
+    updateList({ page: undefined, cursor: undefined }, true);
+  }, [qc, updateList]);
+  useRecoverOutOfRangePage({ ready: listQ.isSuccess, page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, recover: recoverFirstPage });
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -112,7 +136,6 @@ export function ContractList() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["contracts"] }); setConfirmCancel(null); },
   });
   const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
-  const sendMut = useMutation({ mutationFn: (id: string) => contractApi.sendForSigningContract(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts"] }) });
 
   const onEdit = (c: ContractResponse) => {
     setEditId(c.id); setEditVersion(c.version);
@@ -124,7 +147,7 @@ export function ContractList() {
   const columns = useMemo<ColumnDef<ContractResponse>[]>(() => [
     {
       accessorKey: "contractNo", header: "CONTRACT NO.",
-      cell: ({ row }) => <Link to="/contracts" search={{ id: row.original.id } as never} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
+      cell: ({ row }) => <Link to="/contracts" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>,
     },
     { accessorKey: "customerName", header: "CUSTOMER", cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span> },
     { accessorKey: "serviceGroup", header: "SERVICE GROUP", cell: ({ row }) => <span className="text-sm capitalize">{row.original.serviceGroup.toLowerCase().replace(/_/g, " ")}</span> },
@@ -139,15 +162,14 @@ export function ContractList() {
         const editable = c.status === "DRAFT" || c.status === "REVISION_REQUESTED";
         const cancellable = isUserCancellableStatus(c.status) && (c.status !== "ACTIVE" || canCancelActive);
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
-          { label: "View details", onClick: () => navigate({ to: "/contracts", search: { id: c.id } as never }) },
-          { label: "Download", onClick: () => navigate({ to: "/contracts", search: { id: c.id, tab: "attachments" } as never }) },
+          { label: "View details", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id } }) },
+          { label: "Download", onClick: () => navigate({ to: "/contracts", search: { ...search, q: searchText || undefined, id: c.id, tab: "attachments" } }) },
         ];
         if (canWrite && editable) items.push({ label: "Edit", onClick: () => onEdit(c) });
         if (canWrite && c.status === "DRAFT") items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(c.id) });
         if (canWrite && c.status === "REJECTED") items.push({ label: "Revise", onClick: () => reviseMut.mutate(c.id) });
-        if (canWrite) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
-        if (canWrite) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
-        if (canEsign && c.status === "APPROVED") items.push({ label: "Send for signing", onClick: () => sendMut.mutate(c.id) });
+        if (c.canCreateAddendum) items.push({ label: "Create addendum", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id } as never }) });
+        if (c.canCreateAddendum) items.push({ label: "Renew contract", onClick: () => navigate({ to: "/addenda", search: { contractId: c.id, changeType: "TERM_EXTENSION" } as never }) });
         if (canWrite && cancellable) items.push({ label: "Cancel contract", onClick: () => setConfirmCancel(c), danger: true });
         return (
           <div className="text-right">
@@ -156,7 +178,7 @@ export function ContractList() {
         );
       },
     },
-  ], [canWrite, canEsign, canCancelActive, navigate]);
+  ], [canWrite, canCancelActive, navigate, search, searchText]);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to contracts.</CardContent></Card>;
 
@@ -170,8 +192,8 @@ export function ContractList() {
               className="w-56 lg:w-72"
               label="Search contracts"
               placeholder="Search no/description/customer..."
-              value={q}
-              onChange={(value) => { setQ(value); setPage(0); }}
+              value={searchText}
+              onChange={setSearchText}
             />
           {canWrite && <Button onClick={() => { reset({ customerId: "", description: "", serviceGroup: SERVICE_GROUPS[0], value: "", currency: "VND", validFrom: new Date().toISOString().slice(0, 10), validTo: new Date(Date.now() + 30*24*3600*1000).toISOString().slice(0, 10), paymentTerm: "", billingCycle: "MONTHLY", vatRate: "", penaltyTerms: "", serviceClause: "" }); setOpenCreate(true); }}>+ New Contract</Button>}
           </div>
@@ -183,12 +205,12 @@ export function ContractList() {
               label=""
               placeholder="All customers"
               value={customerId}
-              onChange={(id) => { setCustomerId(id); setPage(0); }}
+              onChange={(id) => restartListing({ customerId: id || undefined })}
             />
-            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-40" aria-label="Filter by status" value={status} onChange={(e) => restartListing({ status: (e.target.value || undefined) as ContractRouteSearch["status"] })}>
               <option value="">Status: All</option>{STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </Select>
-            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => { setServiceGroup(e.target.value); setPage(0); }}>
+            <Select className="w-full sm:w-44" aria-label="Filter by service group" value={serviceGroup} onChange={(e) => restartListing({ serviceGroup: e.target.value || undefined })}>
               <option value="">Group: All</option>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
             </Select>
             <DateRangeFields
@@ -197,15 +219,14 @@ export function ContractList() {
               to={validToTo}
               fromLabel="Effective from"
               toLabel="Expiry"
-              onFromChange={(value) => { setValidFromFrom(value); setPage(0); }}
-              onToChange={(value) => { setValidToTo(value); setPage(0); }}
+              onFromChange={(value) => restartListing({ validFromFrom: value || undefined })}
+              onToChange={(value) => restartListing({ validToTo: value || undefined })}
             />
-            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => { setQ(""); setCustomerId(""); setStatus(""); setServiceGroup(""); setValidFromFrom(""); setValidToTo(""); setPage(0); }} />
+            <ClearFiltersButton className="ml-auto bg-card" disabled={!hasFilters} onClick={() => restartListing({ q: undefined, customerId: undefined, status: undefined, serviceGroup: undefined, validFromFrom: undefined, validToTo: undefined })} />
           </FilterBar>
           <div className="text-xs text-muted-foreground">Date filters show contracts whose full term falls within the selected dates.</div>
-          {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} />}
-          <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
-          {(submitMut.isError || reviseMut.isError || sendMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? reviseMut.error ?? sendMut.error) as unknown as Error, "Action failed")}</div>}
+          {invalidFilterRange ? null : listQ.isLoading ? <div className="text-sm text-muted-foreground">Loading...</div> : listQ.isError ? <div className="space-y-2"><div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>{snapshotCursor && <Button variant="outline" size="sm" onClick={recoverFirstPage}>Return to first page</Button>}</div> : <DataTable columns={columns} data={contracts} emptyMessage="No contracts" pageSize={PAGE_SIZE} serverPagination={{ page: listQ.data?.number ?? page, totalPages: listQ.data?.totalPages ?? 0, totalItems: total, onPageChange: changePage }} />}
+          {(submitMut.isError || reviseMut.isError) && <div className="text-xs text-destructive">{getApiErrorMessage((submitMut.error ?? reviseMut.error) as unknown as Error, "Action failed")}</div>}
         </CardContent>
       </Card>
 
@@ -238,15 +259,15 @@ export function ContractList() {
           <DialogHeader><DialogTitle>Create contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
             <div>
-              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." />
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." status="ACTIVE" />
               {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
             </div>
-            <div><Label>Description</Label><Textarea {...register("description")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Service group *</Label><Select {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label>Currency</Label><Input {...register("currency")} placeholder="VND" /></div></div>
-            <div className="grid grid-cols-3 gap-2"><div><Label>Value</Label><Input type="number" step="0.01" {...register("value")} /></div><div><Label>Valid from *</Label><Input type="date" {...register("validFrom")} />{errors.validFrom && <p className="text-xs text-destructive">{errors.validFrom.message}</p>}</div><div><Label>Valid to *</Label><Input type="date" {...register("validTo")} />{errors.validTo && <p className="text-xs text-destructive">{errors.validTo.message}</p>}</div></div>
-            <div className="grid grid-cols-3 gap-2"><div><Label>Payment term</Label><Input {...register("paymentTerm")} placeholder="e.g. 30D" /></div><div><Label>Billing cycle</Label><Input {...register("billingCycle")} readOnly /></div><div><Label>VAT rate</Label><Input type="number" step="0.01" {...register("vatRate")} /></div></div>
-            <div><Label>Penalty terms</Label><Textarea {...register("penaltyTerms")} /></div>
-            <div><Label>Service clause</Label><Textarea {...register("serviceClause")} /></div>
+            <div><Label htmlFor={`${formId}-description`}>Description</Label><Textarea id={`${formId}-description`} {...register("description")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-service-group`}>Service group *</Label><Select id={`${formId}-service-group`} {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label htmlFor={`${formId}-currency`}>Currency</Label><Input id={`${formId}-currency`} {...register("currency")} placeholder="VND" /></div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-value`}>Value</Label><Input id={`${formId}-value`} type="number" step="0.01" {...register("value")} /></div><div><Label htmlFor={`${formId}-valid-from`}>Valid from *</Label><Input id={`${formId}-valid-from`} type="date" {...register("validFrom")} />{errors.validFrom && <p className="text-xs text-destructive">{errors.validFrom.message}</p>}</div><div><Label htmlFor={`${formId}-valid-to`}>Valid to *</Label><Input id={`${formId}-valid-to`} type="date" {...register("validTo")} />{errors.validTo && <p className="text-xs text-destructive">{errors.validTo.message}</p>}</div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-payment-term`}>Payment term</Label><Input id={`${formId}-payment-term`} {...register("paymentTerm")} placeholder="e.g. 30D" /></div><div><Label htmlFor={`${formId}-billing-cycle`}>Billing cycle</Label><Input id={`${formId}-billing-cycle`} {...register("billingCycle")} readOnly /></div><div><Label htmlFor={`${formId}-vat-rate`}>VAT rate</Label><Input id={`${formId}-vat-rate`} type="number" step="0.01" {...register("vatRate")} /></div></div>
+            <div><Label htmlFor={`${formId}-penalty-terms`}>Penalty terms</Label><Textarea id={`${formId}-penalty-terms`} {...register("penaltyTerms")} /></div>
+            <div><Label htmlFor={`${formId}-service-clause`}>Service clause</Label><Textarea id={`${formId}-service-clause`} {...register("serviceClause")} /></div>
             {createMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(createMut.error, "Create failed")}</div>}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setOpenCreate(false)}>Cancel</Button><Button type="submit" disabled={createMut.isPending}>{createMut.isPending ? "Creating..." : "Create"}</Button></DialogFooter>
           </form>
@@ -258,15 +279,15 @@ export function ContractList() {
           <DialogHeader><DialogTitle>Edit contract</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => updateMut.mutate(d))} className="space-y-3">
             <div>
-              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." />
+              <CustomerPicker value={selectedCustomerId} onChange={(id) => setValue("customerId", id, { shouldValidate: true })} label="Customer *" placeholder="Type code or name..." status="ACTIVE" />
               {errors.customerId && <p className="text-xs text-destructive">{errors.customerId.message}</p>}
             </div>
-            <div><Label>Description</Label><Textarea {...register("description")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Service group *</Label><Select {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label>Currency</Label><Input {...register("currency")} /></div></div>
-            <div className="grid grid-cols-3 gap-2"><div><Label>Value</Label><Input type="number" step="0.01" {...register("value")} /></div><div><Label>Valid from *</Label><Input type="date" {...register("validFrom")} /></div><div><Label>Valid to *</Label><Input type="date" {...register("validTo")} /></div></div>
-            <div className="grid grid-cols-3 gap-2"><div><Label>Payment term</Label><Input {...register("paymentTerm")} /></div><div><Label>Billing cycle</Label><Input {...register("billingCycle")} readOnly /></div><div><Label>VAT rate</Label><Input type="number" step="0.01" {...register("vatRate")} /></div></div>
-            <div><Label>Penalty terms</Label><Textarea {...register("penaltyTerms")} /></div>
-            <div><Label>Service clause</Label><Textarea {...register("serviceClause")} /></div>
+            <div><Label htmlFor={`${formId}-description`}>Description</Label><Textarea id={`${formId}-description`} {...register("description")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-service-group`}>Service group *</Label><Select id={`${formId}-service-group`} {...register("serviceGroup")}>{SERVICE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}</Select></div><div><Label htmlFor={`${formId}-currency`}>Currency</Label><Input id={`${formId}-currency`} {...register("currency")} /></div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-value`}>Value</Label><Input id={`${formId}-value`} type="number" step="0.01" {...register("value")} /></div><div><Label htmlFor={`${formId}-valid-from`}>Valid from *</Label><Input id={`${formId}-valid-from`} type="date" {...register("validFrom")} /></div><div><Label htmlFor={`${formId}-valid-to`}>Valid to *</Label><Input id={`${formId}-valid-to`} type="date" {...register("validTo")} /></div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><div><Label htmlFor={`${formId}-payment-term`}>Payment term</Label><Input id={`${formId}-payment-term`} {...register("paymentTerm")} /></div><div><Label htmlFor={`${formId}-billing-cycle`}>Billing cycle</Label><Input id={`${formId}-billing-cycle`} {...register("billingCycle")} readOnly /></div><div><Label htmlFor={`${formId}-vat-rate`}>VAT rate</Label><Input id={`${formId}-vat-rate`} type="number" step="0.01" {...register("vatRate")} /></div></div>
+            <div><Label htmlFor={`${formId}-penalty-terms`}>Penalty terms</Label><Textarea id={`${formId}-penalty-terms`} {...register("penaltyTerms")} /></div>
+            <div><Label htmlFor={`${formId}-service-clause`}>Service clause</Label><Textarea id={`${formId}-service-clause`} {...register("serviceClause")} /></div>
             {updateMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(updateMut.error, "Update failed")}</div>}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button><Button type="submit" disabled={updateMut.isPending}>{updateMut.isPending ? "Saving..." : "Save"}</Button></DialogFooter>
           </form>

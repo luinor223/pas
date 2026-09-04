@@ -40,13 +40,43 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuditRecordPage' }
-        '403': { description: Requires audit:view_all (SYSTEM_ADMIN alone, registry §7) }
+        '403':
+          description: Requires audit:view_all (SYSTEM_ADMIN alone, registry §7)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default: { $ref: '#/components/responses/ApiErrorResponse' }
       security: [{ bearerAuth: [] }]
 
 components:
+  responses:
+    ApiErrorResponse:
+      description: Request failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
+    ApiError:
+      type: object
+      required: [timestamp, status, error, code, message, path, violations]
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer, format: int32 }
+        error: { type: string }
+        code: { type: string }
+        message: { type: string }
+        path: { type: string }
+        violations:
+          type: array
+          items: { $ref: '#/components/schemas/ApiErrorFieldViolation' }
+    ApiErrorFieldViolation:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string }
+        message: { type: string }
     AuditRecordPage:
       type: object
       properties:

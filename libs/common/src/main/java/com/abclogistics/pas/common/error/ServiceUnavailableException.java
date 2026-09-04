@@ -10,4 +10,8 @@ public class ServiceUnavailableException extends DomainException {
     public ServiceUnavailableException(String message) {
         super(HttpStatus.SERVICE_UNAVAILABLE, message);
     }
+
+    public ServiceUnavailableException(String publicCode, String publicMessage, String diagnosticMessage) {
+        super(HttpStatus.SERVICE_UNAVAILABLE, publicCode, publicMessage, diagnosticMessage);
+    }
 }

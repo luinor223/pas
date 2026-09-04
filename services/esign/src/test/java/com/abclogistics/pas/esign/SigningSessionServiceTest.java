@@ -221,6 +221,8 @@ class SigningSessionServiceTest {
         assertThat(payload.get("session_id").asString()).isEqualTo(session.getId().toString());
         assertThat(payload.get("result").asString()).isEqualTo("SIGNED");
         assertThat(payload.get("document_no").asString()).isEqualTo("HD-1");
+        assertThat(payload.get("idempotency_key").asString())
+                .isEqualTo(session.getIdempotencyKey().toString());
         assertThat(payload.get("requested_by").asString()).isEqualTo(session.getRequestedBy().toString());
         assertThat(payload.get("signer_name").asString()).isEqualTo("Signer");
     }
@@ -243,12 +245,16 @@ class SigningSessionServiceTest {
 
     @Test
     void cancellingATerminalSessionIsRejected() {
-        SigningSession session = session(SessionStatus.SIGNED);
+        SigningSession session = session(SessionStatus.FAILED);
         UUID id = session.getId();
         when(sessions.findById(id)).thenReturn(Optional.of(session));
 
         assertThatThrownBy(() -> service.cancelSession(id, UUID.randomUUID(), "Ops One", "too late"))
-                .isInstanceOf(ConflictException.class);
+                .isInstanceOfSatisfying(ConflictException.class, ex -> {
+                    assertThat(ex.getPublicCode()).isEqualTo("SIGNING_SESSION_NOT_CANCELLABLE");
+                    assertThat(ex.getPublicMessage()).isEqualTo("This signing request can no longer be cancelled.");
+                    assertThat(ex.getMessage()).contains("FAILED");
+                });
     }
 
     @Test

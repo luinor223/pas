@@ -1,3 +1,11 @@
+pluginManagement {
+    repositories {
+        // Central first; the portal only backs markers it lacks (protobuf).
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 rootProject.name = "pas"
 
 include("libs:common")

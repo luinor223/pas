@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,6 +15,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -27,8 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The permission gates on the signing-session endpoints (registry §7): listing/reading is esign:send,
- * cancelling is esign:cancel. Method security is exercised through the controller bean's proxy.
+ * The permission gates on the signing-session endpoints (registry §7). Method security is
+ * exercised through the controller bean's proxy.
  */
 @Tag("integration")
 @Testcontainers
@@ -56,6 +59,7 @@ class EsignAuthorizationIT {
     }
 
     @Autowired SigningSessionController controller;
+    @Autowired @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping mappings;
 
     @AfterEach
     void clearAuth() {
@@ -80,6 +84,27 @@ class EsignAuthorizationIT {
         authWith("esign:send");   // send is not enough to cancel
         assertThatThrownBy(() -> controller.cancelSession(UUID.randomUUID(), null))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void documentReadersCanComposeSigningStateOnlyForTheirDocumentType() {
+        UUID id = UUID.randomUUID();
+        authWith("contract:read");
+        assertThat(controller.getSessionsByDocument("CONTRACT", id).getStatusCode().value()).isEqualTo(200);
+        assertThatThrownBy(() -> controller.getSessionsByDocument("ADDENDUM", id))
+                .isInstanceOf(AccessDeniedException.class);
+
+        authWith("addendum:read");
+        assertThat(controller.getSessionsByDocument("ADDENDUM", id).getStatusCode().value()).isEqualTo(200);
+        assertThatThrownBy(() -> controller.getSessionsByDocument("CONTRACT", id))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void directSigningSessionCreationRouteIsNotExposed() {
+        assertThat(mappings.getHandlerMethods().keySet()).noneMatch(mapping ->
+                mapping.getMethodsCondition().getMethods().contains(RequestMethod.POST)
+                        && mapping.getPatternValues().contains("/signing-sessions"));
     }
 
     private static void authWith(String... permissions) {

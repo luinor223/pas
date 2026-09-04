@@ -13,6 +13,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.api.ApiResponseAdvice;
+import com.abclogistics.pas.common.error.ConflictException;
+import com.abclogistics.pas.common.error.GlobalExceptionHandler;
+import com.abclogistics.pas.contract.controller.http.AddendumController;
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.AddendumServiceLine;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
@@ -22,6 +26,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.common.error.UnprocessableEntityException;
+import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
@@ -30,12 +35,15 @@ import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -44,10 +52,20 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 
 
@@ -109,18 +127,42 @@ class AddendumActiveAppliesToParentTxTest {
     @Autowired ContractService contracts;
     @Autowired CustomerService customers;
     @Autowired AttachmentService attachments;
+    @Autowired AttachmentRepository attachmentRepository;
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate tx;
+    @Autowired AddendumController addendumController;
+    @Autowired ObjectMapper objectMapper;
+    private MockMvc mvc;
 
     @BeforeEach
     void authenticate() {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(SALES, null, SALES_OFFICER_PERMISSIONS));
+        mvc = MockMvcBuilders.standaloneSetup(addendumController)
+                .setControllerAdvice(new GlobalExceptionHandler(), new ApiResponseAdvice())
+                .build();
     }
 
     @AfterEach
     void clearContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void createEndpointRequiresContractReadAlongsideAddendumWrite() throws Exception {
+        UUID contractId = activeContract();
+        String request = objectMapper.writeValueAsString(
+                termExtension(contractId, LocalDate.of(2027, 6, 30)));
+
+        authenticateWith("addendum:write");
+        mvc.perform(post("/addenda").contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isForbidden());
+
+        authenticateWith("addendum:write", "contract:read");
+        mvc.perform(post("/addenda").contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.contractId").value(contractId.toString()))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"));
     }
 
     @Test
@@ -297,6 +339,123 @@ class AddendumActiveAppliesToParentTxTest {
 
         assertThat(insideTransaction).isFalse();
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void concurrentSubmitAndFinalAttachmentDeleteCannotBothCommit() throws Exception {
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(
+                termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        UUID attachmentId = attach(id);
+        CountDownLatch deleteHasCheckedDraft = new CountDownLatch(1);
+        CountDownLatch allowDeleteCommit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Throwable> deletion = pool.submit(() -> {
+                authenticate();
+                try {
+                    tx.executeWithoutResult(s -> {
+                        attachments.delete(attachmentId);
+                        deleteHasCheckedDraft.countDown();
+                        await(allowDeleteCommit);
+                    });
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            assertThat(deleteHasCheckedDraft.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> submission = pool.submit(() -> {
+                authenticate();
+                try {
+                    addenda.submit(id);
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            // Delete owns the addendum-row lock until its outer transaction commits. Submit's
+            // final transaction must wait for that same lock instead of validating a stale pair
+            // of DRAFT status + still-visible attachment.
+            assertThatThrownBy(() -> submission.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            allowDeleteCommit.countDown();
+            assertThat(deletion.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(submission.get(10, TimeUnit.SECONDS))
+                    .isInstanceOf(UnprocessableEntityException.class);
+
+            assertThat(statusOf(id)).isEqualTo(DocumentStatus.DRAFT);
+            assertThat(attachmentRepository.existsByOwnerTypeAndOwnerId(EntityType.ADDENDUM, id))
+                    .isFalse();
+        } finally {
+            allowDeleteCommit.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void attachmentDeleteCannotCommitAfterDraftCancellation() throws Exception {
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(
+                termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        UUID attachmentId = attach(id);
+        CountDownLatch cancelledInsideTransaction = new CountDownLatch(1);
+        CountDownLatch allowCancellationCommit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Throwable> cancellation = pool.submit(() -> {
+                authenticate();
+                try {
+                    tx.executeWithoutResult(s -> {
+                        addenda.cancel(id, "customer withdrew");
+                        cancelledInsideTransaction.countDown();
+                        await(allowCancellationCommit);
+                    });
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            assertThat(cancelledInsideTransaction.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> deletion = pool.submit(() -> {
+                authenticate();
+                try {
+                    attachments.delete(attachmentId);
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            // Cancellation owns the addendum row until commit. Delete must wait, then re-read
+            // CANCELLED under that same lock and refuse to mutate attachment membership.
+            assertThatThrownBy(() -> deletion.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            allowCancellationCommit.countDown();
+            assertThat(cancellation.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(deletion.get(10, TimeUnit.SECONDS)).isInstanceOf(ConflictException.class);
+            assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
+            assertThat(attachmentRepository.existsByOwnerTypeAndOwnerId(EntityType.ADDENDUM, id))
+                    .isTrue();
+        } finally {
+            allowCancellationCommit.countDown();
+            pool.shutdownNow();
+        }
     }
 
     // --- the parent moves under the addendum's feet ------------------------------------------
@@ -491,6 +650,12 @@ class AddendumActiveAppliesToParentTxTest {
 
     // --- helpers ----------------------------------------------------------------------------
 
+    private void authenticateWith(String... permissions) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(SALES, null,
+                        Stream.of(permissions).map(SimpleGrantedAuthority::new).toList()));
+    }
+
     private AddendumRequest termExtension(UUID contractId, LocalDate newValidTo) {
         return new AddendumRequest(contractId, "TERM_EXTENSION", "renewal",
                 LocalDate.of(2026, 6, 1), newValidTo, null, null, null);
@@ -520,10 +685,21 @@ class AddendumActiveAppliesToParentTxTest {
         return id;
     }
 
-    private void attach(UUID addendumId) {
-        tx.execute(s -> attachments.upload(EntityType.ADDENDUM, addendumId,
+    private UUID attach(UUID addendumId) {
+        return tx.execute(s -> attachments.upload(EntityType.ADDENDUM, addendumId,
                 new MockMultipartFile("file", "annex.pdf", "application/pdf",
-                        "annex".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                        "annex".getBytes(java.nio.charset.StandardCharsets.UTF_8))).getId());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting for concurrent test release");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
     }
 
     private UUID activeContract() {

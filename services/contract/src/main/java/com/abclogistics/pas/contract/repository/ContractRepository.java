@@ -3,13 +3,16 @@ package com.abclogistics.pas.contract.repository;
 import com.abclogistics.pas.contract.domain.Contract;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +25,11 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
     @EntityGraph(attributePaths = "customer")
     Optional<Contract> findById(UUID id);
 
+    /** Serializes submission with attachment membership changes for this document. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Contract c where c.id = :id")
+    Optional<Contract> findByIdForUpdate(@Param("id") UUID id);
+
     @EntityGraph(attributePaths = "customer")
     Optional<Contract> findByContractNo(String contractNo);
 
@@ -30,6 +38,22 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
     /** Per-customer contract counts in one aggregate query (no N+1). */
     @Query("select c.customer.id, count(c) from Contract c where c.customer.id in :ids group by c.customer.id")
     List<Object[]> countByCustomerIds(@Param("ids") List<UUID> ids);
+
+    long countByCustomerIdAndStatus(UUID customerId, DocumentStatus status);
+
+    /** Approved-value metric grouped by currency so unlike denominations are never added. */
+    @Query("""
+            select c.currency, sum(c.value)
+            from Contract c
+            where c.customer.id = :customerId
+              and c.status in :statuses
+              and c.value is not null
+            group by c.currency
+            order by c.currency
+            """)
+    List<Object[]> sumValuesByCustomerAndStatusesGroupedByCurrency(
+            @Param("customerId") UUID customerId,
+            @Param("statuses") List<DocumentStatus> statuses);
 
     @EntityGraph(attributePaths = "customer")
     @Query("""
@@ -45,6 +69,7 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
               and (:#{#validFromTo == null} = true or c.validFrom <= :validFromTo)
               and (:#{#validToFrom == null} = true or c.validTo >= :validToFrom)
               and (:#{#validToTo == null} = true or c.validTo <= :validToTo)
+              and c.createdAt <= :snapshot
             """)
     Page<Contract> search(@Param("customerId") UUID customerId,
                           @Param("status") DocumentStatus status,
@@ -54,6 +79,7 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
                           @Param("validFromTo") LocalDate validFromTo,
                           @Param("validToFrom") LocalDate validToFrom,
                           @Param("validToTo") LocalDate validToTo,
+                          @Param("snapshot") Instant snapshot,
                           Pageable pageable);
 
     /**

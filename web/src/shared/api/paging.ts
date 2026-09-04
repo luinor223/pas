@@ -1,4 +1,4 @@
-export type PageMeta = { page: number; size: number; totalElements: number; totalPages: number };
+export type PageMeta = { page: number; size: number; totalElements: number; totalPages: number; cursor?: string };
 
 export const DEFAULT_PAGE_SIZE = 15;
 
@@ -9,6 +9,7 @@ export type PageResponse<T> = {
   totalPages: number;
   size: number;
   number: number;
+  cursor?: string;
 };
 
 /** Page whose owning endpoint intentionally returns pagination fields in its response body. */
@@ -39,5 +40,6 @@ export function toPage<T>(response: { data: unknown; meta?: PageMeta }): PageRes
     totalPages: meta?.totalPages ?? 1,
     size: meta?.size ?? content.length,
     number: meta?.page ?? 0,
+    cursor: meta?.cursor,
   };
 }

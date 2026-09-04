@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 
 type DetailBackButtonProps = {
-  to: "/customers" | "/contracts" | "/price-lists" | "/payment-statements" | "/e-signatures";
+  to: "/customers" | "/contracts" | "/addenda" | "/price-lists" | "/payment-statements" | "/e-signatures";
   /** Names the destination for assistive tech, since the chevron carries no text. */
   label: string;
 };
@@ -12,11 +12,15 @@ export function DetailBackButton({ to, label }: DetailBackButtonProps) {
   return (
     <Link
       to={to}
-      search={to === "/price-lists"
-        ? ((previous) => ({ ...previous, id: undefined, versionId: undefined }))
+      search={(to === "/price-lists"
+        ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined, versionId: undefined }))
+        : to === "/customers"
+        ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined, tab: undefined, contractsPage: undefined, contractsCursor: undefined }))
         : to === "/contracts"
-        ? { id: undefined, tab: undefined, customerId: undefined }
-        : { id: undefined }}
+          ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined, tab: undefined, relatedPage: undefined, relatedCursor: undefined, customerId: undefined }))
+          : to === "/addenda"
+            ? ((previous: Record<string, unknown>) => ({ ...previous, id: undefined }))
+          : { id: undefined }) as never}
       aria-label={label}
       title={label}
       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

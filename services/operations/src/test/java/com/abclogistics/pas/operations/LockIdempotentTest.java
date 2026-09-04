@@ -57,7 +57,7 @@ class LockIdempotentTest {
     @Autowired PeriodService periodService;
     @Autowired OutboxRepository outbox;
 
-    private final String periodCode = "2026-08";
+    private final String periodCode = "2026-10";
 
     @BeforeEach
     void setAuth() {
@@ -78,8 +78,8 @@ class LockIdempotentTest {
         PeriodResponse created = periodService.create(periodCode);
         assertThat(created.status()).isEqualTo("OPEN");
         assertThat(created.periodCode()).isEqualTo(periodCode);
-        assertThat(created.startDate().toString()).isEqualTo("2026-08-01");
-        assertThat(created.endDate().toString()).isEqualTo("2026-08-31");
+        assertThat(created.startDate().toString()).isEqualTo("2026-10-01");
+        assertThat(created.endDate().toString()).isEqualTo("2026-10-31");
 
         long outboxBeforeLock = outbox.count();
 

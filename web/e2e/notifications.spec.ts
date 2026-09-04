@@ -6,7 +6,7 @@ test("marks an unread notification as read and opens its record", async ({ page 
   await installApiMocks(page, (request, url) => {
     if (url.pathname === "/api/v1/notifications" && url.searchParams.get("size") === "15") {
       return { body: envelope({
-        items: [{ id: "notification-1", category: "APPROVAL", eventType: "workflow.assigned", documentType: "CONTRACT", documentId: "contract-1", documentNo: "CTR-2026-0001", title: "Contract needs your approval", body: "Review the contract and decide whether it can proceed.", createdAt: "2026-09-04T01:00:00Z", readAt: markedRead ? "2026-09-04T02:00:00Z" : null }],
+        items: [{ id: "notification-1", category: "APPROVAL", eventType: "workflow.assigned", documentType: "CONTRACT", documentId: "70000000-0000-4000-8000-000000000001", documentNo: "CTR-2026-0001", title: "Contract needs your approval", body: "Review the contract and decide whether it can proceed.", createdAt: "2026-09-04T01:00:00Z", readAt: markedRead ? "2026-09-04T02:00:00Z" : null }],
         total: 1, unreadCount: markedRead ? 0 : 1, counts: { all: markedRead ? 0 : 1, unread: markedRead ? 0 : 1, APPROVAL: markedRead ? 0 : 1 },
       }) };
     }
@@ -21,7 +21,7 @@ test("marks an unread notification as read and opens its record", async ({ page 
   const markRequest = page.waitForRequest((request) => request.url().endsWith("/notifications/notification-1/read") && request.method() === "PATCH");
   await page.getByRole("link", { name: /Contract needs your approval/ }).click();
   await markRequest;
-  await expect(page).toHaveURL(/\/contracts\?id=contract-1/);
+  await expect(page).toHaveURL(/\/contracts\?id=70000000-0000-4000-8000-000000000001/);
 });
 
 test("marks all notifications as read and refreshes the counters", async ({ page }) => {
