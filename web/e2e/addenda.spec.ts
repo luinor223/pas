@@ -769,12 +769,12 @@ test("shows a completed approval and keeps an approved addendum read-only", asyn
   }
 });
 
-test("requires the active-cancellation permission for an active addendum", async ({ page }) => {
+test("uses addendum write rather than the contract active-cancellation permission", async ({ page }) => {
   const active = { ...addendum, status: "ACTIVE" };
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(active) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
-  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+  }, { permissions: [...currentUser.permissions, "addendum:read", "contract:cancel_active"] });
 
   await page.goto(`/addenda?id=${ADDENDUM_ID}`);
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
@@ -783,7 +783,7 @@ test("requires the active-cancellation permission for an active addendum", async
   await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(active) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
-  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write", "contract:cancel_active"] });
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
   await page.reload();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
 });

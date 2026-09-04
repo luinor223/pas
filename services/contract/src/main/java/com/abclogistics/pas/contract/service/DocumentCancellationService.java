@@ -91,11 +91,12 @@ public class DocumentCancellationService {
 
     private void requireCancellable(EntityType type, ApprovableDocument document,
                                     DocumentStatus status) {
-        // not @PreAuthorize: the same endpoint cancels a DRAFT under contract:write alone
-        if (status == DocumentStatus.ACTIVE && !SecurityUtils.hasPermission(CANCEL_ACTIVE)) {
+        // Controllers enforce each resource's ordinary write permission. Only an ACTIVE contract
+        // needs the additional CTR-06 grant; ACTIVE addenda remain ordinary addendum:write actions.
+        if (type == EntityType.CONTRACT && status == DocumentStatus.ACTIVE
+                && !SecurityUtils.hasPermission(CANCEL_ACTIVE)) {
             throw new ForbiddenException(
-                    "Cancelling an ACTIVE %s requires %s (CTR-06)"
-                            .formatted(type.name().toLowerCase(java.util.Locale.ROOT), CANCEL_ACTIVE));
+                    "Cancelling an ACTIVE contract requires %s (CTR-06)".formatted(CANCEL_ACTIVE));
         }
         if (!status.canTransitionTo(DocumentStatus.CANCELLED, TriggerKind.U)) {
             throw new ConflictException(

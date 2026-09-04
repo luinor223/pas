@@ -119,9 +119,7 @@ export function AddendumDetail({ id }: { id: string }) {
   const editable = addendum.status === "DRAFT" || addendum.status === "REVISION_REQUESTED";
   const canSubmit = canWrite && addendum.status === "DRAFT";
   const canRevise = canWrite && addendum.status === "REJECTED";
-  const canCancelActive = permissions.includes("contract:cancel_active");
-  const canCancel = canWrite && isUserCancellableStatus(addendum.status)
-    && (addendum.status !== "ACTIVE" || canCancelActive);
+  const canCancel = canWrite && isUserCancellableStatus(addendum.status);
   const hasAttachments = (attachmentsQ.data?.length ?? 0) > 0;
   const lifecyclePending = submitMut.isPending || reviseMut.isPending || cancelMut.isPending;
 

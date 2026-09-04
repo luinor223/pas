@@ -15,16 +15,20 @@ import org.testcontainers.utility.DockerImageName;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.ForbiddenException;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.contract.controller.AddendumController;
 import com.abclogistics.pas.contract.controller.ContractController;
+import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.service.ContractService;
+import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.CustomerService;
 import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -83,8 +87,11 @@ class CTR06And07GuardTest {
     @MockitoBean WorkflowGrpcClient workflow;
 
     @Autowired ContractService contracts;
+    @Autowired AddendumService addenda;
     @Autowired CustomerService customers;
     @Autowired TransactionTemplate tx;
+    @Autowired ContractController contractController;
+    @Autowired AddendumController addendumController;
 
     @BeforeEach
     void authenticate() {
@@ -122,6 +129,25 @@ class CTR06And07GuardTest {
         grant("contract:write", "contract:cancel_active");
         contracts.cancel(id, "terminated early");
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
+    }
+
+    @Test
+    void activeCancellationPermissionsStayScopedToTheirOwnResource() {
+        UUID contractId = activeContract();
+        UUID addendumId = activeAddendum(activeContract());
+
+        grant("contract:cancel_active");
+        assertThatThrownBy(() -> contractController.cancel(contractId, null))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> addendumController.cancel(addendumId, null))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(statusOf(contractId)).isEqualTo(DocumentStatus.ACTIVE);
+        assertThat(addendumStatusOf(addendumId)).isEqualTo(DocumentStatus.ACTIVE);
+
+        grant("addendum:write");
+        addendumController.cancel(addendumId, null);
+        assertThat(addendumStatusOf(addendumId)).isEqualTo(DocumentStatus.CANCELLED);
+        assertThat(statusOf(contractId)).isEqualTo(DocumentStatus.ACTIVE);
     }
 
     @Test
@@ -191,6 +217,14 @@ class CTR06And07GuardTest {
         return contractIn(DocumentStatus.ACTIVE);
     }
 
+    private UUID activeAddendum(UUID contractId) {
+        UUID id = tx.execute(s -> addenda.create(new AddendumRequest(
+                contractId, "TERM_EXTENSION", "renewal", LocalDate.of(2026, 6, 1),
+                LocalDate.of(2027, 6, 30), null, null, null)).getId());
+        tx.executeWithoutResult(s -> addenda.get(id).setStatus(DocumentStatus.ACTIVE));
+        return id;
+    }
+
     private UUID contractIn(DocumentStatus status) {
         UUID customerId = tx.execute(s -> customers.create(new CustomerRequest(
                 "ACME Logistics", null, null, null, null, null, null, List.of())).getId());
@@ -206,6 +240,10 @@ class CTR06And07GuardTest {
 
     private DocumentStatus statusOf(UUID id) {
         return tx.execute(s -> contracts.get(id).getStatus());
+    }
+
+    private DocumentStatus addendumStatusOf(UUID id) {
+        return tx.execute(s -> addenda.get(id).getStatus());
     }
 
     private String descriptionOf(UUID id) {
