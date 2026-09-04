@@ -16,6 +16,8 @@ dependencies {
     api(libs.spring.kafka)
     api(libs.grpc.api)
     compileOnly(libs.springdoc.openapi)
+    // @GlobalServerInterceptor for the shared correlation interceptor; provided at runtime by each service.
+    compileOnly(libs.spring.grpc.core)
 
     testFixturesApi(libs.spring.kafka)
 

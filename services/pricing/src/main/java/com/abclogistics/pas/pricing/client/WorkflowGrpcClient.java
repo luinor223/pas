@@ -1,11 +1,11 @@
 package com.abclogistics.pas.pricing.client;
 
 import com.abclogistics.pas.common.error.FailedPreconditionException;
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import com.abclogistics.pas.workflow.grpc.StartInstanceRequest;
 import com.abclogistics.pas.workflow.grpc.ValidateStartableRequest;
 import com.abclogistics.pas.workflow.grpc.WorkflowInternalGrpc;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PreDestroy;
@@ -27,7 +27,7 @@ public class WorkflowGrpcClient {
     @Autowired
     public WorkflowGrpcClient(@Value("${workflow.grpc.host:localhost}") String host,
                               @Value("${workflow.grpc.port:50056}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = WorkflowInternalGrpc.newBlockingStub(channel);
     }
 

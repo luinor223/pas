@@ -1,10 +1,10 @@
 package com.abclogistics.pas.workflow.client;
 
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import com.abclogistics.pas.identity.grpc.IdentityInternalGrpc;
 import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;
 import com.abclogistics.pas.identity.grpc.UserRef;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -24,9 +24,7 @@ public class IdentityGrpcClient {
     @Autowired
     public IdentityGrpcClient(@Value("${identity.grpc.host:localhost}") String host,
                               @Value("${identity.grpc.port:50051}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port)
-                .usePlaintext()
-                .build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = IdentityInternalGrpc.newBlockingStub(channel);
     }
 

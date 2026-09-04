@@ -3,12 +3,15 @@ package com.abclogistics.pas.common.error;
 import com.abclogistics.pas.common.api.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -18,6 +21,8 @@ import java.util.List;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ApiError> handleDomain(DomainException ex, HttpServletRequest req) {
@@ -86,6 +91,25 @@ public class GlobalExceptionHandler {
                 .map(v -> v.getMessage())
                 .findFirst().orElse("Validation failed");
         return build(HttpStatus.BAD_REQUEST, msg, req.getRequestURI(), List.of());
+    }
+
+    /**
+     * Catch-all. Spring's own MVC exceptions implement {@link ErrorResponse} and keep their proper
+     * status (400/404/405/...); anything else is a genuine 5xx we log with the stack trace, since it is
+     * otherwise invisible in the app logs.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest req) {
+        if (ex instanceof ErrorResponse er) {
+            HttpStatus status = HttpStatus.valueOf(er.getStatusCode().value());
+            if (status.is5xxServerError()) {
+                log.error("Framework error on {} {}", req.getMethod(), req.getRequestURI(), ex);
+            }
+            String detail = er.getBody().getDetail();
+            return build(status, detail != null ? detail : status.getReasonPhrase(), req.getRequestURI(), List.of());
+        }
+        log.error("Unhandled exception on {} {}", req.getMethod(), req.getRequestURI(), ex);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", req.getRequestURI(), List.of());
     }
 
     private ResponseEntity<ApiError> build(HttpStatus status, String message, String path,

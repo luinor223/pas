@@ -1,10 +1,10 @@
 package com.abclogistics.pas.billing.client;
 
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import com.abclogistics.pas.pricing.grpc.GetEffectivePriceListRequest;
 import com.abclogistics.pas.pricing.grpc.GetEffectivePriceListResponse;
 import com.abclogistics.pas.pricing.grpc.PricingInternalGrpc;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +23,7 @@ public class PricingGrpcClient {
 
     public PricingGrpcClient(@Value("${pricing.grpc.host:localhost}") String host,
                               @Value("${pricing.grpc.port:50053}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = PricingInternalGrpc.newBlockingStub(channel);
     }
 

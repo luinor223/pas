@@ -1,10 +1,10 @@
 package com.abclogistics.pas.billing.client;
 
+import com.abclogistics.pas.common.grpc.GrpcChannels;
 import com.abclogistics.pas.contract.grpc.ContractInternalGrpc;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +23,7 @@ public class ContractGrpcClient {
 
     public ContractGrpcClient(@Value("${contract.grpc.host:localhost}") String host,
                                @Value("${contract.grpc.port:50052}") int port) {
-        this.channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        this.channel = GrpcChannels.plaintext(host, port);
         this.stub = ContractInternalGrpc.newBlockingStub(channel);
     }
 
