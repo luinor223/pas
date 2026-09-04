@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { statementsQuery } from "../hooks/billingQueries";
 import { billingApi } from "../services/billingApi";
+import { LIFECYCLE_ACTIONS, type LifecycleKey } from "../lifecycle";
 import type { StatementResponse } from "../types/billingTypes";
 import { Button } from "@/shared/components/button";
 import { Input } from "@/shared/components/input";
@@ -73,18 +74,15 @@ export function PaymentStatementsPage() {
       navigate({ to: "/payment-statements", search: { id: created.statementNo } });
     },
   });
-  const recalcMut = useMutation({ mutationFn: (no: string) => billingApi.recalculate(no), onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-statements"] }) });
-  const reconcileMut = useMutation({ mutationFn: (no: string) => billingApi.reconcile(no), onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-statements"] }) });
-  const submitMut = useMutation({ mutationFn: (no: string) => billingApi.submit(no), onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-statements"] }) });
-  const reviseMut = useMutation({ mutationFn: (no: string) => billingApi.revise(no), onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-statements"] }) });
-  const sendMut = useMutation({ mutationFn: (no: string) => billingApi.sendForSigning(no), onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-statements"] }) });
-  const publishMut = useMutation({ mutationFn: (no: string) => billingApi.publish(no), onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-statements"] }) });
+  const invalidateList = () => qc.invalidateQueries({ queryKey: ["payment-statements"] });
+  const actionMut = useMutation({
+    mutationFn: ({ key, no }: { key: LifecycleKey; no: string }) => billingApi[key](no),
+    onSuccess: invalidateList,
+  });
   const cancelMut = useMutation({
     mutationFn: ({ no, reason }: { no: string; reason?: string }) => billingApi.cancel(no, reason),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["payment-statements"] }); setConfirmCancel(null); },
+    onSuccess: () => { invalidateList(); setConfirmCancel(null); },
   });
-
-  const actionError = [recalcMut, reconcileMut, submitMut, reviseMut, sendMut, publishMut].find((m) => m.isError)?.error;
 
   const columns = useMemo<ColumnDef<StatementResponse>[]>(() => [
     {
@@ -101,15 +99,12 @@ export function PaymentStatementsPage() {
       id: "actions", header: "ACTION", enableSorting: false,
       cell: ({ row }) => {
         const s = row.original;
+        const perms: Record<"statement:write" | "esign:send", boolean> = { "statement:write": canWrite, "esign:send": canEsign };
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
           { label: "View details", onClick: () => navigate({ to: "/payment-statements", search: { id: s.statementNo } }) },
         ];
-        if (canWrite && (s.status === "DRAFT" || s.status === "CALCULATED")) items.push({ label: "Recalculate", onClick: () => recalcMut.mutate(s.statementNo) });
-        if (canWrite && s.status === "CALCULATED") items.push({ label: "Reconcile", onClick: () => reconcileMut.mutate(s.statementNo) });
-        if (canWrite && s.status === "RECONCILED") items.push({ label: "Submit for approval", onClick: () => submitMut.mutate(s.statementNo) });
-        if (canWrite && (s.status === "REJECTED" || s.status === "REVISION")) items.push({ label: "Revise", onClick: () => reviseMut.mutate(s.statementNo) });
-        if (canEsign && s.status === "APPROVED") items.push({ label: "Send for signing", onClick: () => sendMut.mutate(s.statementNo) });
-        if (canWrite && s.status === "SIGNED") items.push({ label: "Publish", onClick: () => publishMut.mutate(s.statementNo) });
+        LIFECYCLE_ACTIONS.filter((a) => perms[a.perm] && a.statuses.includes(s.status)).forEach((a) =>
+          items.push({ label: a.label, onClick: () => actionMut.mutate({ key: a.key, no: s.statementNo }) }));
         if (canCancel && (s.status === "APPROVED" || s.status === "SIGNED")) items.push({ label: "Cancel", onClick: () => setConfirmCancel(s), danger: true });
         return <div className="text-right"><RowMenu items={items} /></div>;
       },
@@ -139,7 +134,7 @@ export function PaymentStatementsPage() {
             : listQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(listQ.error, "Failed")}</div>
             : <DataTable columns={columns} data={statements} emptyMessage="No payment statements" pageSize={PAGE_SIZE} />}
           <PaginationControls page={page} totalPages={listQ.data?.totalPages ?? 1} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} />
-          {actionError ? <div className="text-xs text-destructive">{getApiErrorMessage(actionError as Error, "Action failed")}</div> : null}
+          {actionMut.isError ? <div className="text-xs text-destructive">{getApiErrorMessage(actionMut.error, "Action failed")}</div> : null}
         </CardContent>
       </Card>
 

@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { statementQuery, statementWorkflowQuery } from "../hooks/billingQueries";
 import { billingApi } from "../services/billingApi";
+import { LIFECYCLE_ACTIONS, type LifecycleKey } from "../lifecycle";
 import type { StatementLineResponse, StatementResponse } from "../types/billingTypes";
 import { Button } from "@/shared/components/button";
 import { Input } from "@/shared/components/input";
@@ -17,18 +18,10 @@ import { RowMenu } from "@/shared/components/row-menu";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
+import { Field } from "@/shared/components/field";
 import { formatDate, formatMoney } from "@/shared/lib/format";
 
 const EDITABLE = new Set(["DRAFT", "CALCULATED"]);
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-sm">{children}</div>
-    </div>
-  );
-}
 
 export function PaymentStatementDetail({ statementNo }: { statementNo: string }) {
   const qc = useQueryClient();
@@ -49,12 +42,7 @@ export function PaymentStatementDetail({ statementNo }: { statementNo: string })
     qc.invalidateQueries({ queryKey: ["payment-statements"] });
   };
 
-  const recalcMut = useMutation({ mutationFn: () => billingApi.recalculate(statementNo), onSuccess: invalidate });
-  const reconcileMut = useMutation({ mutationFn: () => billingApi.reconcile(statementNo), onSuccess: invalidate });
-  const submitMut = useMutation({ mutationFn: () => billingApi.submit(statementNo), onSuccess: invalidate });
-  const reviseMut = useMutation({ mutationFn: () => billingApi.revise(statementNo), onSuccess: invalidate });
-  const sendMut = useMutation({ mutationFn: () => billingApi.sendForSigning(statementNo), onSuccess: invalidate });
-  const publishMut = useMutation({ mutationFn: () => billingApi.publish(statementNo), onSuccess: invalidate });
+  const actionMut = useMutation({ mutationFn: (key: LifecycleKey) => billingApi[key](statementNo), onSuccess: invalidate });
   const cancelMut = useMutation({
     mutationFn: (reason?: string) => billingApi.cancel(statementNo, reason),
     onSuccess: () => { invalidate(); setConfirmCancel(false); },
@@ -86,26 +74,32 @@ export function PaymentStatementDetail({ statementNo }: { statementNo: string })
 
   const editable = statement ? EDITABLE.has(statement.status) : false;
   const currency = statement?.currency ?? "VND";
+  const perms: Record<"statement:write" | "esign:send", boolean> = { "statement:write": canWrite, "esign:send": canEsign };
 
-  const columns = useMemo<ColumnDef<StatementLineResponse>[]>(() => [
-    { accessorKey: "lineNo", header: "#", cell: ({ row }) => <span className="tabular-nums text-xs">{row.original.lineNo}</span> },
-    { accessorKey: "serviceName", header: "SERVICE", cell: ({ row }) => <div><div className="font-medium">{row.original.serviceName}</div><div className="text-xs text-muted-foreground">{row.original.serviceCode}</div></div> },
-    { accessorKey: "unit", header: "UNIT", cell: ({ row }) => <span className="text-xs">{row.original.unit}</span> },
-    { accessorKey: "unitPrice", header: "UNIT PRICE", cell: ({ row }) => <span className="tabular-nums">{formatMoney(row.original.unitPrice, currency)}</span> },
-    { accessorKey: "quantity", header: "QTY", cell: ({ row }) => <span className="tabular-nums">{row.original.quantity}</span> },
-    { accessorKey: "amount", header: "AMOUNT", cell: ({ row }) => <span className="tabular-nums font-medium">{formatMoney(row.original.amount, currency)}</span> },
-    { accessorKey: "source", header: "SOURCE", cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.source}</span> },
-    ...(canWrite && editable ? [{
-      id: "actions", header: "", enableSorting: false,
-      cell: ({ row }: { row: { original: StatementLineResponse } }) => <div className="text-right"><RowMenu items={[{ label: "Edit line", onClick: () => openEdit(row.original) }]} /></div>,
-    } as ColumnDef<StatementLineResponse>] : []),
-  ], [canWrite, editable, currency]);
+  const columns = useMemo<ColumnDef<StatementLineResponse>[]>(() => {
+    const cols: ColumnDef<StatementLineResponse>[] = [
+      { accessorKey: "lineNo", header: "#", cell: ({ row }) => <span className="tabular-nums text-xs">{row.original.lineNo}</span> },
+      { accessorKey: "serviceName", header: "SERVICE", cell: ({ row }) => <div><div className="font-medium">{row.original.serviceName}</div><div className="text-xs text-muted-foreground">{row.original.serviceCode}</div></div> },
+      { accessorKey: "unit", header: "UNIT", cell: ({ row }) => <span className="text-xs">{row.original.unit}</span> },
+      { accessorKey: "unitPrice", header: "UNIT PRICE", cell: ({ row }) => <span className="tabular-nums">{formatMoney(row.original.unitPrice, currency)}</span> },
+      { accessorKey: "quantity", header: "QTY", cell: ({ row }) => <span className="tabular-nums">{row.original.quantity}</span> },
+      { accessorKey: "amount", header: "AMOUNT", cell: ({ row }) => <span className="tabular-nums font-medium">{formatMoney(row.original.amount, currency)}</span> },
+      { accessorKey: "source", header: "SOURCE", cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.source}</span> },
+    ];
+    if (canWrite && editable) {
+      cols.push({
+        id: "actions", header: "", enableSorting: false,
+        cell: ({ row }) => <div className="text-right"><RowMenu items={[{ label: "Edit line", onClick: () => openEdit(row.original) }]} /></div>,
+      });
+    }
+    return cols;
+  }, [canWrite, editable, currency]);
 
   if (detailQ.isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
   if (detailQ.isError || !statement) return <div className="text-sm text-destructive">{getApiErrorMessage(detailQ.error, "Statement not found")}</div>;
 
   const s: StatementResponse = statement;
-  const actionError = [recalcMut, reconcileMut, submitMut, reviseMut, sendMut, publishMut].find((m) => m.isError)?.error;
+  const actions = LIFECYCLE_ACTIONS.filter((a) => perms[a.perm] && a.statuses.includes(s.status));
 
   return (
     <div className="space-y-4">
@@ -119,12 +113,9 @@ export function PaymentStatementDetail({ statementNo }: { statementNo: string })
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canWrite && (s.status === "DRAFT" || s.status === "CALCULATED") && <Button variant="outline" onClick={() => recalcMut.mutate()} disabled={recalcMut.isPending}>Recalculate</Button>}
-            {canWrite && s.status === "CALCULATED" && <Button variant="outline" onClick={() => reconcileMut.mutate()} disabled={reconcileMut.isPending}>Reconcile</Button>}
-            {canWrite && s.status === "RECONCILED" && <Button onClick={() => submitMut.mutate()} disabled={submitMut.isPending}>Submit for approval</Button>}
-            {canWrite && (s.status === "REJECTED" || s.status === "REVISION") && <Button onClick={() => reviseMut.mutate()} disabled={reviseMut.isPending}>Revise</Button>}
-            {canEsign && s.status === "APPROVED" && <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending}>Send for signing</Button>}
-            {canWrite && s.status === "SIGNED" && <Button onClick={() => publishMut.mutate()} disabled={publishMut.isPending}>Publish</Button>}
+            {actions.map((a) => (
+              <Button key={a.key} variant={a.primary ? undefined : "outline"} onClick={() => actionMut.mutate(a.key)} disabled={actionMut.isPending && actionMut.variables === a.key}>{a.label}</Button>
+            ))}
             {canCancel && (s.status === "APPROVED" || s.status === "SIGNED") && <Button variant="outline" onClick={() => setConfirmCancel(true)}>Cancel</Button>}
           </div>
         </CardHeader>
@@ -140,7 +131,7 @@ export function PaymentStatementDetail({ statementNo }: { statementNo: string })
             <Field label="Due date">{formatDate(s.dueDate)}</Field>
           </div>
           {s.adjustsStatementId ? <div className="mt-3 text-xs text-muted-foreground">This is an adjustment statement.</div> : null}
-          {actionError ? <div className="mt-3 text-xs text-destructive">{getApiErrorMessage(actionError as Error, "Action failed")}</div> : null}
+          {actionMut.isError ? <div className="mt-3 text-xs text-destructive">{getApiErrorMessage(actionMut.error, "Action failed")}</div> : null}
         </CardContent>
       </Card>
 

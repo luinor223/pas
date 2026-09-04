@@ -2,6 +2,9 @@ import type { PageResponse } from "@/shared/api/paging";
 
 export type SessionStatus = "PENDING_SEND" | "SIGNING" | "SIGNED" | "FAILED" | "CANCELLED";
 
+// Sessions can only be cancelled while still pending send or in signing.
+export const CANCELLABLE_SESSION_STATUSES = new Set<string>(["PENDING_SEND", "SIGNING"]);
+
 export type SigningSessionResponse = {
   id: string;
   sessionNo: string;

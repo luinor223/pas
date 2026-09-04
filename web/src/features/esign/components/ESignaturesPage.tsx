@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { signingSessionsQuery } from "../hooks/esignQueries";
 import { esignApi } from "../services/esignApi";
-import type { SigningSessionResponse } from "../types/esignTypes";
+import { CANCELLABLE_SESSION_STATUSES, type SigningSessionResponse } from "../types/esignTypes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Select } from "@/shared/components/select";
 import { DataTable } from "@/shared/components/data-table";
@@ -21,7 +21,6 @@ import { formatDateTime } from "@/shared/lib/format";
 import { statusLabel } from "@/shared/lib/labels";
 
 const STATUSES = ["PENDING_SEND", "SIGNING", "SIGNED", "FAILED", "CANCELLED"];
-const CANCELLABLE = new Set(["PENDING_SEND", "SIGNING"]);
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export function ESignaturesPage() {
@@ -61,7 +60,7 @@ export function ESignaturesPage() {
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
           { label: "View details", onClick: () => navigate({ to: "/e-signatures", search: { id: session.id } }) },
         ];
-        if (canCancel && CANCELLABLE.has(session.status)) items.push({ label: "Cancel request", onClick: () => setConfirmCancel(session), danger: true });
+        if (canCancel && CANCELLABLE_SESSION_STATUSES.has(session.status)) items.push({ label: "Cancel request", onClick: () => setConfirmCancel(session), danger: true });
         return <div className="text-right"><RowMenu items={items} /></div>;
       },
     },

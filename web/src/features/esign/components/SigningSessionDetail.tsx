@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { signingSessionQuery } from "../hooks/esignQueries";
 import { esignApi } from "../services/esignApi";
+import { CANCELLABLE_SESSION_STATUSES } from "../types/esignTypes";
 import { Button } from "@/shared/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { StatusBadge } from "@/shared/components/status-badge";
@@ -9,18 +10,8 @@ import { DetailBackButton } from "@/shared/components/detail-back-link";
 import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
+import { Field } from "@/shared/components/field";
 import { formatDateTime } from "@/shared/lib/format";
-
-const CANCELLABLE = new Set(["PENDING_SEND", "SIGNING"]);
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-sm break-words">{children}</div>
-    </div>
-  );
-}
 
 export function SigningSessionDetail({ id }: { id: string }) {
   const qc = useQueryClient();
@@ -53,7 +44,7 @@ export function SigningSessionDetail({ id }: { id: string }) {
               <div className="mt-0.5 text-sm text-muted-foreground">{session.documentNo} · {session.documentTypeCode}</div>
             </div>
           </div>
-          {canCancel && CANCELLABLE.has(session.status) && <Button variant="outline" onClick={() => setConfirmCancel(true)}>Cancel request</Button>}
+          {canCancel && CANCELLABLE_SESSION_STATUSES.has(session.status) && <Button variant="outline" onClick={() => setConfirmCancel(true)}>Cancel request</Button>}
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
