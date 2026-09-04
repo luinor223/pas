@@ -111,18 +111,7 @@ public class StatementService {
             throw new IllegalArgumentException("periodCode must be YYYY-MM (got \"" + periodCode + "\")");
         }
         LocalDate periodEnd = periodStart.plusMonths(1).minusDays(1);
-        if (contract.getValidFrom() != null && !contract.getValidFrom().isEmpty()) {
-            LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
-            if (periodEnd.isBefore(validFrom)) {
-                throw new FailedPreconditionException("Period ends before contract valid_from (PAY-01)");
-            }
-        }
-        if (contract.getValidTo() != null && !contract.getValidTo().isEmpty()) {
-            LocalDate validTo = LocalDate.parse(contract.getValidTo());
-            if (periodStart.isAfter(validTo)) {
-                throw new FailedPreconditionException("Period starts after contract valid_to (PAY-01)");
-            }
-        }
+        assertContractInForce(contract, periodStart, periodEnd);
 
         // 2. Sync pull: operations volumes (must be LOCKED)
         ListVolumesResponse volumes = operationsClient.listVolumes(req.contractId(), periodCode);
@@ -377,16 +366,7 @@ public class StatementService {
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         PaymentStatement.StatementStatus status = statement.getStatus();
-        if (status != PaymentStatement.StatementStatus.DRAFT
-            && status != PaymentStatement.StatementStatus.CALCULATED) {
-            throw new FailedPreconditionException("Only DRAFT or CALCULATED statements can be edited");
-        }
-        // seq-06 m18 version guard: stale writers lose loudly instead of overwriting
-        if (req.version() == null || req.version() != statement.getVersion()) {
-            throw new UnprocessableEntityException(
-                "Stale statement version (got " + req.version() + ", current " + statement.getVersion()
-                    + "); reload and retry");
-        }
+        assertEditable(statement, req.version());
 
         Optional<StatementLine> lineOpt = statement.getLines().stream()
             .filter(l -> l.getLineNo() == req.lineNo())
@@ -426,15 +406,7 @@ public class StatementService {
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
 
         PaymentStatement.StatementStatus status = statement.getStatus();
-        if (status != PaymentStatement.StatementStatus.DRAFT
-            && status != PaymentStatement.StatementStatus.CALCULATED) {
-            throw new FailedPreconditionException("Only DRAFT or CALCULATED statements can be edited");
-        }
-        if (req.version() == null || req.version() != statement.getVersion()) {
-            throw new UnprocessableEntityException(
-                "Stale statement version (got " + req.version() + ", current " + statement.getVersion()
-                    + "); reload and retry");
-        }
+        assertEditable(statement, req.version());
 
         int nextLineNo = statement.getLines().stream()
             .mapToInt(StatementLine::getLineNo).max().orElse(0) + 1;
@@ -805,6 +777,20 @@ public class StatementService {
             if (periodStart.isAfter(validTo)) {
                 throw new FailedPreconditionException("Period starts after contract valid_to (PAY-01)");
             }
+        }
+    }
+
+    /** Editable only in DRAFT/CALCULATED, and only against a matching version (seq-06 m18). */
+    private static void assertEditable(PaymentStatement statement, Integer version) {
+        PaymentStatement.StatementStatus status = statement.getStatus();
+        if (status != PaymentStatement.StatementStatus.DRAFT
+            && status != PaymentStatement.StatementStatus.CALCULATED) {
+            throw new FailedPreconditionException("Only DRAFT or CALCULATED statements can be edited");
+        }
+        if (version == null || version != statement.getVersion()) {
+            throw new UnprocessableEntityException(
+                "Stale statement version (got " + version + ", current " + statement.getVersion()
+                    + "); reload and retry");
         }
     }
 

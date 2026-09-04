@@ -96,9 +96,10 @@ public class BillingEventListener {
     }
 
     private void onWorkflowCompleted(String payload, String key, UUID id) {
-        UUID documentId = requireDocumentId(key, payload, id, WORKFLOW_COMPLETED);
+        JsonNode root = objectMapper.readTree(payload);
+        UUID documentId = requireDocumentId(key, root, id, WORKFLOW_COMPLETED);
         PaymentStatement stmt = requireStatement(documentId, id, WORKFLOW_COMPLETED);
-        String outcome = text(payload, "outcome");
+        String outcome = text(root, "outcome");
         PaymentStatement.StatementStatus newStatus = switch (outcome == null ? "" : outcome) {
             case "APPROVED" -> PaymentStatement.StatementStatus.APPROVED;
             case "REJECTED" -> PaymentStatement.StatementStatus.REJECTED;
@@ -120,7 +121,7 @@ public class BillingEventListener {
         stmt.setStatus(newStatus);
         statements.save(stmt);
 
-        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.W, text(payload, "instance_id")));
+        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.W, text(root, "instance_id")));
         audit.record("PAYMENT_STATEMENT", stmt.getId(), stmt.getStatementNo(), "WORKFLOW_COMPLETED",
             oldStatus.name(), newStatus.name(), "Approval " + outcome.toLowerCase(java.util.Locale.ROOT),
             Map.of("trigger", "W", "event_id", id.toString()));
@@ -129,9 +130,10 @@ public class BillingEventListener {
     }
 
     private void onEsignSessionCompleted(String payload, String key, UUID id) {
-        UUID documentId = requireDocumentId(key, payload, id, ESIGN_SESSION_COMPLETED);
+        JsonNode root = objectMapper.readTree(payload);
+        UUID documentId = requireDocumentId(key, root, id, ESIGN_SESSION_COMPLETED);
         PaymentStatement stmt = requireStatement(documentId, id, ESIGN_SESSION_COMPLETED);
-        String result = text(payload, "result");
+        String result = text(root, "result");
         PaymentStatement.StatementStatus newStatus = switch (result == null ? "" : result) {
             case "SIGNED" -> PaymentStatement.StatementStatus.SIGNED;
             case "FAILED", "CANCELLED" -> PaymentStatement.StatementStatus.REVISION; // PAY-07
@@ -152,7 +154,7 @@ public class BillingEventListener {
         stmt.setStatus(newStatus);
         statements.save(stmt);
 
-        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.E, text(payload, "session_id")));
+        history.save(transitionOf(stmt, oldStatus, newStatus, StatusHistory.TriggerKind.E, text(root, "session_id")));
         audit.record("PAYMENT_STATEMENT", stmt.getId(), stmt.getStatementNo(), "ESIGN_SESSION_COMPLETED",
             oldStatus.name(), newStatus.name(), "Signing " + result.toLowerCase(java.util.Locale.ROOT),
             Map.of("trigger", "E", "event_id", id.toString()));
@@ -160,8 +162,8 @@ public class BillingEventListener {
             stmt.getStatementNo(), oldStatus, newStatus);
     }
 
-    private UUID requireDocumentId(String key, String payload, UUID id, String eventType) {
-        UUID documentId = documentId(key, payload);
+    private UUID requireDocumentId(String key, JsonNode root, UUID id, String eventType) {
+        UUID documentId = documentId(key, root);
         if (documentId == null) {
             throw new IllegalStateException(
                 "%s carries no document id (key=%s, event=%s)".formatted(eventType, key, id));
@@ -174,13 +176,13 @@ public class BillingEventListener {
             "%s %s references unknown statement %s".formatted(eventType, id, documentId)));
     }
 
-    private UUID documentId(String key, String payload) {
+    private UUID documentId(String key, JsonNode root) {
         try {
             if (key != null) return UUID.fromString(key);
         } catch (IllegalArgumentException e) {
             // fall through to payload
         }
-        String fromPayload = text(payload, "document_id");
+        String fromPayload = text(root, "document_id");
         try {
             return fromPayload == null ? null : UUID.fromString(fromPayload);
         } catch (IllegalArgumentException e) {
@@ -205,8 +207,8 @@ public class BillingEventListener {
         return h;
     }
 
-    private String text(String payload, String field) {
-        JsonNode node = objectMapper.readTree(payload).get(field);
+    private static String text(JsonNode root, String field) {
+        JsonNode node = root.get(field);
         return node == null || node.isNull() || node.asString().isEmpty() ? null : node.asString();
     }
 }
