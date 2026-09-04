@@ -152,7 +152,34 @@ class BillingCalculateIT {
 
         assertThatThrownBy(() -> service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-07")))
                 .isInstanceOf(FailedPreconditionException.class)
-                .hasMessageContaining("LOCKED");
+                .satisfies(error -> {
+                    FailedPreconditionException domain = (FailedPreconditionException) error;
+                    assertThat(domain.getPublicCode()).isEqualTo("BILLING_PERIOD_NOT_LOCKED");
+                    assertThat(domain.getPublicMessage()).contains("lock the billing period");
+                });
+    }
+
+    @Test
+    void contractMustCoverTheEntireBillingMonthPay01() {
+        doReturn(GetContractResponse.newBuilder()
+                .setId(contractId.toString())
+                .setContractNo("CTR-2026-0001")
+                .setStatus("ACTIVE")
+                .setValidFrom("2026-06-15")
+                .setValidTo("2026-12-31")
+                .setServiceGroup("STEVEDORING")
+                .setCustomerId(customerId.toString())
+                .setCustomerName("ACME")
+                .setCurrency("VND")
+                .build()).when(contractClient).getContract(any());
+
+        assertThatThrownBy(() -> service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-06")))
+                .isInstanceOf(FailedPreconditionException.class)
+                .satisfies(error -> {
+                    FailedPreconditionException domain = (FailedPreconditionException) error;
+                    assertThat(domain.getPublicCode()).isEqualTo("CONTRACT_NOT_EFFECTIVE_FOR_PERIOD");
+                    assertThat(domain.getPublicMessage()).contains("entire billing period");
+                });
     }
 
     @Test

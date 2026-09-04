@@ -153,22 +153,33 @@ export function PaymentStatementsPage() {
 
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-xl">
-          <DialogHeader><DialogTitle>Calculate payment statement</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Calculate payment statement</DialogTitle>
+            <p className="text-sm text-muted-foreground">Build a statement from confirmed operational volumes and the effective prices for that month.</p>
+          </DialogHeader>
           <form onSubmit={handleSubmit((d) => calcMut.mutate(d))} className="space-y-3">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Before calculating:</p>
+              <ol className="mt-1 list-decimal space-y-1 pl-4">
+                <li>The contract must cover the entire billing month.</li>
+                <li>The month must exist in Volume Records, contain the contract&apos;s volumes, and be locked.</li>
+                <li>An effective price list must cover the month and price every recorded service.</li>
+              </ol>
+            </div>
             <div>
-              <ContractPicker value={selectedContractId} onChange={(id) => setValue("contractId", id, { shouldValidate: true })} label="Contract *" placeholder="Search contract number or customer..." statuses={["ACTIVE"]} />
+              <ContractPicker value={selectedContractId} onChange={(id) => setValue("contractId", id, { shouldValidate: true })} label="Contract" requirement="draft" emptyHint="Choose an active contract, or an expired contract for its final billing month." placeholder="Search contract number or customer..." statuses={["ACTIVE", "EXPIRED"]} />
               {errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}
             </div>
             <div>
-              <Label>Period *</Label>
-              <Input type="month" {...register("periodCode")} />
+              <Label htmlFor="billing-period-code">Period *</Label>
+              <Input id="billing-period-code" type="month" {...register("periodCode")} />
               {errors.periodCode && <p className="text-xs text-destructive">{errors.periodCode.message}</p>}
-              <p className="mt-1 text-xs text-muted-foreground">The billing period the statement prices, e.g. 2026-01.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Select an existing, locked month from Volume Records.</p>
             </div>
             {calcMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(calcMut.error, "Calculation failed")}</div>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpenCreate(false)}>Cancel</Button>
-              <Button type="submit" disabled={calcMut.isPending}>{calcMut.isPending ? "Calculating..." : "Calculate"}</Button>
+              <Button type="submit" disabled={calcMut.isPending}>{calcMut.isPending ? "Checking prerequisites..." : "Check and calculate"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

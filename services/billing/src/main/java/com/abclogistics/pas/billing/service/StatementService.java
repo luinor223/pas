@@ -111,7 +111,10 @@ public class StatementService {
         // 1. Sync pull: contract
         GetContractResponse contract = contractClient.getContract(req.contractId());
         if (!"ACTIVE".equals(contract.getStatus()) && !"EXPIRED".equals(contract.getStatus())) {
-            throw new FailedPreconditionException("Contract must be ACTIVE or EXPIRED, got: " + contract.getStatus());
+            throw new FailedPreconditionException(
+                    "BILLING_CONTRACT_NOT_IN_FORCE",
+                    "The selected contract is not active for billing.",
+                    "Contract must be ACTIVE or EXPIRED, got: " + contract.getStatus());
         }
 
         // PAY-01: assert period within [valid_from, valid_to]
@@ -127,7 +130,10 @@ public class StatementService {
         // 2. Sync pull: operations volumes (must be LOCKED)
         ListVolumesResponse volumes = operationsClient.listVolumes(req.contractId(), periodCode);
         if (!"LOCKED".equals(volumes.getPeriodState())) {
-            throw new FailedPreconditionException("Period must be LOCKED, got: " + volumes.getPeriodState());
+            throw new FailedPreconditionException(
+                    "BILLING_PERIOD_NOT_LOCKED",
+                    "Confirm the volume records and lock the billing period before calculating a statement.",
+                    "Period must be LOCKED, got: " + volumes.getPeriodState());
         }
 
         // 3. Sync pull: pricing effective version
@@ -140,8 +146,11 @@ public class StatementService {
         // 4. Validate all volumes are priced (seq-06: else 422 PAY-01)
         for (VolumeRecord vr : volumes.getVolumesList()) {
             if (!priceLookup.containsKey(vr.getServiceCode())) {
-                throw new UnprocessableEntityException("Unpriced service: " + vr.getServiceCode()
-                    + " — no suitable price list for this service");
+                throw new UnprocessableEntityException(
+                        "UNPRICED_VOLUME_SERVICE",
+                        "Every recorded service must have a unit price in the effective price list.",
+                        "Unpriced service: " + vr.getServiceCode()
+                            + " — no suitable price list for this service");
             }
         }
 
@@ -732,14 +741,20 @@ public class StatementService {
                                               LocalDate periodStart, LocalDate periodEnd) {
         if (contract.getValidFrom() != null && !contract.getValidFrom().isEmpty()) {
             LocalDate validFrom = LocalDate.parse(contract.getValidFrom());
-            if (periodEnd.isBefore(validFrom)) {
-                throw new FailedPreconditionException("Period ends before contract valid_from (PAY-01)");
+            if (periodStart.isBefore(validFrom)) {
+                throw new FailedPreconditionException(
+                        "CONTRACT_NOT_EFFECTIVE_FOR_PERIOD",
+                        "The selected contract does not cover the entire billing period.",
+                        "Period starts before contract valid_from (PAY-01)");
             }
         }
         if (contract.getValidTo() != null && !contract.getValidTo().isEmpty()) {
             LocalDate validTo = LocalDate.parse(contract.getValidTo());
-            if (periodStart.isAfter(validTo)) {
-                throw new FailedPreconditionException("Period starts after contract valid_to (PAY-01)");
+            if (periodEnd.isAfter(validTo)) {
+                throw new FailedPreconditionException(
+                        "CONTRACT_NOT_EFFECTIVE_FOR_PERIOD",
+                        "The selected contract does not cover the entire billing period.",
+                        "Period ends after contract valid_to (PAY-01)");
             }
         }
     }
