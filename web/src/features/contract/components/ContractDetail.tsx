@@ -6,6 +6,7 @@ import { StatusBadge } from "@/shared/components/status-badge";
 import { Button } from "@/shared/components/button";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { AttachmentPanel } from "./AttachmentPanel";
+import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
 import { DataTable } from "@/shared/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { AddendumResponse } from "../types/contractTypes";
@@ -55,15 +56,6 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
 
   const readOnly = c.status !== "DRAFT" && c.status !== "REVISION_REQUESTED";
   const pdf = (attQ.data ?? []).find((a) => (a.contentType ?? "").includes("pdf") || a.fileName.toLowerCase().endsWith(".pdf"));
-  const progress = progQ.data;
-  const waiting = progress?.currentStep
-    ? `Waiting on ${progress.currentStep.name} — Assignee: ${progress.currentStep.assigneeNames.join(", ") || "—"}`
-    : progress?.workflowState === "INITIALIZATION_PENDING"
-      ? "Your submission is being prepared for approval"
-      : null;
-
-  const steps = progress?.steps ?? [];
-
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -124,37 +116,7 @@ export function ContractDetail({ id, initialTab }: { id: string; initialTab?: st
           </div>
 
           <div className="space-y-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Approval workflow</CardTitle></CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {progQ.isLoading ? <div className="text-muted-foreground">Loading...</div> : waiting ? (
-                  <div className="rounded bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800">{waiting}</div>
-                ) : null}
-                {steps.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">
-                    {progress?.workflowState === "INITIALIZATION_PENDING"
-                      ? "Your submission is being prepared for approval. This usually takes a moment."
-                      : "Submit the document to begin approval."}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {steps.map((s) => (
-                      <div key={s.stepNo} className="flex gap-2 items-start">
-                        <span className={`mt-1 h-4 w-4 rounded-full border flex items-center justify-center text-[10px] ${s.status === "APPROVED" ? "bg-green-600 text-white border-green-600" : s.status === "ACTIVE" ? "bg-amber-500 border-amber-500" : "border-gray-300"}`}>
-                          {s.status === "APPROVED" ? "✓" : ""}
-                        </span>
-                        <div>
-                          <div className="font-medium text-sm">{s.name} <span className="text-xs text-muted-foreground">· {s.approverRole}</span></div>
-                          <div className="text-xs text-muted-foreground">
-                            {s.action ? `${s.action.action} by ${s.action.actorName}${s.action.comment ? ` — "${s.action.comment}"` : ""}` : `${s.assigneeNames.join(", ") || "—"}${s.status === "ACTIVE" ? " - in progress" : ""}`}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ApprovalProgressPanel progress={progQ.data} isLoading={progQ.isLoading} error={progQ.error} />
             <Card>
               <CardHeader><CardTitle className="text-base">Record metadata</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-2 gap-2 text-sm">

@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.contract.domain.Addendum;
 import com.abclogistics.pas.contract.domain.AddendumServiceLine;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
@@ -363,6 +364,63 @@ class AddendumActiveAppliesToParentTxTest {
                     .isFalse();
         } finally {
             allowDeleteCommit.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void attachmentDeleteCannotCommitAfterDraftCancellation() throws Exception {
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(
+                termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        UUID attachmentId = attach(id);
+        CountDownLatch cancelledInsideTransaction = new CountDownLatch(1);
+        CountDownLatch allowCancellationCommit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Throwable> cancellation = pool.submit(() -> {
+                authenticate();
+                try {
+                    tx.executeWithoutResult(s -> {
+                        addenda.cancel(id, "customer withdrew");
+                        cancelledInsideTransaction.countDown();
+                        await(allowCancellationCommit);
+                    });
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            assertThat(cancelledInsideTransaction.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> deletion = pool.submit(() -> {
+                authenticate();
+                try {
+                    attachments.delete(attachmentId);
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            // Cancellation owns the addendum row until commit. Delete must wait, then re-read
+            // CANCELLED under that same lock and refuse to mutate attachment membership.
+            assertThatThrownBy(() -> deletion.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            allowCancellationCommit.countDown();
+            assertThat(cancellation.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(deletion.get(10, TimeUnit.SECONDS)).isInstanceOf(ConflictException.class);
+            assertThat(statusOf(id)).isEqualTo(DocumentStatus.CANCELLED);
+            assertThat(attachmentRepository.existsByOwnerTypeAndOwnerId(EntityType.ADDENDUM, id))
+                    .isTrue();
+        } finally {
+            allowCancellationCommit.countDown();
             pool.shutdownNow();
         }
     }

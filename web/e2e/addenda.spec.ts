@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { currentUser, envelope, installApiMocks } from "./support/api";
+import { currentUser, envelope, installApiMocks, type ApiHandler } from "./support/api";
 
 const ADDENDUM_ID = "10000000-0000-4000-8000-000000000001";
 const CONTRACT_ID = "20000000-0000-4000-8000-000000000001";
@@ -22,8 +22,33 @@ const addendum = {
 
 const pageMeta = { page: 0, size: 15, totalElements: 1, totalPages: 1 };
 
+const emptyProgress = {
+  documentStatus: "DRAFT",
+  workflowState: "NOT_STARTED",
+  instanceId: null,
+  definitionVersionNo: null,
+  requestedByName: null,
+  startedAt: null,
+  priority: null,
+  currentStep: null,
+  steps: [],
+};
+
+async function installAddendumMocks(
+  page: Parameters<typeof installApiMocks>[0],
+  handler: ApiHandler,
+  userOverrides: Partial<typeof currentUser> = {},
+) {
+  await installApiMocks(page, async (request, url) => {
+    const response = await handler(request, url);
+    if (response) return response;
+    if (/^\/api\/v1\/addenda\/[^/]+\/progress$/.test(url.pathname)) return { body: envelope(emptyProgress) };
+    if (/^\/api\/v1\/addenda\/[^/]+\/history$/.test(url.pathname)) return { body: envelope([]) };
+  }, userOverrides);
+}
+
 test("opens an addendum detail link and restores it after refresh and browser Back", async ({ page }) => {
-  await installApiMocks(page, (_request, url) => {
+  await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === "/api/v1/addenda") return { body: envelope([addendum], pageMeta) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
@@ -45,7 +70,7 @@ test("opens an addendum detail link and restores it after refresh and browser Ba
 
 test("preserves list filters when opening a row and returning with the detail Back control", async ({ page }) => {
   const requestedChangeTypes: Array<string | null> = [];
-  await installApiMocks(page, (_request, url) => {
+  await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
     if (url.pathname === "/api/v1/addenda") {
@@ -68,7 +93,7 @@ test("preserves list filters when opening a row and returning with the detail Ba
 });
 
 test("shows read-only detail access without write permission", async ({ page }) => {
-  await installApiMocks(page, (_request, url) => {
+  await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
   }, { permissions: [...currentUser.permissions, "addendum:read"] });
@@ -76,11 +101,14 @@ test("shows read-only detail access without write permission", async ({ page }) 
   await page.goto(`/addenda?id=${ADDENDUM_ID}`);
   await expect(page.getByText("Read-only access")).toBeVisible();
   await expect(page.getByRole("heading", { name: addendum.addendumNo })).toBeVisible();
+  for (const action of ["Edit", "Submit for approval", "Revise", "Cancel"]) {
+    await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+  }
 });
 
 test("does not request detail data without addendum read permission", async ({ page }) => {
   let detailRequests = 0;
-  await installApiMocks(page, (_request, url) => {
+  await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) detailRequests += 1;
   });
 
@@ -92,7 +120,7 @@ test("does not request detail data without addendum read permission", async ({ p
 test("shows a not-found state for a missing addendum", async ({ page }) => {
   const missingId = "00000000-0000-4000-8000-000000000099";
   const requestedPaths: string[] = [];
-  await installApiMocks(page, (_request, url) => {
+  await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${missingId}`) {
       requestedPaths.push(url.pathname);
       return { status: 404, body: envelope({ message: "Not found" }) };
@@ -107,7 +135,7 @@ test("shows a not-found state for a missing addendum", async ({ page }) => {
 test("preserves deep-link context when navigating to a newly created addendum and back", async ({ page }) => {
   let submittedContractId: string | undefined;
   const detailRequestPaths: string[] = [];
-  await installApiMocks(page, async (request, url) => {
+  await installAddendumMocks(page, async (request, url) => {
     if (url.pathname === "/api/v1/addenda" && request.method() === "GET") {
       return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
     }
@@ -151,7 +179,7 @@ test("preserves deep-link context when navigating to a newly created addendum an
 
 test("blocks draft submission until an attachment exists", async ({ page }) => {
   let submitRequests = 0;
-  await installApiMocks(page, (request, url) => {
+  await installAddendumMocks(page, (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/submit` && request.method() === "POST") {
@@ -182,7 +210,7 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
   let submitRequests = 0;
   let uploadRequest: { ownerType: string | null; ownerId: string | null; contentType: string; body: string } | undefined;
 
-  await installApiMocks(page, async (request, url) => {
+  await installAddendumMocks(page, async (request, url) => {
     const method = request.method();
     if (url.pathname === "/api/v1/addenda" && method === "GET") {
       return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
@@ -240,27 +268,35 @@ test("creates an addendum, uploads an attachment, and submits it", async ({ page
   expect(submitRequests).toBe(1);
 });
 
-test("disables submission immediately after deleting the final attachment", async ({ page }) => {
+test("blocks lifecycle actions while deleting the final attachment", async ({ page }) => {
   const attachment = {
     id: ATTACHMENT_ID, ownerType: "ADDENDUM", ownerId: ADDENDUM_ID,
     fileName: "only-copy.pdf", contentType: "application/pdf", sizeBytes: 1024,
     uploadedAt: "2026-09-04T08:00:00Z",
   };
+  let releaseDelete!: () => void;
+  const deleteGate = new Promise<void>((resolve) => { releaseDelete = resolve; });
   let deleted = false;
   let submitRequests = 0;
-  await installApiMocks(page, async (request, url) => {
+  let cancelRequests = 0;
+  await installAddendumMocks(page, async (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(addendum) };
     if (url.pathname === "/api/v1/attachments" && request.method() === "GET") {
       if (deleted) await new Promise((resolve) => setTimeout(resolve, 500));
       return { body: envelope(deleted ? [] : [attachment]) };
     }
     if (url.pathname === `/api/v1/attachments/${ATTACHMENT_ID}` && request.method() === "DELETE") {
+      await deleteGate;
       deleted = true;
       return { body: envelope(null) };
     }
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/submit` && request.method() === "POST") {
       submitRequests += 1;
       return { body: envelope({ status: "SUBMITTED", dispatchPending: true }) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/cancel` && request.method() === "POST") {
+      cancelRequests += 1;
+      return { body: envelope({ status: "CANCELLED", detail: null }) };
     }
   }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
 
@@ -269,6 +305,11 @@ test("disables submission immediately after deleting the final attachment", asyn
   await page.getByRole("button", { name: "Delete", exact: true }).click();
   await page.getByRole("dialog", { name: "Delete this attachment?" }).getByRole("button", { name: "Delete file" }).click();
 
+  const cancelWhileDeleting = page.getByRole("button", { name: "Cancel", exact: true, includeHidden: true });
+  await expect(cancelWhileDeleting).toBeDisabled();
+  await cancelWhileDeleting.click({ force: true });
+  expect(cancelRequests).toBe(0);
+  releaseDelete();
   await expect(page.getByRole("dialog", { name: "Delete this attachment?" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Submit for approval" })).toBeDisabled();
   await expect(page.getByText("Upload at least one attachment before submitting this addendum for approval.")).toBeVisible();
@@ -288,7 +329,7 @@ test("blocks upload and delete while submission is in flight", async ({ page }) 
   let uploadRequests = 0;
   let deleteRequests = 0;
 
-  await installApiMocks(page, async (request, url) => {
+  await installAddendumMocks(page, async (request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) {
       if (submitted) return { status: 503, body: envelope({ message: "Refresh unavailable" }) };
       return { body: envelope({ ...addendum, status: submitted ? "SUBMITTED" : "DRAFT" }) };
@@ -344,7 +385,7 @@ test("keeps locked addendum attachments downloadable but not editable", async ({
     fileName: "approved.pdf", contentType: "application/pdf", sizeBytes: 1024,
     uploadedAt: "2026-09-04T08:00:00Z",
   };
-  await installApiMocks(page, (_request, url) => {
+  await installAddendumMocks(page, (_request, url) => {
     if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(approved) };
     if (url.pathname === "/api/v1/attachments") return { body: envelope([attachment]) };
   }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
@@ -368,4 +409,276 @@ test("keeps locked addendum attachments downloadable but not editable", async ({
   await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
   await expect(page.getByLabel("Choose attachment file")).toHaveCount(0);
   await expect(page.getByText("Attachments cannot be changed in this status.")).toBeVisible();
+});
+
+test("shows approval progress and status history for an addendum under review", async ({ page }) => {
+  const underReview = { ...addendum, status: "UNDER_REVIEW" };
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(underReview) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) return { body: envelope({
+      ...emptyProgress,
+      documentStatus: "UNDER_REVIEW",
+      workflowState: "IN_PROGRESS",
+      instanceId: "40000000-0000-4000-8000-000000000001",
+      requestedByName: "Nora Requester",
+      startedAt: "2026-09-04T08:00:00Z",
+      currentStep: {
+        stepNo: 2, name: "Finance review", approverRole: "FINANCE_MANAGER", status: "ACTIVE",
+        assigneeNames: ["Alex Approver"], action: null, activatedAt: "2026-09-04T09:00:00Z",
+        slaHours: 24, overdue: false,
+      },
+      steps: [
+        {
+          stepNo: 1, name: "Commercial review", approverRole: "COMMERCIAL_MANAGER", status: "APPROVED",
+          assigneeNames: ["Mina Manager"], activatedAt: "2026-09-04T08:00:00Z", slaHours: 24, overdue: false,
+          action: { actorName: "Mina Manager", actionedAt: "2026-09-04T08:30:00Z", comment: "Looks good (CTR-07)", action: "APPROVED" },
+        },
+        {
+          stepNo: 2, name: "Finance review", approverRole: "FINANCE_MANAGER", status: "ACTIVE",
+          assigneeNames: ["Alex Approver"], action: null, activatedAt: "2026-09-04T09:00:00Z", slaHours: 24, overdue: false,
+        },
+      ],
+    }) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) return { body: envelope([{
+      id: "50000000-0000-4000-8000-000000000001",
+      fromStatus: "SUBMITTED", toStatus: "UNDER_REVIEW", trigger: "W",
+      triggerRef: "60000000-0000-4000-8000-000000000001",
+      actorId: null, actorName: "Workflow",
+      note: "Contract CTR-2026-0001 uses tier A1 (CTR-05, D14d)",
+      occurredAt: "2026-09-04T09:00:00Z",
+    }]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByText("Waiting on Finance review — Assignee: Alex Approver")).toBeVisible();
+  await expect(page.getByText(/Approved by Mina Manager/)).toBeVisible();
+  await expect(page.getByText(/Commercial manager/)).toBeVisible();
+  await expect(page.getByText(/Finance manager/)).toBeVisible();
+  await expect(page.getByText("Submitted → Under review")).toBeVisible();
+  await expect(page.locator("span.text-muted-foreground").filter({ hasText: /^Approval workflow$/ })).toBeVisible();
+  await expect(page.getByText("Contract CTR-2026-0001 uses tier A1")).toBeVisible();
+  for (const technicalValue of ["FINANCE_MANAGER", "COMMERCIAL_MANAGER", "APPROVED", "SUBMITTED → UNDER_REVIEW", "CTR-05", "D14d", "CTR-07", "60000000-0000-4000-8000-000000000001"]) {
+    await expect(page.locator("body")).not.toContainText(technicalValue);
+  }
+  await expect(page.getByText("W", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Revise", exact: true })).toHaveCount(0);
+});
+
+test("revises a rejected addendum and refreshes every detail panel", async ({ page }) => {
+  let current = { ...addendum, status: "REJECTED", version: 4 };
+  let progressRequests = 0;
+  let historyRequests = 0;
+  let attachmentRequests = 0;
+  let reviseRequests = 0;
+  await installAddendumMocks(page, (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(current) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/revise` && request.method() === "POST") {
+      reviseRequests += 1;
+      current = { ...current, status: "DRAFT", version: 5 };
+      return { body: envelope(current) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) {
+      progressRequests += 1;
+      return { body: envelope(current.status === "REJECTED" ? {
+        ...emptyProgress,
+        documentStatus: "REJECTED",
+        workflowState: "REJECTED",
+        instanceId: "40000000-0000-4000-8000-000000000002",
+        steps: [{
+          stepNo: 1, name: "Finance review", approverRole: "FINANCE_MANAGER", status: "REJECTED",
+          assigneeNames: ["Alex Approver"], activatedAt: "2026-09-04T09:00:00Z", slaHours: 24, overdue: false,
+          action: { actorName: "Alex Approver", actionedAt: "2026-09-04T09:30:00Z", comment: "Correct the term", action: "REJECTED" },
+        }],
+      } : { ...emptyProgress, documentStatus: current.status }) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) {
+      historyRequests += 1;
+      return { body: envelope(current.status === "REJECTED" ? [{
+        id: "50000000-0000-4000-8000-000000000002",
+        fromStatus: "UNDER_REVIEW", toStatus: "REJECTED", trigger: "W", triggerRef: null,
+        actorId: null, actorName: "Alex Approver", note: "Correct the term (CTR-04)", occurredAt: "2026-09-04T09:30:00Z",
+      }] : []) };
+    }
+    if (url.pathname === "/api/v1/attachments") {
+      attachmentRequests += 1;
+      return { body: envelope([]) };
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByRole("button", { name: "Revise", exact: true })).toBeVisible();
+  await expect(page.getByText(/Rejected by Alex Approver/)).toBeVisible();
+  await expect(page.getByText("Under review → Rejected")).toBeVisible();
+  await expect(page.getByText("CTR-04", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Revise", exact: true }).click();
+
+  await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit for approval" })).toBeVisible();
+  expect(reviseRequests).toBe(1);
+  await expect.poll(() => progressRequests).toBeGreaterThan(1);
+  await expect.poll(() => historyRequests).toBeGreaterThan(1);
+  await expect.poll(() => attachmentRequests).toBeGreaterThan(1);
+});
+
+test("edits a revision-requested addendum and preserves optimistic-lock data", async ({ page }) => {
+  let current = { ...addendum, status: "REVISION_REQUESTED", version: 7 };
+  let updateBody: Record<string, unknown> | undefined;
+  let historyRequests = 0;
+  await installAddendumMocks(page, async (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(current) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "PUT") {
+      updateBody = await request.postDataJSON();
+      current = { ...current, description: String(updateBody?.description), status: "DRAFT", version: 8 };
+      return { body: envelope(current) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) {
+      historyRequests += 1;
+      return { body: envelope([]) };
+    }
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: `Edit ${addendum.addendumNo}` });
+  await dialog.getByLabel("Description").fill("Updated after reviewer feedback");
+  await dialog.getByLabel("New valid to *").fill("2028-09-30");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Updated after reviewer feedback")).toBeVisible();
+  expect(updateBody).toMatchObject({
+    contractId: CONTRACT_ID,
+    description: "Updated after reviewer feedback",
+    newValidTo: "2028-09-30",
+    version: 7,
+  });
+  await expect.poll(() => historyRequests).toBeGreaterThan(1);
+});
+
+test("cancels a pre-submission addendum without showing submit guidance", async ({ page }) => {
+  let current = { ...addendum, status: "DRAFT", version: 3 };
+  let cancelBody: Record<string, unknown> | undefined;
+  let historyRequests = 0;
+  await installAddendumMocks(page, async (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(current) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/cancel` && request.method() === "POST") {
+      cancelBody = await request.postDataJSON();
+      current = { ...current, status: "CANCELLED", version: 4 };
+      return { body: envelope({ status: "CANCELLED", detail: null }) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) {
+      historyRequests += 1;
+      return { body: envelope([]) };
+    }
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) {
+      return { body: envelope({ ...emptyProgress, documentStatus: current.status, workflowState: current.status }) };
+    }
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Cancel this addendum?" });
+  await dialog.getByLabel("Reason (optional)").fill("Customer withdrew the request");
+  await dialog.getByRole("button", { name: "Cancel addendum" }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Cancelled").first()).toBeVisible();
+  await expect(page.getByText("This document is cancelled. No approval steps are pending.")).toBeVisible();
+  await expect(page.getByText("Submit the document to begin approval.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+  expect(cancelBody).toEqual({ reason: "Customer withdrew the request" });
+  await expect.poll(() => historyRequests).toBeGreaterThan(1);
+});
+
+test("keeps a pending cancellation actionable and explains that it must be retried", async ({ page }) => {
+  const underReview = { ...addendum, status: "UNDER_REVIEW" };
+  await installAddendumMocks(page, (request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}` && request.method() === "GET") return { body: envelope(underReview) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/cancel` && request.method() === "POST") {
+      return { status: 202, body: envelope({
+        status: "PENDING",
+        detail: "A workflow dispatch is still in flight; the addendum keeps its current status. Retry this call.",
+      }) };
+    }
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("dialog", { name: "Cancel this addendum?" })
+    .getByRole("button", { name: "Cancel addendum" }).click();
+
+  await expect(page.getByText(/addendum keeps its current status.*Retry this call/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
+  await expect(page.getByText("Under Review").first()).toBeVisible();
+});
+
+test("shows a completed approval and keeps an approved addendum read-only", async ({ page }) => {
+  const approved = { ...addendum, status: "APPROVED" };
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(approved) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) return { body: envelope({
+      ...emptyProgress,
+      documentStatus: "APPROVED",
+      workflowState: "APPROVED",
+      instanceId: "40000000-0000-4000-8000-000000000003",
+      steps: [{
+        stepNo: 1, name: "Finance review", approverRole: "FINANCE_MANAGER", status: "APPROVED",
+        assigneeNames: ["Alex Approver"], activatedAt: "2026-09-04T09:00:00Z", slaHours: 24, overdue: false,
+        action: { actorName: "Alex Approver", actionedAt: "2026-09-04T09:30:00Z", comment: "Approved", action: "APPROVED" },
+      }],
+    }) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/history`) return { body: envelope([{
+      id: "50000000-0000-4000-8000-000000000003",
+      fromStatus: "UNDER_REVIEW", toStatus: "APPROVED", trigger: "W", triggerRef: null,
+      actorId: null, actorName: "Alex Approver", note: "Approved", occurredAt: "2026-09-04T09:30:00Z",
+    }]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByText(/Approved by Alex Approver/)).toBeVisible();
+  await expect(page.getByText("Under review → Approved")).toBeVisible();
+  for (const action of ["Edit", "Submit for approval", "Revise", "Cancel"]) {
+    await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+  }
+});
+
+test("requires the active-cancellation permission for an active addendum", async ({ page }) => {
+  const active = { ...addendum, status: "ACTIVE" };
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(active) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+
+  await page.unroute("**/api/v1/**");
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(active) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write", "contract:cancel_active"] });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+});
+
+test("treats an expired document as having completed approval", async ({ page }) => {
+  const expired = { ...addendum, status: "EXPIRED" };
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(expired) };
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}/progress`) return { body: envelope({
+      ...emptyProgress, documentStatus: "EXPIRED", workflowState: "EXPIRED",
+    }) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await expect(page.getByText("Approval is complete. No approval step details are available.")).toBeVisible();
+  await expect(page.getByText("Submit the document to begin approval.")).toHaveCount(0);
 });

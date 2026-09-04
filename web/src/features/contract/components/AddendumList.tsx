@@ -22,11 +22,10 @@ import { DEFAULT_PAGE_SIZE } from "@/shared/api/paging";
 import { PaginationControls } from "@/shared/components/pagination-controls";
 import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { ClearFiltersButton } from "@/shared/components/clear-filters-button";
 import { FilterBar } from "@/shared/components/filter-bar";
 import { SearchInput } from "@/shared/components/search-input";
-import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES, isUserCancellableStatus } from "../contractOptions";
+import { ADDENDUM_CHANGE_TYPES as CHANGE_TYPES } from "../contractOptions";
 import { statusLabel } from "@/shared/lib/labels";
 import { humanize } from "@/shared/lib/text";
 
@@ -61,7 +60,6 @@ export function AddendumList() {
   const navigate = useNavigate();
   const canRead = useHasPermission("addendum:read");
   const canWrite = useHasPermission("addendum:write");
-  const canCancelActive = useHasPermission("contract:cancel_active");
   // Deep-link default for the create form (e.g. contract detail's Create addendum).
   // There is intentionally no contract filter: Figma has none, and contract-scoped
   // addenda live on the contract detail page.
@@ -71,8 +69,6 @@ export function AddendumList() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const [openCreate, setOpenCreate] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState<AddendumResponse | null>(null);
   const hasFilters = !!(status || changeType || q);
 
   const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE }));
@@ -107,33 +103,6 @@ export function AddendumList() {
       });
     },
   });
-  const updateMut = useMutation({
-    mutationFn: (data: FormData) => {
-      if (!editId) throw new Error("No edit");
-      const existing = items.find((x) => x.id === editId);
-      return contractApi.updateAddendum(editId, {
-        contractId: data.contractId, changeType: data.changeType, description: data.description || null, effectiveFrom: data.effectiveFrom,
-        newValidTo: data.newValidTo || null, paymentTermOverride: data.paymentTermOverride || null,
-        services: (data.services ?? []).map((s) => ({ serviceCode: s.serviceCode, serviceName: s.serviceName, unit: s.unit || null, scopeNote: s.scopeNote || null })),
-        version: existing?.version ?? 0,
-      });
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setEditId(null); },
-  });
-  const cancelMut = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) => contractApi.cancelAddendum(id, reason),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setConfirmCancel(null); },
-  });
-  const reviseMut = useMutation({ mutationFn: (id: string) => contractApi.reviseAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
-
-  const onEdit = (a: AddendumResponse) => {
-    setEditId(a.id);
-    reset({
-      contractId: a.contractId, changeType: a.changeType, description: a.description ?? "", effectiveFrom: a.effectiveFrom, newValidTo: a.newValidTo ?? "", paymentTermOverride: a.paymentTermOverride ?? "",
-      services: a.services.map((s) => ({ serviceCode: s.serviceCode, serviceName: s.serviceName, unit: s.unit ?? "", scopeNote: s.scopeNote ?? "" })),
-    });
-  };
-
   const columns = useMemo<ColumnDef<AddendumResponse>[]>(() => [
     {
       accessorKey: "addendumNo", header: "NO",
@@ -146,21 +115,7 @@ export function AddendumList() {
     { accessorKey: "changeType", header: "TYPE", cell: ({ row }) => <Badge variant="secondary">{row.original.changeType}</Badge> },
     { accessorKey: "effectiveFrom", header: "EFFECTIVE FROM" },
     { accessorKey: "status", header: "STATUS", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
-    {
-      id: "actions", header: "ACTIONS", enableSorting: false,
-      cell: ({ row }) => {
-        const a = row.original;
-        const cancellable = isUserCancellableStatus(a.status) && (a.status !== "ACTIVE" || canCancelActive);
-        return (
-          <div className="flex gap-1 flex-wrap">
-            {canWrite && (a.status === "DRAFT" || a.status === "REVISION_REQUESTED") && <Button size="sm" variant="outline" onClick={() => onEdit(a)}>Edit</Button>}
-            {canWrite && a.status === "REJECTED" && <Button size="sm" onClick={() => reviseMut.mutate(a.id)}>Revise</Button>}
-            {canWrite && cancellable && <Button size="sm" variant="destructive" onClick={() => setConfirmCancel(a)}>Cancel</Button>}
-          </div>
-        );
-      },
-    },
-  ], [canWrite, canCancelActive]);
+  ], []);
 
   if (!canRead) return <Card><CardContent className="p-6 text-sm">You do not have access to addenda.</CardContent></Card>;
 
@@ -195,30 +150,6 @@ export function AddendumList() {
         </CardContent>
       </Card>
 
-      <ConfirmDialog
-        open={!!confirmCancel}
-        title="Cancel this addendum?"
-        body={
-          <>
-            <p>
-              Addendum <span className="font-medium">{confirmCancel?.addendumNo}</span> on contract{" "}
-              <span className="font-medium">{confirmCancel?.contractNo}</span> will be cancelled.
-            </p>
-            <p className="mt-2 text-muted-foreground">
-              Any approval already in progress stops, and the cancellation stays on the addendum's
-              history. This cannot be undone here.
-            </p>
-          </>
-        }
-        confirmLabel="Cancel addendum"
-        pendingLabel="Cancelling..."
-        pending={cancelMut.isPending}
-        error={cancelMut.isError ? cancelMut.error : undefined}
-        reason={{ label: "Reason", placeholder: "Why is this addendum being cancelled?" }}
-        onConfirm={(reason) => confirmCancel && cancelMut.mutate({ id: confirmCancel.id, reason })}
-        onCancel={() => setConfirmCancel(null)}
-      />
-
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create addendum</DialogTitle></DialogHeader>
@@ -250,20 +181,6 @@ export function AddendumList() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editId} onOpenChange={(o)=>!o && setEditId(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
-          <DialogHeader><DialogTitle>Edit addendum</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit((d)=>updateMut.mutate(d))} className="space-y-3">
-            <div><Label>Contract *</Label><Select {...register("contractId")}><option value="">Select</option>{(contractsQ.data?.content ?? []).map((c)=><option key={c.id} value={c.id}>{c.contractNo}</option>)}</Select></div>
-            <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map(t=><option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
-            <div><Label>Description</Label><Textarea {...register("description")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Effective from *</Label><Input type="date" {...register("effectiveFrom")} /></div>{watchedType==="TERM_EXTENSION" && <div><Label>New valid to</Label><Input type="date" {...register("newValidTo")} /></div>}{watchedType==="PAYMENT_TERMS" && <div><Label>Payment term override</Label><Input {...register("paymentTermOverride")} /></div>}</div>
-            {watchedType==="ADDED_SERVICE" && <div><Label>Services</Label><div className="space-y-1 border rounded p-2">{fields.map((f,i)=><div key={f.id} className="grid grid-cols-12 gap-1"><div className="col-span-3"><Input {...register(`services.${i}.serviceCode` as const)} placeholder="Code" /></div><div className="col-span-4"><Input {...register(`services.${i}.serviceName` as const)} placeholder="Name" /></div><div className="col-span-2"><Input {...register(`services.${i}.unit` as const)} placeholder="Unit" /></div><div className="col-span-2"><Input {...register(`services.${i}.scopeNote` as const)} placeholder="Scope" /></div><Button type="button" variant="ghost" size="sm" className="col-span-1" onClick={()=>remove(i)}>×</Button></div>)}<Button type="button" size="sm" variant="outline" onClick={()=>append({serviceCode:"",serviceName:"",unit:"",scopeNote:""})}>+ Service</Button></div></div>}
-            {updateMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(updateMut.error, "Update failed")}</div>}
-            <DialogFooter><Button type="button" variant="outline" onClick={()=>setEditId(null)}>Cancel</Button><Button type="submit" disabled={updateMut.isPending}>{updateMut.isPending?"Saving...":"Save"}</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

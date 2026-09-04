@@ -179,4 +179,4 @@ export type ProgressResponse = {
 };
 
 export type SubmitResponse = { status: string; workflowState: string };
-export type CancelResponse = { status: string; outcome: string };
+export type CancelResponse = { status: "CANCELLED" | "PENDING"; detail: string | null };

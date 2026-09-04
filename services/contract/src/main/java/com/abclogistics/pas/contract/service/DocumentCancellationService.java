@@ -68,20 +68,29 @@ public class DocumentCancellationService {
     }
 
     public Outcome cancel(EntityType type, UUID id, String reason) {
-        DocumentStatus status = tx.execute(s -> requireCancellable(type, id));
-
-        // SUBMITTED/UNDER_REVIEW race a dispatch, so go through the handoff; the rest commit directly
-        if (status == DocumentStatus.SUBMITTED || status == DocumentStatus.UNDER_REVIEW) {
-            return handoff(type, id, reason, status);
+        CancellationDecision decision = tx.execute(s -> prepareCancellation(type, id, reason));
+        if (decision.completed()) {
+            return Outcome.CANCELLED;
         }
-        tx.executeWithoutResult(s -> applyCancellation(type, id, reason));
-        return Outcome.CANCELLED;
+        return handoff(type, id, reason, decision.status());
     }
 
-    private DocumentStatus requireCancellable(EntityType type, UUID id) {
-        ApprovableDocument document = load(type, id);
+    private CancellationDecision prepareCancellation(EntityType type, UUID id, String reason) {
+        ApprovableDocument document = loadForUpdate(type, id);
         DocumentStatus status = document.getStatus();
+        requireCancellable(type, document, status);
+        // SUBMITTED/UNDER_REVIEW race a dispatch, so go through the handoff; the rest commit
+        // while still owning the same row lock used by attachment membership changes.
+        if (status == DocumentStatus.SUBMITTED || status == DocumentStatus.UNDER_REVIEW) {
+            return new CancellationDecision(false, status);
+        }
+        transitions.transition(document, DocumentStatus.CANCELLED, TriggerKind.U, null,
+                RequestValues.blankToNull(reason));
+        return new CancellationDecision(true, DocumentStatus.CANCELLED);
+    }
 
+    private void requireCancellable(EntityType type, ApprovableDocument document,
+                                    DocumentStatus status) {
         // not @PreAuthorize: the same endpoint cancels a DRAFT under contract:write alone
         if (status == DocumentStatus.ACTIVE && !SecurityUtils.hasPermission(CANCEL_ACTIVE)) {
             throw new ForbiddenException(
@@ -93,13 +102,22 @@ public class DocumentCancellationService {
                     "%s %s is %s and cannot be cancelled"
                             .formatted(type, document.getDocumentNo(), status));
         }
-        return status;
     }
+
+    private record CancellationDecision(boolean completed, DocumentStatus status) { }
 
     private ApprovableDocument load(EntityType type, UUID id) {
         java.util.Optional<? extends ApprovableDocument> found = switch (type) {
             case CONTRACT -> contracts.findById(id);
             case ADDENDUM -> addenda.findById(id);
+        };
+        return found.orElseThrow(() -> new NotFoundException("%s %s not found".formatted(type, id)));
+    }
+
+    private ApprovableDocument loadForUpdate(EntityType type, UUID id) {
+        java.util.Optional<? extends ApprovableDocument> found = switch (type) {
+            case CONTRACT -> contracts.findByIdForUpdate(id);
+            case ADDENDUM -> addenda.findByIdForUpdate(id);
         };
         return found.orElseThrow(() -> new NotFoundException("%s %s not found".formatted(type, id)));
     }
@@ -245,7 +263,7 @@ public class DocumentCancellationService {
     }
 
     private void applyCancellation(EntityType type, UUID id, String reason) {
-        transitions.transition(load(type, id), DocumentStatus.CANCELLED, TriggerKind.U, null,
+        transitions.transition(loadForUpdate(type, id), DocumentStatus.CANCELLED, TriggerKind.U, null,
                 RequestValues.blankToNull(reason));
     }
 

@@ -1,14 +1,20 @@
+import { useState } from "react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { addendumQuery, attachmentsQuery } from "../hooks/contractQueries";
+import { addendumHistoryQuery, addendumProgressQuery, addendumQuery, attachmentsQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import { AttachmentPanel } from "./AttachmentPanel";
+import { AddendumEditDialog } from "./AddendumEditDialog";
+import { ApprovalProgressPanel } from "./ApprovalProgressPanel";
+import { HistoryTimeline } from "./HistoryTimeline";
+import { isUserCancellableStatus } from "../contractOptions";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
 import { Button } from "@/shared/components/button";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
+import { ConfirmDialog } from "@/shared/components/confirm-dialog";
 import { getApiErrorMessage } from "@/shared/api/errors";
 import { formatDate } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
@@ -19,6 +25,9 @@ function responseStatus(error: unknown): number | undefined {
 
 export function AddendumDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const userQ = useCurrentUser();
   const permissions = userQ.data?.permissions ?? [];
   const canRead = permissions.includes("addendum:read");
@@ -32,6 +41,14 @@ export function AddendumDetail({ id }: { id: string }) {
     ...attachmentsQuery("ADDENDUM", id),
     enabled: userQ.isSuccess && canRead,
   });
+  const progressQ = useQuery({
+    ...addendumProgressQuery(id),
+    enabled: userQ.isSuccess && canRead,
+  });
+  const historyQ = useQuery({
+    ...addendumHistoryQuery(id),
+    enabled: userQ.isSuccess && canRead,
+  });
   const attachmentMutations = useIsMutating({ mutationKey: ["attachment-mutation", "ADDENDUM", id] });
   const submitMut = useMutation({
     mutationFn: () => contractApi.submitAddendum(id),
@@ -42,6 +59,44 @@ export function AddendumDetail({ id }: { id: string }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["addendum", id] }),
         queryClient.invalidateQueries({ queryKey: ["addenda"] }),
+        queryClient.invalidateQueries({ queryKey: ["addendum-progress", id] }),
+        queryClient.invalidateQueries({ queryKey: ["addendum-history", id] }),
+        queryClient.invalidateQueries({ queryKey: ["attachments", "ADDENDUM", id] }),
+      ]);
+    },
+  });
+  const reviseMut = useMutation({
+    mutationFn: () => contractApi.reviseAddendum(id),
+    onSuccess: async (updated) => {
+      queryClient.setQueryData(["addendum", id], updated);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["addendum", id] }),
+        queryClient.invalidateQueries({ queryKey: ["addenda"] }),
+        queryClient.invalidateQueries({ queryKey: ["addendum-progress", id] }),
+        queryClient.invalidateQueries({ queryKey: ["addendum-history", id] }),
+        queryClient.invalidateQueries({ queryKey: ["attachments", "ADDENDUM", id] }),
+      ]);
+    },
+  });
+  const cancelMut = useMutation({
+    mutationFn: (reason?: string) => contractApi.cancelAddendum(id, reason),
+    onMutate: () => setCancelNotice(null),
+    onSuccess: async (response) => {
+      if (response.status === "CANCELLED") {
+        queryClient.setQueryData(["addendum", id], (current: typeof q.data) =>
+          current ? { ...current, status: "CANCELLED" } : current,
+        );
+      } else {
+        setCancelNotice(response.detail
+          ?? "Cancellation is still pending. The addendum has not changed status; please try again shortly.");
+      }
+      setCancelOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["addendum", id] }),
+        queryClient.invalidateQueries({ queryKey: ["addenda"] }),
+        queryClient.invalidateQueries({ queryKey: ["addendum-progress", id] }),
+        queryClient.invalidateQueries({ queryKey: ["addendum-history", id] }),
+        queryClient.invalidateQueries({ queryKey: ["attachments", "ADDENDUM", id] }),
       ]);
     },
   });
@@ -62,7 +117,24 @@ export function AddendumDetail({ id }: { id: string }) {
   if (!addendum) return null;
   const editable = addendum.status === "DRAFT" || addendum.status === "REVISION_REQUESTED";
   const canSubmit = canWrite && addendum.status === "DRAFT";
+  const canRevise = canWrite && addendum.status === "REJECTED";
+  const canCancelActive = permissions.includes("contract:cancel_active");
+  const canCancel = canWrite && isUserCancellableStatus(addendum.status)
+    && (addendum.status !== "ACTIVE" || canCancelActive);
   const hasAttachments = (attachmentsQ.data?.length ?? 0) > 0;
+  const lifecyclePending = submitMut.isPending || reviseMut.isPending || cancelMut.isPending;
+
+  const onEditSaved = async (updated: typeof addendum) => {
+    queryClient.setQueryData(["addendum", id], updated);
+    setEditOpen(false);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["addendum", id] }),
+      queryClient.invalidateQueries({ queryKey: ["addenda"] }),
+      queryClient.invalidateQueries({ queryKey: ["addendum-progress", id] }),
+      queryClient.invalidateQueries({ queryKey: ["addendum-history", id] }),
+      queryClient.invalidateQueries({ queryKey: ["attachments", "ADDENDUM", id] }),
+    ]);
+  };
 
   return (
     <div className="space-y-4">
@@ -85,6 +157,7 @@ export function AddendumDetail({ id }: { id: string }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canWrite && editable && <Button size="sm" variant="outline" disabled={lifecyclePending} onClick={() => setEditOpen(true)}>Edit</Button>}
           {canSubmit && (
             <Button
               size="sm"
@@ -94,6 +167,8 @@ export function AddendumDetail({ id }: { id: string }) {
               {submitMut.isPending ? "Submitting..." : "Submit for approval"}
             </Button>
           )}
+          {canRevise && <Button size="sm" disabled={lifecyclePending} onClick={() => reviseMut.mutate()}>Revise</Button>}
+          {canCancel && <Button size="sm" variant="destructive" disabled={lifecyclePending || attachmentMutations > 0} onClick={() => setCancelOpen(true)}>Cancel</Button>}
           {!canWrite && <Badge variant="secondary">Read-only access</Badge>}
         </div>
       </div>
@@ -103,9 +178,14 @@ export function AddendumDetail({ id }: { id: string }) {
           Upload at least one attachment before submitting this addendum for approval.
         </div>
       )}
-      {submitMut.isError && (
+      {(submitMut.isError || reviseMut.isError) && (
         <div role="alert" className="text-sm text-destructive">
-          {getApiErrorMessage(submitMut.error, "Failed to submit addendum")}
+          {getApiErrorMessage(submitMut.error ?? reviseMut.error, "Addendum action failed")}
+        </div>
+      )}
+      {cancelNotice && (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {cancelNotice}
         </div>
       )}
 
@@ -133,7 +213,7 @@ export function AddendumDetail({ id }: { id: string }) {
             ownerType="ADDENDUM"
             ownerId={addendum.id}
             editable={editable}
-            mutationsDisabled={submitMut.isPending}
+            mutationsDisabled={lifecyclePending}
           />
 
           {addendum.services.length > 0 && (
@@ -152,14 +232,38 @@ export function AddendumDetail({ id }: { id: string }) {
           )}
         </div>
 
-        <Card className="h-fit">
-          <CardHeader><CardTitle className="text-base">Record status</CardTitle></CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div><div className="text-xs text-muted-foreground">CURRENT STATUS</div><div className="mt-1"><StatusBadge status={addendum.status} /></div></div>
-            <div><div className="text-xs text-muted-foreground">RECORD VERSION</div><div>{addendum.version}</div></div>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <ApprovalProgressPanel progress={progressQ.data} isLoading={progressQ.isLoading} error={progressQ.error} />
+          <Card>
+            <CardHeader><CardTitle className="text-base">Record status</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div><div className="text-xs text-muted-foreground">CURRENT STATUS</div><div className="mt-1"><StatusBadge status={addendum.status} /></div></div>
+              <div><div className="text-xs text-muted-foreground">RECORD VERSION</div><div>{addendum.version}</div></div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Status history</CardTitle></CardHeader>
+        <CardContent>
+          {historyQ.isError ? <div className="text-sm text-destructive">{getApiErrorMessage(historyQ.error, "Failed to load status history")}</div> : <HistoryTimeline history={historyQ.data} isLoading={historyQ.isLoading} />}
+        </CardContent>
+      </Card>
+
+      {editOpen && <AddendumEditDialog addendum={addendum} onClose={() => setEditOpen(false)} onSaved={onEditSaved} />}
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Cancel this addendum?"
+        body={<p>Addendum <span className="font-medium">{addendum.addendumNo}</span> will be cancelled. Any approval in progress will stop, and this cannot be undone here.</p>}
+        confirmLabel="Cancel addendum"
+        pendingLabel="Cancelling..."
+        pending={cancelMut.isPending}
+        error={cancelMut.isError ? cancelMut.error : undefined}
+        reason={{ label: "Reason", placeholder: "Why is this addendum being cancelled?" }}
+        onConfirm={(reason) => cancelMut.mutate(reason)}
+        onCancel={() => setCancelOpen(false)}
+      />
     </div>
   );
 }
