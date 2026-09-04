@@ -1,11 +1,10 @@
 package com.abclogistics.pas.common.outbox;
 
+import com.abclogistics.pas.common.events.DirectEventRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
-import org.apache.kafka.common.header.internals.RecordHeader;
 
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /** The wire shape, built by the producer rather than restated by the consumer. */
@@ -50,12 +49,7 @@ public final class EventRecords {
     public static ProducerRecord<String, String> directPublish(UUID eventId, String eventType,
                                                                String documentType, String key,
                                                                String payloadJson) {
-        ProducerRecord<String, String> record =
-                new ProducerRecord<>("pas.events", key, payloadJson);
-        record.headers().add(header("event_id", eventId.toString()));
-        record.headers().add(header("event_type", eventType));
-        record.headers().add(header("document_type", documentType));
-        return record;
+        return DirectEventRecord.create(eventId, eventType, documentType, key, payloadJson);
     }
 
     /** What the listener is actually handed, from what the producer actually sends. */
@@ -100,9 +94,5 @@ public final class EventRecords {
             replaced.headers().add(h);
         }
         return replaced;
-    }
-
-    private static RecordHeader header(String name, String value) {
-        return new RecordHeader(name, value.getBytes(StandardCharsets.UTF_8));
     }
 }

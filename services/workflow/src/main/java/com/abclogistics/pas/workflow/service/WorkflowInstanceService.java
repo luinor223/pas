@@ -179,8 +179,9 @@ public class WorkflowInstanceService {
                 "customer_name", customerName != null ? customerName : ""
         ));
 
-        audit.record("WORKFLOW_INSTANCE", instance.getId(), "workflow.instance_started",
-                null, Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
+        audit.record("WORKFLOW_INSTANCE", instance.getId(), instance.getDocumentNo(),
+                "workflow.instance_started", null, null, null,
+                Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
 
         return instance;
     }
@@ -220,8 +221,9 @@ public class WorkflowInstanceService {
         instanceRepo.save(instance);
 
         // No workflow.completed for CANCELLED per db-workflow.md:11 (inbox reflects state immediately) and registry §4 (only APPROVED/REJECTED/REVISION_REQUESTED)
-        audit.record("WORKFLOW_INSTANCE", instance.getId(), "workflow.instance_cancelled",
-                null, Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
+        audit.record("WORKFLOW_INSTANCE", instance.getId(), instance.getDocumentNo(),
+                "workflow.instance_cancelled", null, null, null,
+                Map.of("documentType", documentTypeCode, "documentId", documentId.toString()));
     }
 
     @Transactional(readOnly = true)
@@ -339,8 +341,9 @@ public class WorkflowInstanceService {
                         "customer_name", instance.getCustomerName() != null ? instance.getCustomerName() : ""
                 ));
             }
-            audit.record("WORKFLOW_STEP", step.getId(), "workflow.step_approved",
-                    null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
+            audit.record("WORKFLOW_STEP", step.getId(), instance.getDocumentNo(),
+                    "workflow.step_approved", null, null, null,
+                    Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
 
         } else if ("REJECT".equals(action) || "REQUEST_REVISION".equals(action)) {
             // merged: REJECT and REQUEST_REVISION share same flow, only status/audit differ (review)
@@ -377,8 +380,9 @@ public class WorkflowInstanceService {
                     "requested_by", instance.getRequestedBy() != null ? instance.getRequestedBy().toString() : "",
                     "requested_by_name", instance.getRequestedByName() != null ? instance.getRequestedByName() : ""
             ));
-            audit.record("WORKFLOW_STEP", step.getId(), auditName,
-                    null, Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
+            audit.record("WORKFLOW_STEP", step.getId(), instance.getDocumentNo(), auditName,
+                    null, null, null,
+                    Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
         }
     }
 

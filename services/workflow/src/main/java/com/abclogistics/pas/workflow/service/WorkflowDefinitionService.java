@@ -92,8 +92,9 @@ public class WorkflowDefinitionService {
             WorkflowStepDefinition step = new WorkflowStepDefinition(def, order++, s.name(), s.approverRole(), s.slaHours());
             stepRepo.save(step);
         }
-        audit.record("WORKFLOW_DEFINITION", def.getId(), "workflow.definition_steps_updated",
-                null, Map.of("steps", req.steps().size()));
+        audit.record("WORKFLOW_DEFINITION", def.getId(), def.getName(),
+                "workflow.definition_steps_updated", null, null, null,
+                Map.of("steps", req.steps().size()));
         return toResponse(def);
     }
 
@@ -126,8 +127,9 @@ public class WorkflowDefinitionService {
         // guard: ensure exactly one active after (should hold by partial unique)
         // implicit via DB constraint; if zero incumbent case, we just activated one, so ok.
 
-        audit.record("WORKFLOW_DEFINITION", target.getId(), "workflow.definition_activated",
-                null, Map.of("documentType", target.getDocumentType().getCode(), "versionNo", target.getVersionNo()));
+        audit.record("WORKFLOW_DEFINITION", target.getId(), target.getName(),
+                "workflow.definition_activated", null, null, null,
+                Map.of("documentType", target.getDocumentType().getCode(), "versionNo", target.getVersionNo()));
         return toResponse(target);
     }
 

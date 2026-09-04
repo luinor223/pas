@@ -4,6 +4,7 @@ import com.abclogistics.pas.billing.domain.*;
 import com.abclogistics.pas.billing.dto.*;
 import com.abclogistics.pas.billing.grpc.*;
 import com.abclogistics.pas.billing.repository.*;
+import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.NotFoundException;
@@ -43,6 +44,7 @@ public class StatementService {
     private final OperationsGrpcClient operationsClient;
     private final WorkflowGrpcClient workflowClient;
     private final EsignGrpcClient esignClient;
+    private final AuditRecorder audit;
 
     public StatementService(PaymentStatementRepository statementRepo,
                             StatementLineRepository lineRepo,
@@ -52,7 +54,8 @@ public class StatementService {
                             PricingGrpcClient pricingClient,
                             OperationsGrpcClient operationsClient,
                             WorkflowGrpcClient workflowClient,
-                            EsignGrpcClient esignClient) {
+                            EsignGrpcClient esignClient,
+                            AuditRecorder audit) {
         this.statementRepo = statementRepo;
         this.lineRepo = lineRepo;
         this.lineVolumeRepo = lineVolumeRepo;
@@ -62,6 +65,7 @@ public class StatementService {
         this.operationsClient = operationsClient;
         this.workflowClient = workflowClient;
         this.esignClient = esignClient;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -462,7 +466,7 @@ public class StatementService {
         statementRepo.save(statement);
 
         recordHistory(statement, oldStatus, PaymentStatement.StatementStatus.CANCELLED, StatusHistory.TriggerKind.U, null);
-        auditOutbox(statement, "statement.cancelled");
+        auditOutbox(statement, "statement.cancelled", reason);
         return toResponse(statement);
     }
 
@@ -507,21 +511,12 @@ public class StatementService {
     }
 
     private void auditOutbox(PaymentStatement statement, String action) {
-        UUID actorId = SecurityUtils.currentUserId();
-        String actorName = SecurityUtils.currentUserName();
-        String payload = String.format(
-            "{\"source_service\":\"billing\",\"entity_type\":\"PAYMENT_STATEMENT\","
-            + "\"entity_id\":\"%s\",\"entity_no\":\"%s\",\"action\":\"%s\","
-            + "\"actor_id\":\"%s\",\"actor_name\":\"%s\",\"actor_department\":\"\","
-            + "\"before_status\":null,\"after_status\":\"%s\",\"changes\":{},\"note\":null,"
-            + "\"ip_address\":null,\"occurred_at\":\"%s\"}",
-            statement.getId(), statement.getStatementNo(), action,
-            actorId != null ? actorId.toString() : "null",
-            actorName != null ? actorName : "",
-            statement.getStatus(),
-            Instant.now());
-        OutboxEvent event = OutboxEvent.audit("PAYMENT_STATEMENT", statement.getId(), payload);
-        outboxRepo.save(event);
+        auditOutbox(statement, action, null);
+    }
+
+    private void auditOutbox(PaymentStatement statement, String action, String note) {
+        audit.record("PAYMENT_STATEMENT", statement.getId(), statement.getStatementNo(), action,
+            null, statement.getStatus().name(), note, Map.of());
     }
 
 

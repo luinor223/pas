@@ -36,6 +36,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -63,6 +64,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 @SpringBootTest
 class AttachmentLifecycleTest {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16")
@@ -136,6 +139,7 @@ class AttachmentLifecycleTest {
     @Test
     void uploadStoresTheBytesAndTheMetadata() {
         UUID contractId = draftContract();
+        String contractNo = contractRepository.findById(contractId).orElseThrow().getContractNo();
         Attachment saved = upload(contractId, "signed-terms.pdf", "application/pdf", "hello contract");
 
         assertThat(saved.getOwnerType()).isEqualTo(EntityType.CONTRACT);
@@ -145,6 +149,14 @@ class AttachmentLifecycleTest {
         assertThat(saved.getSizeBytes()).isEqualTo("hello contract".length());
         assertThat(saved.getUploadedBy()).isEqualTo(SALES.userId());
         assertThat(Path.of(saved.getStoragePath())).exists();
+        assertThat(outbox.findAll())
+                .filteredOn(event -> "audit.recorded".equals(event.getEventType()))
+                .extracting(OutboxEvent::getPayload)
+                .anySatisfy(payload -> {
+                    var json = objectMapper.readTree(payload);
+                    assertThat(json.get("action").asString()).isEqualTo("ATTACH");
+                    assertThat(json.get("entity_no").asString()).isEqualTo(contractNo);
+                });
     }
 
     @Test

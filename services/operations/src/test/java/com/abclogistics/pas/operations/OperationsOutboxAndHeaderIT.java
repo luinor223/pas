@@ -25,6 +25,8 @@ import org.testcontainers.utility.DockerImageName;
 import java.util.List;
 import java.util.UUID;
 
+import tools.jackson.databind.ObjectMapper;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
@@ -62,6 +64,7 @@ class OperationsOutboxAndHeaderIT {
     @Autowired PeriodService periodService;
     @Autowired OutboxRepository outbox;
     @Autowired KafkaTemplate<String, String> kafka;
+    @Autowired ObjectMapper objectMapper;
 
     @BeforeEach
     void setAuth() {
@@ -88,7 +91,7 @@ class OperationsOutboxAndHeaderIT {
         assertThat(hasAudit).isTrue();
         assertThat(outbox.count()).isGreaterThan(beforeLockOutbox);
 
-        // verify period_locked was published to pas.events with key=period_code and headers event_type/document_type
+        // verify period_locked uses the same bare-payload wire contract as relayed events
         // TestGrpcConfig mocks KafkaTemplate.send(ProducerRecord) to complete immediately; afterCommit is synchronous so timeout 500 is deterministic
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<ProducerRecord<String,String>> captor = org.mockito.ArgumentCaptor.forClass(ProducerRecord.class);
@@ -99,10 +102,16 @@ class OperationsOutboxAndHeaderIT {
                     && new String(rec.headers().headers("event_type").iterator().next().value()).equals("operations.period_locked");
             boolean hasDoc = rec.headers().headers("document_type").iterator().hasNext()
                     && new String(rec.headers().headers("document_type").iterator().next().value()).equals("OPERATION_PERIOD");
-            // envelope should contain event_id etc.
-            boolean hasEnvelope = rec.value() != null && rec.value().contains("event_id") && rec.value().contains("period_code");
-            return isEvent && hasType && hasDoc && hasEnvelope;
+            boolean hasEventId = rec.headers().headers("event_id").iterator().hasNext();
+            try {
+                var payload = objectMapper.readTree(rec.value());
+                boolean barePayload = payload.has("period_code") && payload.has("document_no")
+                        && !payload.has("event_id") && !payload.has("payload");
+                return isEvent && hasType && hasDoc && hasEventId && barePayload;
+            } catch (Exception ignored) {
+                return false;
+            }
         });
-        assertThat(found).withFailMessage("period_locked not sent with correct topic/key/headers/envelope").isTrue();
+        assertThat(found).withFailMessage("period_locked not sent with mandatory headers and a bare payload").isTrue();
     }
 }

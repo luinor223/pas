@@ -1,10 +1,10 @@
 package com.abclogistics.pas.pricing.scheduler;
 
+import com.abclogistics.pas.common.events.DirectEventRecord;
 import com.abclogistics.pas.pricing.dto.ExpiryWarningRow;
 import com.abclogistics.pas.pricing.repository.PriceListVersionRepository;
 import com.abclogistics.pas.pricing.service.PriceListVersionService;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -15,7 +15,6 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
@@ -118,23 +117,8 @@ public class PriceListVersionScheduler {
         payload.put("days_left", ChronoUnit.DAYS.between(today, row.validTo()));
         payload.put("owner_user_id", row.ownerId() == null ? null : row.ownerId().toString());
 
-        UUID eventId = eventId(row);
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("event_id", eventId.toString());
-        envelope.put("event_type", DOCUMENT_EXPIRING);
-        envelope.put("occurred_at", Instant.now().toString());
-        envelope.put("actor_id", null);
-        envelope.put("actor_name", "system");
-        envelope.put("document_type", DOCUMENT_TYPE);
-        envelope.put("document_id", row.versionId().toString());
-        envelope.put("payload", payload);
-
-        ProducerRecord<String, String> record = new ProducerRecord<>(EVENTS_TOPIC,
-                row.versionId().toString(), objectMapper.writeValueAsString(envelope));
-        record.headers().add(header("event_type", DOCUMENT_EXPIRING));
-        record.headers().add(header("document_type", DOCUMENT_TYPE));
-        record.headers().add(header("event_id", eventId.toString()));
-        return record;
+        return DirectEventRecord.create(eventId(row), DOCUMENT_EXPIRING, DOCUMENT_TYPE,
+                row.versionId().toString(), objectMapper.writeValueAsString(payload));
     }
 
     /** Derived id so a crash between publish and stamp re-warns without a new event; valid_to is in
@@ -144,7 +128,4 @@ public class PriceListVersionScheduler {
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static RecordHeader header(String name, String value) {
-        return new RecordHeader(name, value.getBytes(StandardCharsets.UTF_8));
-    }
 }

@@ -1,11 +1,11 @@
 package com.abclogistics.pas.workflow.scheduler;
 
+import com.abclogistics.pas.common.events.DirectEventRecord;
 import com.abclogistics.pas.workflow.domain.WorkflowStepInstance;
 import com.abclogistics.pas.workflow.repository.StepAssigneeRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;
 import tools.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -67,11 +67,9 @@ public class SlaScheduler {
                     String json = objectMapper.writeValueAsString(payload);
                     KafkaTemplate<String, String> kafka = kafkaProvider.getIfAvailable();
                     if (kafka != null) {
-                        ProducerRecord<String, String> record = new ProducerRecord<>("pas.events",
-                                instance.getDocumentId().toString(), json);
-                        record.headers().add(new RecordHeader("event_id", eventId(step.getId(), deadline).toString().getBytes(StandardCharsets.UTF_8)));
-                        record.headers().add(new RecordHeader("event_type", EVENT_TYPE.getBytes(StandardCharsets.UTF_8)));
-                        record.headers().add(new RecordHeader("document_type", instance.getDocumentTypeCode().getBytes(StandardCharsets.UTF_8)));
+                        ProducerRecord<String, String> record = DirectEventRecord.create(
+                                eventId(step.getId(), deadline), EVENT_TYPE,
+                                instance.getDocumentTypeCode(), instance.getDocumentId().toString(), json);
                         // block until acks=all ack — only stamp on success so failure self-heals next run (matches WorkflowOutboxRelay:19)
                         kafka.send(record).get(5, java.util.concurrent.TimeUnit.SECONDS);
                         helper.markOverdueNotified(step.getId(), now);

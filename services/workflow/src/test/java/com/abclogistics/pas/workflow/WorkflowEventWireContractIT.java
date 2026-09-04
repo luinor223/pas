@@ -219,6 +219,20 @@ class WorkflowEventWireContractIT {
     }
 
     @Test
+    void workflowAuditRowsCarryTheBusinessDocumentNumber() {
+        WorkflowInstance instance = startInstance();
+        WorkflowStepInstance first = steps.findByInstance_IdAndStepOrder(instance.getId(), 1).orElseThrow();
+        instances.actOnStep(first.getId(), "APPROVE", "ok");
+
+        assertThat(auditPayloads())
+                .filteredOn(payload -> payload.get("action").asString().equals("workflow.instance_started")
+                        || payload.get("action").asString().equals("workflow.step_approved"))
+                .isNotEmpty()
+                .allSatisfy(payload -> assertThat(payload.get("entity_no").asString())
+                        .isEqualTo("HD-2026-0001"));
+    }
+
+    @Test
     void tiedInboxTimestampsRemainStableAcrossPages() {
         for (int index = 0; index < 16; index++) {
             instances.startInstance("CONTRACT", UUID.randomUUID(), "TIE-%02d".formatted(index), "Tie customer",
@@ -257,6 +271,13 @@ class WorkflowEventWireContractIT {
     /** pas.events only — audit.recorded rows share the outbox but are a different contract. */
     private List<OutboxEvent> published() {
         return outbox.findAll().stream().filter(e -> "pas.events".equals(e.topic())).toList();
+    }
+
+    private List<JsonNode> auditPayloads() {
+        return outbox.findAll().stream()
+                .filter(e -> "audit.recorded".equals(e.getEventType()))
+                .map(e -> mapper.readTree(e.getPayload()))
+                .toList();
     }
 
     private JsonNode payloadOf(String eventType) {

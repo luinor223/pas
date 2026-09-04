@@ -97,7 +97,7 @@ public class AttachmentService {
         }
         String fileName = requireFileName(file.getOriginalFilename());
         requirePermission(ownerType, WRITE);
-        requireEditableOwner(ownerType, ownerId);
+        String ownerDocumentNo = requireEditableOwner(ownerType, ownerId);
 
         UUID id = UUID.randomUUID();
         String storageKey;
@@ -113,7 +113,7 @@ public class AttachmentService {
                 storageKey, SecurityUtils.currentUserId());
         attachments.save(attachment);
 
-        audit.record(ownerType.name(), ownerId, null, "ATTACH", null, null, null,
+        audit.record(ownerType.name(), ownerId, ownerDocumentNo, "ATTACH", null, null, null,
                 Map.of("fileName", fileName, "sizeBytes", file.getSize()));
         return attachment;
     }
@@ -122,12 +122,12 @@ public class AttachmentService {
     public void delete(UUID id) {
         Attachment attachment = get(id);
         requirePermission(attachment.getOwnerType(), WRITE);
-        requireEditableOwner(attachment.getOwnerType(), attachment.getOwnerId());
+        String ownerDocumentNo = requireEditableOwner(attachment.getOwnerType(), attachment.getOwnerId());
 
         attachments.delete(attachment);
         deleteOnCommit(attachment.getStoragePath());
 
-        audit.record(attachment.getOwnerType().name(), attachment.getOwnerId(), null, "DETACH",
+        audit.record(attachment.getOwnerType().name(), attachment.getOwnerId(), ownerDocumentNo, "DETACH",
                 null, null, null, Map.of("fileName", attachment.getFileName()));
     }
 
@@ -158,20 +158,26 @@ public class AttachmentService {
         }
     }
 
-    private void requireEditableOwner(EntityType ownerType, UUID ownerId) {
-        DocumentStatus status = switch (ownerType) {
-            case CONTRACT -> contracts.findById(ownerId)
-                    .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(ownerId)))
-                    .getStatus();
-            case ADDENDUM -> addenda.findById(ownerId)
-                    .orElseThrow(() -> new NotFoundException("Addendum %s not found".formatted(ownerId)))
-                    .getStatus();
-        };
+    private String requireEditableOwner(EntityType ownerType, UUID ownerId) {
+        DocumentStatus status;
+        String documentNo;
+        if (ownerType == EntityType.CONTRACT) {
+            var contract = contracts.findById(ownerId)
+                    .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(ownerId)));
+            status = contract.getStatus();
+            documentNo = contract.getContractNo();
+        } else {
+            var addendum = addenda.findById(ownerId)
+                    .orElseThrow(() -> new NotFoundException("Addendum %s not found".formatted(ownerId)));
+            status = addendum.getStatus();
+            documentNo = addendum.getAddendumNo();
+        }
         if (!status.isEditable()) {
             throw new ConflictException(
                     "%s %s is %s; its attachments can no longer be changed (CTR-01)"
                             .formatted(ownerType, ownerId, status));
         }
+        return documentNo;
     }
 
     private void deleteOnRollback(String storageKey) {

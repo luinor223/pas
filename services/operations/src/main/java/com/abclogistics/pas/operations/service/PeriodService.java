@@ -3,6 +3,7 @@ package com.abclogistics.pas.operations.service;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.common.events.DirectEventRecord;
 import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.operations.domain.OperationPeriod;
 import com.abclogistics.pas.operations.domain.PeriodCode;
@@ -10,7 +11,6 @@ import com.abclogistics.pas.operations.dto.PeriodResponse;
 import com.abclogistics.pas.operations.repository.OperationPeriodRepository;
 import com.abclogistics.pas.operations.repository.VolumeRecordRepository;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -20,8 +20,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.databind.ObjectMapper;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.HashMap;
@@ -110,46 +108,33 @@ public class PeriodService {
                 "OPEN", "LOCKED", null, Map.of("periodCode", periodCode));
 
         // D9 informational direct publish — must happen after commit to avoid phantom event on rollback (P0-3)
-        // Envelope per 00-registry.md:68: event_id, event_type, occurred_at, actor_id/name, document_type/id, payload
-        final UUID periodId = period.getId();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    doPublishPeriodLocked(periodId, periodCode, actorId, actorName);
+                    doPublishPeriodLocked(periodCode, actorName);
                 }
             });
         } else {
             // no transaction (e.g., test without TX) — publish immediately
-            doPublishPeriodLocked(periodId, periodCode, actorId, actorName);
+            doPublishPeriodLocked(periodCode, actorName);
         }
 
         return toResponse(period, volumeRepo.countByPeriod_Id(period.getId()));
     }
 
-    private void doPublishPeriodLocked(UUID periodId, String periodCode, UUID actorId, String actorName) {
+    private void doPublishPeriodLocked(String periodCode, String actorName) {
         try {
             UUID eventId = UUID.randomUUID();
-            Instant occurredAt = Instant.now();
             Map<String, Object> payload = new HashMap<>();
             payload.put("period_code", periodCode);
+            payload.put("document_no", periodCode);
             payload.put("locked_by_name", actorName);
             payload.put("recipient_role", "ACCOUNTANT");
-            // envelope per registry
-            Map<String, Object> envelope = new HashMap<>();
-            envelope.put("event_id", eventId.toString());
-            envelope.put("event_type", "operations.period_locked");
-            envelope.put("occurred_at", occurredAt.toString());
-            envelope.put("actor_id", actorId != null ? actorId.toString() : null);
-            envelope.put("actor_name", actorName);
-            envelope.put("document_type", "OPERATION_PERIOD");
-            envelope.put("document_id", periodId.toString());
-            envelope.put("payload", payload);
             // also keep aggregate_id semantics: key = period_code (business-key exception 00-registry.md:68 footnote)
-            String json = objectMapper.writeValueAsString(envelope);
-            ProducerRecord<String, String> record = new ProducerRecord<>("pas.events", periodCode, json);
-            record.headers().add(new RecordHeader("event_type", "operations.period_locked".getBytes(StandardCharsets.UTF_8)));
-            record.headers().add(new RecordHeader("document_type", "OPERATION_PERIOD".getBytes(StandardCharsets.UTF_8)));
+            String json = objectMapper.writeValueAsString(payload);
+            ProducerRecord<String, String> record = DirectEventRecord.create(
+                    eventId, "operations.period_locked", "OPERATION_PERIOD", periodCode, json);
             kafka.send(record).get(5, TimeUnit.SECONDS);
             log.debug("Published operations.period_locked afterCommit for {} event_id={}", periodCode, eventId);
         } catch (Exception e) {
