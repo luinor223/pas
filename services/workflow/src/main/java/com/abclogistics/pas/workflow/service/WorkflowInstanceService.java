@@ -343,7 +343,7 @@ public class WorkflowInstanceService {
             }
             audit.record("WORKFLOW_STEP", step.getId(), instance.getDocumentNo(),
                     "workflow.step_approved", null, null, null,
-                    Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
+                    workflowAuditChanges(instance, step));
 
         } else if ("REJECT".equals(action) || "REQUEST_REVISION".equals(action)) {
             // merged: REJECT and REQUEST_REVISION share same flow, only status/audit differ (review)
@@ -382,8 +382,17 @@ public class WorkflowInstanceService {
             ));
             audit.record("WORKFLOW_STEP", step.getId(), instance.getDocumentNo(), auditName,
                     null, null, null,
-                    Map.of("instanceId", instance.getId().toString(), "stepOrder", step.getStepOrder()));
+                    workflowAuditChanges(instance, step));
         }
+    }
+
+    private static Map<String, Object> workflowAuditChanges(WorkflowInstance instance,
+                                                             WorkflowStepInstance step) {
+        return Map.of(
+                "instanceId", instance.getId().toString(),
+                "stepOrder", step.getStepOrder(),
+                "documentType", instance.getDocumentTypeCode(),
+                "documentId", instance.getDocumentId().toString());
     }
 
     private void emit(UUID aggregateId, String eventType, String aggregateType, Map<String, Object> payloadMap) {

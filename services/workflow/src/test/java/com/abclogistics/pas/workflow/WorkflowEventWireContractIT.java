@@ -230,6 +230,14 @@ class WorkflowEventWireContractIT {
                 .isNotEmpty()
                 .allSatisfy(payload -> assertThat(payload.get("entity_no").asString())
                         .isEqualTo("HD-2026-0001"));
+        assertThat(auditPayloads())
+                .filteredOn(payload -> payload.get("action").asString().equals("workflow.step_approved"))
+                .singleElement()
+                .satisfies(payload -> {
+                    assertThat(payload.at("/changes/documentType").asString()).isEqualTo("CONTRACT");
+                    assertThat(payload.at("/changes/documentId").asString())
+                            .isEqualTo(instance.getDocumentId().toString());
+                });
     }
 
     @Test
