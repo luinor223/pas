@@ -180,6 +180,45 @@ class SigningSessionServiceTest {
         verify(outbox, never()).save(any());
     }
 
+    @Test
+    void aCallbackThatOvertakesOurOwnSendCommitIsStillAppliedFromPendingSend() {
+        // The guard accepts PENDING_SEND as well as SIGNING: a provider that calls back faster than
+        // our send transaction commits must not be discarded (db-esign.md).
+        SigningSession session = session(SessionStatus.PENDING_SEND);
+        when(sessions.findBySessionNo("SIG-1")).thenReturn(Optional.of(session));
+
+        service.handleCallback("SIG-1", "MOCK-abc", "SIGNED", null);
+
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.SIGNED);
+        assertThat(completionResult()).isEqualTo("SIGNED");
+    }
+
+    @Test
+    void aFailedCallbackCompletesTheSessionAsFailed() {
+        SigningSession session = session(SessionStatus.SIGNING);
+        when(sessions.findBySessionNo("SIG-1")).thenReturn(Optional.of(session));
+
+        service.handleCallback("SIG-1", "MOCK-abc", "FAILED", "signer email bounced");
+
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.FAILED);
+        assertThat(completionResult()).isEqualTo("FAILED");
+    }
+
+    @Test
+    void theCompletionEventCarriesTheContractBillingAndNotificationConsume() {
+        SigningSession session = session(SessionStatus.SIGNING);
+        when(sessions.findBySessionNo("SIG-1")).thenReturn(Optional.of(session));
+
+        service.handleCallback("SIG-1", "MOCK-abc", "SIGNED", null);
+
+        var payload = completionPayload();
+        assertThat(payload.get("session_id").asString()).isEqualTo(session.getId().toString());
+        assertThat(payload.get("result").asString()).isEqualTo("SIGNED");
+        assertThat(payload.get("document_no").asString()).isEqualTo("HD-1");
+        assertThat(payload.get("requested_by").asString()).isEqualTo(session.getRequestedBy().toString());
+        assertThat(payload.get("signer_name").asString()).isEqualTo("Signer");
+    }
+
     // --- cancel ------------------------------------------------------------------------------
 
     @Test
@@ -227,10 +266,15 @@ class SigningSessionServiceTest {
 
     /** The result field on the single esign.session_completed row the outbox received. */
     private String completionResult() {
+        return completionPayload().get("result").asString();
+    }
+
+    /** The parsed payload of the single esign.session_completed row the outbox received. */
+    private tools.jackson.databind.JsonNode completionPayload() {
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outbox).save(captor.capture());
         OutboxEvent event = captor.getValue();
         assertThat(event.getEventType()).isEqualTo("esign.session_completed");
-        return new ObjectMapper().readTree(event.getPayload()).get("result").asString();
+        return new ObjectMapper().readTree(event.getPayload());
     }
 }
