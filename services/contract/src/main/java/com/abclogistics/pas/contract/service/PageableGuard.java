@@ -34,7 +34,7 @@ public final class PageableGuard {
     }
 
     public static final Set<String> CUSTOMER_SORTS = Set.of("code", "name", "status", "createdAt");
-    public static final Set<String> CONTRACT_SORTS = Set.of("contractNo", "validFrom", "validTo", "createdAt", "status", "serviceGroup", "customer.name");
-    public static final Set<String> ADDENDUM_SORTS = Set.of("addendumNo", "effectiveFrom", "createdAt", "status", "changeType");
+    public static final Set<String> CONTRACT_SORTS = Set.of("contractNo", "validFrom", "validTo", "createdAt", "updatedAt", "status", "serviceGroup", "customer.name");
+    public static final Set<String> ADDENDUM_SORTS = Set.of("addendumNo", "effectiveFrom", "createdAt", "updatedAt", "status", "changeType");
     public static final Set<String> ATTACHMENT_SORTS = Set.of("fileName", "uploadedAt");
 }

@@ -90,7 +90,7 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
   const restartListing = useCallback((patch: Partial<AddendumRouteSearch> = {}) =>
     updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
 
-  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor }));
+  const listQ = useQuery(addendaQuery({ status: status || undefined, changeType: changeType || undefined, q: q || undefined, sort: "updatedAt,desc", page, size: PAGE_SIZE, cursor: snapshotCursor }));
   const defaultContractQ = useQuery({ ...contractQuery(defaultContractId), enabled: canCreate && Boolean(defaultContractId) });
   const pageItems = listQ.data?.content ?? [];
   const items = pageItems;
@@ -137,7 +137,7 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
       cell: ({ row }) => (
         <div>
           <Link to="/addenda" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.addendumNo}</Link>
-          <div className="mt-0.5 text-xs text-muted-foreground">Created {formatDateTime(row.original.createdAt)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">Updated {formatDateTime(row.original.updatedAt)}</div>
         </div>
       ),
     },

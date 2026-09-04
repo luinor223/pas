@@ -1301,6 +1301,9 @@ components:
         createdAt:
           type: string
           format: date-time
+        updatedAt:
+          type: string
+          format: date-time
         version:
           type: integer
           format: int32

@@ -27,6 +27,7 @@ public record AddendumResponse(
         boolean canCancel,
         List<ServiceLine> services,
         Instant createdAt,
+        Instant updatedAt,
         int version) {
 
     @Schema(name = "AddendumResponseServiceLine")
@@ -58,6 +59,7 @@ public record AddendumResponse(
                 capabilities.canCancel(),
                 addendum.getServices().stream().map(AddendumResponse::line).toList(),
                 addendum.getCreatedAt(),
+                addendum.getUpdatedAt(),
                 addendum.getVersion());
     }
 

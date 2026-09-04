@@ -603,6 +603,8 @@ export interface components {
             services?: components["schemas"]["AddendumResponseServiceLine"][];
             /** Format: date-time */
             createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
             /** Format: int32 */
             version?: number;
         };

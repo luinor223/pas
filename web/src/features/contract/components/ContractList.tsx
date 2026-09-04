@@ -69,7 +69,7 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
   const restartListing = useCallback((patch: Partial<ContractRouteSearch> = {}) =>
     updateList({ ...patch, page: undefined, cursor: undefined }), [updateList]);
 
-  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, page, size: PAGE_SIZE, cursor: snapshotCursor };
+  const listParams = { q: q || undefined, customerId: customerId || undefined, status: status || undefined, serviceGroup: serviceGroup || undefined, validFromFrom: validFromFrom || undefined, validToTo: validToTo || undefined, sort: "updatedAt,desc", page, size: PAGE_SIZE, cursor: snapshotCursor };
   const listQ = useQuery({ ...contractsQuery(listParams), enabled: canRead && !invalidFilterRange });
 
   const contracts = listQ.data?.content ?? [];
@@ -109,7 +109,7 @@ export function ContractList({ search }: { search: ContractRouteSearch }) {
       cell: ({ row }) => (
         <div>
           <Link to="/contracts" search={{ ...search, q: searchText || undefined, id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.contractNo}</Link>
-          <div className="mt-0.5 text-xs text-muted-foreground">Created {formatDateTime(row.original.createdAt)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">Updated {formatDateTime(row.original.updatedAt)}</div>
         </div>
       ),
     },
