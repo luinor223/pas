@@ -405,7 +405,7 @@ public class ContractService {
                 // a timeout cannot create a second signing session (§M2)
                 UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),
                 signer.getFullName(), signer.getEmail(),
-                contract.getCustomer().getName(), SecurityUtils.currentUserId(), SecurityUtils.currentUserName());
+                contract.getCustomer().getName(), SecurityUtils.currentUserIdOrSystem(), SecurityUtils.currentUserNameOrSystem());
         outbox.save(OutboxEvent.event(EsignSessionRequested.EVENT_TYPE,
                 EntityType.CONTRACT.name(), contract.getId(),
                 objectMapper.writeValueAsString(payload)));
