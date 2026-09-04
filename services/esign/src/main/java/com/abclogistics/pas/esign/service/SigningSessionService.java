@@ -12,9 +12,9 @@ import com.abclogistics.pas.esign.domain.StatusHistory;
 import com.abclogistics.pas.esign.dto.SigningSessionResponse;
 import com.abclogistics.pas.esign.repository.SigningCallbackLogRepository;
 import com.abclogistics.pas.esign.repository.SigningSessionRepository;
-import com.abclogistics.pas.esign.repository.StatusHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -34,27 +34,28 @@ public class SigningSessionService {
 
     private final SigningSessionRepository sessionRepo;
     private final SigningCallbackLogRepository callbackLogRepo;
-    private final StatusHistoryRepository statusHistoryRepo;
     private final OutboxRepository outboxRepo;
     private final AuditRecorder auditRecorder;
-    private final MockProviderClient providerClient;
     private final ObjectMapper objectMapper;
+    private final StatusTransitionService transitions;
 
     public SigningSessionService(SigningSessionRepository sessionRepo,
                                   SigningCallbackLogRepository callbackLogRepo,
-                                  StatusHistoryRepository statusHistoryRepo,
                                   OutboxRepository outboxRepo,
                                   AuditRecorder auditRecorder,
-                                  MockProviderClient providerClient,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  StatusTransitionService transitions) {
         this.sessionRepo = sessionRepo;
         this.callbackLogRepo = callbackLogRepo;
-        this.statusHistoryRepo = statusHistoryRepo;
         this.outboxRepo = outboxRepo;
         this.auditRecorder = auditRecorder;
-        this.providerClient = providerClient;
         this.objectMapper = objectMapper;
+        this.transitions = transitions;
     }
+
+    /** The relay dispatches this outbox row to the provider (HTTP), so the send commits with the
+     *  session row and inherits the shared retry/park machinery. */
+    public static final String PROVIDER_SEND = "esign.provider_send";
 
     @Transactional
     public SigningSession createSession(String documentTypeCode, UUID documentId,
@@ -89,60 +90,59 @@ public class SigningSessionService {
         );
         session.setSessionNo(sessionNo);
 
-        session = sessionRepo.save(session);
+        try {
+            session = sessionRepo.saveAndFlush(session);
+        } catch (DataIntegrityViolationException e) {
+            // lost a race past the pre-checks: same key (return the winner) or the active-session
+            // index (a genuine concurrent double-send, refused for good)
+            return sessionRepo.findByIdempotencyKey(idempotencyKey).orElseThrow(() ->
+                new FailedPreconditionException(
+                    "An active signing session already exists for " + documentTypeCode + " " + documentId));
+        }
 
-        // Status history (D17)
-        StatusHistory history = StatusHistory.create(
-            session, null, "PENDING_SEND",
-            StatusHistory.TriggerKind.U, null,
-            requestedBy, requestedByName, "Session created"
-        );
-        session.addStatusHistory(history);
+        transitions.open(session, requestedBy, requestedByName, "Session created");
         sessionRepo.save(session);
+
+        // D16: the send to the external provider is dispatched from the outbox (atomic with the row,
+        // retried and parked by the shared relay), never inline on the create call.
+        outboxRepo.save(OutboxEvent.event(PROVIDER_SEND, documentTypeCode, session.getId(),
+            "{\"session_id\":\"%s\",\"session_no\":\"%s\"}".formatted(session.getId(), session.getSessionNo())));
 
         log.info("Created signing session {} for {} {}", session.getSessionNo(), documentTypeCode, documentId);
         return session;
     }
 
-    /**
-     * Send session to the mock provider. Called by the scheduler for PENDING_SEND sessions.
-     * Handles provider unavailability gracefully (APR-07: provider outage never touches document data).
-     */
+    /** Relay success: the provider accepted the send. PENDING_SEND to SIGNING, idempotent (a re-run
+     *  after a lost ack finds the session already SIGNING and no-ops). Runs in its own transaction. */
     @Transactional
-    public void sendToProvider(SigningSession session) {
-        String callbackUrl = "http://esign-service:8007/callbacks/esign/" + session.getSessionNo();
-        String fromStatus = session.getStatus().name();
-
-        try {
-            String providerRef = providerClient.sendForSigning(
-                session.getSessionNo(),
-                session.getDocumentNo(),
-                session.getSignerName(),
-                session.getSignerEmail(),
-                callbackUrl
-            );
-
-            session.markSent(providerRef);
-
-            StatusHistory history = StatusHistory.create(
-                session, fromStatus, "SIGNING",
-                StatusHistory.TriggerKind.U, null,
-                session.getRequestedBy(), session.getRequestedByName(), "Sent to provider"
-            );
-            session.addStatusHistory(history);
-
-            sessionRepo.save(session);
-            log.info("Session {} sent to provider, provider_ref={}", session.getSessionNo(), providerRef);
-        } catch (Exception e) {
-            session.markFailed(e.getMessage());
-            sessionRepo.save(session);
-            log.error("Failed to send session {} to provider: {}", session.getSessionNo(), e.getMessage());
-
-            // If max attempts exceeded, mark as FAILED (APR-07: retries exhaust at 3)
-            if (session.getAttempts() >= providerClient.getMaxAttempts()) {
-                failSession(session, "Max attempts (" + providerClient.getMaxAttempts() + ") exhausted: " + e.getMessage());
-            }
+    public void markSent(UUID sessionId, String providerRef, int attempts) {
+        SigningSession session = sessionRepo.findById(sessionId).orElseThrow();
+        if (session.getStatus() != SigningSession.SessionStatus.PENDING_SEND) {
+            return;
         }
+        session.setProviderRef(providerRef);
+        session.setAttempts(attempts);
+        session.setSentAt(Instant.now());
+        transitions.transition(session, SigningSession.SessionStatus.SIGNING,
+            StatusHistory.TriggerKind.S, null, "System", "Sent to provider");
+        sessionRepo.save(session);
+    }
+
+    /** Relay park: the send exhausted its retries or was permanently refused (APR-07). PENDING_SEND
+     *  to FAILED plus the completion event. Runs inside the relay's parking transaction. */
+    @Transactional
+    public void failSend(UUID sessionId, int attempts, String error) {
+        SigningSession session = sessionRepo.findById(sessionId).orElseThrow();
+        if (session.getStatus() != SigningSession.SessionStatus.PENDING_SEND) {
+            return;
+        }
+        session.setAttempts(attempts);
+        session.setLastError(error);
+        session.setCompletedAt(Instant.now());
+        transitions.transition(session, SigningSession.SessionStatus.FAILED,
+            StatusHistory.TriggerKind.S, null, "System", error);
+        sessionRepo.save(session);
+        emitSessionCompleted(session, SigningSession.SessionStatus.FAILED, error);
     }
 
     /**
@@ -192,16 +192,10 @@ public class SigningSessionService {
 
         if (newStatus == null) return;
 
-        session.setStatus(newStatus);
         session.setCompletedAt(Instant.now());
-
-        StatusHistory history = StatusHistory.create(
-            session, fromStatus, newStatus.name(),
-            StatusHistory.TriggerKind.E, null,
+        transitions.transition(session, newStatus, StatusHistory.TriggerKind.E,
             session.getRequestedBy(), session.getRequestedByName(),
-            error != null ? error : "Provider callback: " + result
-        );
-        session.addStatusHistory(history);
+            error != null ? error : "Provider callback: " + result);
         sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
@@ -224,15 +218,9 @@ public class SigningSessionService {
         }
 
         String fromStatus = session.getStatus().name();
-        session.setStatus(SigningSession.SessionStatus.CANCELLED);
         session.setCompletedAt(Instant.now());
-
-        StatusHistory history = StatusHistory.create(
-            session, fromStatus, "CANCELLED",
-            StatusHistory.TriggerKind.U, null,
-            actorId, actorName, reason
-        );
-        session.addStatusHistory(history);
+        transitions.transition(session, SigningSession.SessionStatus.CANCELLED,
+            StatusHistory.TriggerKind.U, actorId, actorName, reason);
         sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
@@ -276,53 +264,6 @@ public class SigningSessionService {
         return sessionRepo.findAllByDocument(documentType, documentId).stream()
             .map(this::toResponse)
             .toList();
-    }
-
-    /**
-     * Find and send all PENDING_SEND sessions that have failed at least once (retry).
-     * Called by the retry scheduler.
-     */
-    @Transactional
-    public void retryPendingSessions() {
-        List<SigningSession> pending = sessionRepo.findAllPendingOrSigning();
-        for (SigningSession session : pending) {
-            if (session.getStatus() == SigningSession.SessionStatus.PENDING_SEND) {
-                try {
-                    sendToProvider(session);
-                } catch (Exception e) {
-                    log.warn("Retry failed for session {}: {}", session.getSessionNo(), e.getMessage());
-                }
-            }
-        }
-    }
-
-    /**
-     * Find all PENDING_SEND sessions for the dispatch scheduler.
-     */
-    @Transactional(readOnly = true)
-    public List<SigningSession> findPendingSendSessions() {
-        return sessionRepo.findAllPendingOrSigning().stream()
-            .filter(s -> s.getStatus() == SigningSession.SessionStatus.PENDING_SEND)
-            .toList();
-    }
-
-    private void failSession(SigningSession session, String error) {
-        String fromStatus = session.getStatus().name();
-        session.setStatus(SigningSession.SessionStatus.FAILED);
-        session.setCompletedAt(Instant.now());
-        session.setLastError(error);
-
-        StatusHistory history = StatusHistory.create(
-            session, fromStatus, "FAILED",
-            StatusHistory.TriggerKind.S, null,
-            null, "System", error
-        );
-        session.addStatusHistory(history);
-        sessionRepo.save(session);
-
-        emitSessionCompleted(session, SigningSession.SessionStatus.FAILED, error);
-
-        log.info("Session {} marked FAILED: {}", session.getSessionNo(), error);
     }
 
     private void emitSessionCompleted(SigningSession session, SigningSession.SessionStatus result, String error) {

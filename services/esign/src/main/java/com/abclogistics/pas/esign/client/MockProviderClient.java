@@ -1,4 +1,4 @@
-package com.abclogistics.pas.esign.service;
+package com.abclogistics.pas.esign.client;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

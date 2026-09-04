@@ -106,7 +106,8 @@ public class ContractOutboxRelay extends OutboxRelay {
                 objectMapper.readValue(event.getPayload(), EsignSessionRequested.class);
         UUID sessionId = esign.createSigningSession(
                 payload.idempotencyKey(), payload.documentType(), payload.documentId(),
-                payload.documentNo(), payload.signerName(), payload.signerEmail());
+                payload.documentNo(), payload.signerName(), payload.signerEmail(),
+                payload.customerName(), payload.requestedBy(), payload.requestedByName());
         log.debug("Created signing session {} for {} {} from outbox event {} (idempotencyKey={})",
                 sessionId, payload.documentType(), payload.documentNo(), event.getId(),
                 payload.idempotencyKey());

@@ -404,7 +404,8 @@ public class ContractService {
                 // generated once, here: every retry of this row reuses it, so a re-dispatch after
                 // a timeout cannot create a second signing session (§M2)
                 UUID.randomUUID(), DOCUMENT_TYPE, contract.getId(), contract.getContractNo(),
-                signer.getFullName(), signer.getEmail());
+                signer.getFullName(), signer.getEmail(),
+                contract.getCustomer().getName(), SecurityUtils.currentUserId(), SecurityUtils.currentUserName());
         outbox.save(OutboxEvent.event(EsignSessionRequested.EVENT_TYPE,
                 EntityType.CONTRACT.name(), contract.getId(),
                 objectMapper.writeValueAsString(payload)));
