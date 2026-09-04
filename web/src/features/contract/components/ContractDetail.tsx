@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { contractQuery, contractProgressQuery, contractHistoryQuery, addendaQuery, attachmentsQuery, customerQuery } from "../hooks/contractQueries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
@@ -19,6 +19,8 @@ import { TabBar, type TabItem } from "@/shared/components/tab-bar";
 import { DocumentSigningPanel } from "./DocumentSigningPanel";
 import { useRecoverOutOfRangePage } from "@/shared/hooks/use-recover-out-of-range-page";
 import { addendumChangeTypeLabel } from "../contractOptions";
+import { contractApi } from "../services/contractApi";
+import { getApiErrorMessage } from "@/shared/api/errors";
 
 type Tab = "overview" | "addenda" | "approval-history" | "attachments";
 
@@ -40,6 +42,28 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
   const histQ = useQuery(contractHistoryQuery(id));
   const addQ = useQuery(addendaQuery({ contractId: id, page: relatedPage, size: DEFAULT_PAGE_SIZE, cursor: relatedCursor }));
   const attQ = useQuery(attachmentsQuery("CONTRACT", id));
+  const attachmentMutations = useIsMutating({ mutationKey: ["attachment-mutation", "CONTRACT", id] });
+  const submitMut = useMutation({
+    mutationFn: () => contractApi.submitContract(id),
+    onSuccess: async (response) => {
+      queryClient.setQueryData(["contract", id], (current: typeof q.data) => current ? {
+        ...current,
+        status: response.status,
+        canEdit: false,
+        canSubmit: false,
+        submitBlockedReason: null,
+        canRevise: false,
+        canCancel: false,
+      } : current);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["contract", id] }),
+        queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["contract-progress", id] }),
+        queryClient.invalidateQueries({ queryKey: ["contract-history", id] }),
+        queryClient.invalidateQueries({ queryKey: ["attachments", "CONTRACT", id] }),
+      ]);
+    },
+  });
   const setTab = (next: Tab) => navigate({
     to: "/contracts",
     search: (previous) => ({
@@ -106,6 +130,15 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
           </div>
         </div>
         <div className="flex gap-2 items-center">
+          {(c.canSubmit || c.submitBlockedReason) && (
+            <Button
+              size="sm"
+              disabled={!c.canSubmit || attachmentMutations > 0 || submitMut.isPending}
+              onClick={() => submitMut.mutate()}
+            >
+              {submitMut.isPending ? "Submitting..." : "Submit for approval"}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -118,6 +151,17 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
           {!c.canEdit && <Badge variant="secondary">Read-only contract</Badge>}
         </div>
       </div>
+
+      {c.submitBlockedReason && (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {c.submitBlockedReason}
+        </div>
+      )}
+      {submitMut.isError && (
+        <div role="alert" className="text-sm text-destructive">
+          {getApiErrorMessage(submitMut.error, "Contract submission failed")}
+        </div>
+      )}
 
       <TabBar id="contract-detail-tabs" panelId="contract-detail-panel" tabs={TABS} value={tab} onChange={setTab} />
 
@@ -150,7 +194,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
                 {c.description && <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{c.description}</div></div>}
               </CardContent>
             </Card>
-            <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} />
+            <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} mutationsDisabled={submitMut.isPending} />
           </div>
 
           <div className="space-y-4">
@@ -178,7 +222,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
         </Card>
       )}
       {tab === "approval-history" && <Card><CardHeader><CardTitle className="text-base">Approval History</CardTitle></CardHeader><CardContent><HistoryTimeline history={histQ.data} isLoading={histQ.isLoading} /></CardContent></Card>}
-      {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} />}
+      {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} canEdit={c.canEdit} mutationsDisabled={submitMut.isPending} />}
       </div>
     </div>
   );

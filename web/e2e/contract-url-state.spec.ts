@@ -223,3 +223,87 @@ test("nested pagination is ignored unless its owning detail tab is active", asyn
   }).toEqual(["0", null]);
   await expect(page).not.toHaveURL(/contractsPage|contractsCursor/);
 });
+
+test("enables contract submission on details after the required attachment is uploaded", async ({ page }) => {
+  const attachment = {
+    id: "70000000-0000-4000-8000-000000000001",
+    ownerType: "CONTRACT",
+    ownerId: CONTRACT_ID,
+    fileName: "contract.pdf",
+    contentType: "application/pdf",
+    sizeBytes: 12,
+    uploadedAt: "2026-09-04T08:00:00Z",
+  };
+  let hasAttachment = false;
+  let submitted = false;
+  let submitRequests = 0;
+  const draft = {
+    ...contract,
+    status: "DRAFT",
+    editable: true,
+    canEdit: true,
+    canSubmit: false,
+    submitBlockedReason: "Upload at least one attachment before submitting this contract for approval.",
+    canCancel: true,
+    canCreateAddendum: false,
+  };
+
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}` && _request.method() === "GET") {
+      const status = submitted ? "SUBMITTED" : "DRAFT";
+      return { body: envelope({
+        ...draft,
+        status,
+        canEdit: !submitted,
+        canSubmit: !submitted && hasAttachment,
+        submitBlockedReason: !submitted && !hasAttachment
+          ? "Upload at least one attachment before submitting this contract for approval."
+          : null,
+        canCancel: true,
+      }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/submit` && _request.method() === "POST") {
+      submitRequests += 1;
+      submitted = true;
+      return { body: envelope({ status: "SUBMITTED", dispatchPending: true }) };
+    }
+    if (url.pathname === "/api/v1/attachments" && _request.method() === "GET") {
+      return { body: envelope(hasAttachment ? [attachment] : []) };
+    }
+    if (url.pathname === "/api/v1/attachments" && _request.method() === "POST") {
+      hasAttachment = true;
+      return { status: 201, body: envelope(attachment) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/progress`) {
+      return { body: envelope({ documentStatus: submitted ? "SUBMITTED" : "DRAFT", workflowState: "NOT_STARTED", steps: [] }) };
+    }
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/history`) return { body: envelope([]) };
+    if (url.pathname === `/api/v1/contracts/${CONTRACT_ID}/signing-request`) {
+      return { body: envelope({ canSendForSigning: false, requestQueued: false, sessionId: null }) };
+    }
+    if (url.pathname === `/api/v1/signing-sessions/by-document/CONTRACT/${CONTRACT_ID}`) return { body: envelope([]) };
+    if (url.pathname === `/api/v1/customers/${CUSTOMER_ID}`) return { body: envelope(customer) };
+    if (url.pathname === "/api/v1/addenda") {
+      return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
+    }
+  }, { permissions: [...currentUser.permissions, "contract:write"] });
+
+  await page.goto(`/contracts?id=${CONTRACT_ID}`);
+  const submit = page.getByRole("button", { name: "Submit for approval" });
+  await expect(submit).toBeDisabled();
+  await expect(page.getByText("Upload at least one attachment before submitting this contract for approval.")).toBeVisible();
+
+  await page.getByLabel("Choose attachment file").setInputFiles({
+    name: attachment.fileName,
+    mimeType: attachment.contentType,
+    buffer: Buffer.from("pdf contents"),
+  });
+  await page.getByRole("button", { name: "Upload attachment", exact: true }).click();
+  await expect(submit).toBeEnabled();
+  await expect(page.getByText("Upload at least one attachment before submitting this contract for approval.")).toHaveCount(0);
+
+  await submit.click();
+  await expect(page.getByText("Under Review").first()).toBeVisible();
+  await expect(submit).toHaveCount(0);
+  expect(submitRequests).toBe(1);
+});
