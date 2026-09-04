@@ -15,7 +15,7 @@ import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerMetricsResponse;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.dto.CustomerResponse;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.service.ContractService;
@@ -603,7 +603,7 @@ class CustomerCrudTest {
                         .headers(salesHeaders())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Wire Co\"}"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("CUSTOMER_CONTACTS_REQUIRED"))
                 .andExpect(jsonPath("$.message").value(
                         "Include customer contacts when saving. To remove all contacts, submit an empty contact list."));

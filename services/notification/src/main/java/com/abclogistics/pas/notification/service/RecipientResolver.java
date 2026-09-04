@@ -1,6 +1,7 @@
 package com.abclogistics.pas.notification.service;
 
 import com.abclogistics.pas.common.events.MalformedEventException;
+import com.abclogistics.pas.notification.client.IdentityGrpcClient;
 import com.abclogistics.pas.notification.event.EventEnvelope;
 import org.springframework.stereotype.Service;
 

@@ -1,6 +1,6 @@
 package com.abclogistics.pas.contract.service;
 
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;

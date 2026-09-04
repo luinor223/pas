@@ -1,5 +1,6 @@
 package com.abclogistics.pas.notification.config;
 
+import com.abclogistics.pas.common.correlation.CorrelationRecordInterceptor;
 import com.abclogistics.pas.common.events.ConsumerErrorHandling;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
@@ -35,11 +36,13 @@ public class KafkaConsumerConfig {
 
     @Bean
     ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
-            ConsumerFactory<String, String> consumerFactory, DefaultErrorHandler errorHandler) {
+            ConsumerFactory<String, String> consumerFactory, DefaultErrorHandler errorHandler,
+            CorrelationRecordInterceptor correlationRecordInterceptor) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(errorHandler);
+        factory.setRecordInterceptor(correlationRecordInterceptor);
         return factory;
     }
 

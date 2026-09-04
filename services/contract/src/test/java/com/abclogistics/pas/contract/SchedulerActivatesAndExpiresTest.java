@@ -34,7 +34,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
-import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.mockito.ArgumentCaptor;

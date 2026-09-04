@@ -8,7 +8,7 @@ import com.abclogistics.pas.common.security.SecurityUtils;
 import com.abclogistics.pas.contract.domain.Attachment;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.AddendumRepository;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;

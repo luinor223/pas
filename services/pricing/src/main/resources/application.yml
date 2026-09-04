@@ -82,3 +82,7 @@ management:
 springdoc:
   api-docs:
     version: openapi_3_1
+
+logging:
+  pattern:
+    correlation: "[%X{correlationId:-}] "

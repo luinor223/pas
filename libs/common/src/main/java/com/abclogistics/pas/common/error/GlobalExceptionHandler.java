@@ -3,6 +3,8 @@ package com.abclogistics.pas.common.error;
 import com.abclogistics.pas.common.api.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +12,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -25,8 +28,6 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
@@ -204,6 +205,28 @@ public class GlobalExceptionHandler {
         String msg = ex.getConstraintViolations().stream()
                 .findFirst().map(v -> "Invalid value.").orElse("Validation failed");
         return build(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", msg, req.getRequestURI(), List.of());
+    }
+
+    /**
+     * Catch-all. Spring's own MVC exceptions implement {@link ErrorResponse} and keep their proper status
+     * (the explicit handlers above cover the common ones); anything else that reaches here is a genuine 5xx
+     * we log with the stack trace, since it is otherwise invisible in the app logs. Client messages stay
+     * safe and canned rather than leaking framework detail.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest req) {
+        if (ex instanceof ErrorResponse er) {
+            HttpStatus status = HttpStatus.valueOf(er.getStatusCode().value());
+            if (status.is5xxServerError()) {
+                log.error("Framework error on {} {}", req.getMethod(), req.getRequestURI(), ex);
+            } else {
+                log.warn("Framework error on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+            }
+            return build(status, domainCode(status), defaultMessage(status), req.getRequestURI(), List.of());
+        }
+        log.error("Unhandled exception on {} {}", req.getMethod(), req.getRequestURI(), ex);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
+                defaultMessage(HttpStatus.INTERNAL_SERVER_ERROR), req.getRequestURI(), List.of());
     }
 
     private ResponseEntity<ApiError> build(HttpStatus status, String code, String message, String path,

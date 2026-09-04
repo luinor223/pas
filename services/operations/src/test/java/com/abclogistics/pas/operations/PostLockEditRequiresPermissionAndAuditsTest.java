@@ -6,7 +6,7 @@ import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.operations.dto.VolumeResponse;
 import com.abclogistics.pas.operations.dto.CreateVolumeRequest;
 import com.abclogistics.pas.operations.dto.UpdateVolumeRequest;
-import com.abclogistics.pas.operations.controller.VolumeController;
+import com.abclogistics.pas.operations.controller.http.VolumeController;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.operations.service.PeriodService;
 import com.abclogistics.pas.operations.service.VolumeService;

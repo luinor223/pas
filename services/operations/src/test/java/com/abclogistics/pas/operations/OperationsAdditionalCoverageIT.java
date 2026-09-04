@@ -1,7 +1,7 @@
 package com.abclogistics.pas.operations;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.operations.grpc.OperationsInternalGrpcService;
+import com.abclogistics.pas.operations.controller.grpc.OperationsInternalGrpcService;
 import com.abclogistics.pas.operations.grpc.ListVolumesRequest;
 import com.abclogistics.pas.operations.grpc.ListVolumesResponse;
 import com.abclogistics.pas.operations.service.PeriodService;
@@ -48,8 +48,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Tag("integration")
 @Testcontainers
@@ -107,7 +105,6 @@ class OperationsAdditionalCoverageIT {
     void concurrentLockIsIdempotent() throws Exception {
         String code = "2027-02";
         try { periodService.create(code); } catch (Exception ignored) {}
-        long outboxBefore = outbox.count();
         // clear kafka mock invocations
         org.mockito.Mockito.clearInvocations(kafka);
         ExecutorService exec = Executors.newFixedThreadPool(2);
@@ -144,7 +141,7 @@ class OperationsAdditionalCoverageIT {
         assertThat(periodLockedSends).isEqualTo(1);
     }
 
-    @Autowired com.abclogistics.pas.operations.controller.PeriodController periodController;
+    @Autowired com.abclogistics.pas.operations.controller.http.PeriodController periodController;
 
     @Test
     void lockViaRestRequiresVolumeLockPeriodOr403() {
@@ -232,10 +229,6 @@ class OperationsAdditionalCoverageIT {
     @Test
     void periodCodeValidationReturns400Not500ViaRestAndGrpc() throws Exception {
         // REST: GET /periods/2026-13 should be 400 via @Pattern / validatePeriodCode, not 500
-        UUID userId = UUID.randomUUID();
-        AuthenticatedUser principal = new AuthenticatedUser(userId, "ops", "Ops Officer", "OPERATIONS", List.of("OPS_OFFICER"));
-        var auth = new UsernamePasswordAuthenticationToken(principal, null,
-                List.of(new SimpleGrantedAuthority("volume:read"), new SimpleGrantedAuthority("volume:lock_period"), new SimpleGrantedAuthority("volume:write")));
         // via controller direct (bypasses MockMvc filter but hits @Validated)
         try {
             periodController.get("2026-13");

@@ -25,19 +25,17 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   if (!open) return null;
   return createPortal(
     <DialogContext.Provider value={contextValue}>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        onPointerDown={(event) => {
-          if (event.target === event.currentTarget) close();
-        }}
-      >
-        {children}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div aria-hidden="true" className="fixed inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
+        {/* Full-width wrapper: clicks left/right of the box land here, not on the
+            backdrop above — so it closes too. Content stops propagation below. */}
+        <div className="relative z-50 flex max-h-full w-full justify-center" onClick={() => onOpenChange(false)}>{children}</div>
       </div>
     </DialogContext.Provider>,
     document.body,
   );
 }
-export function DialogContent({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function DialogContent({ className, children, onClick, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   const context = React.useContext(DialogContext);
   const contentRef = React.useRef<HTMLDivElement>(null);
 
@@ -84,7 +82,7 @@ export function DialogContent({ className, children, ...props }: React.HTMLAttri
     };
   }, [context]);
 
-  return <div ref={contentRef} role="dialog" aria-modal="true" aria-labelledby={context?.titleId} tabIndex={-1} className={cn("flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-y-auto rounded-lg border bg-card p-6 text-card-foreground shadow-lg", className)} {...props}>{children}</div>;
+  return <div ref={contentRef} role="dialog" aria-modal="true" aria-labelledby={context?.titleId} tabIndex={-1} className={cn("flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-y-auto rounded-lg border bg-card p-6 text-card-foreground shadow-lg", className)} onClick={(e) => { e.stopPropagation(); onClick?.(e); }} {...props}>{children}</div>;
 }
 export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("flex flex-col space-y-2 mb-4", className)} {...props} />;

@@ -157,7 +157,7 @@ services:
       - "traefik.http.middlewares.workflow-ratelimit.ratelimit.average=100"
       - "traefik.http.middlewares.workflow-ratelimit.ratelimit.burst=50"
       - "traefik.http.middlewares.workflow-docs-strip.stripprefix.prefixes=/docs/workflow"
-      - "traefik.http.routers.workflow.rule=PathPrefix(`/api/v1/workflow-definitions`) || PathPrefix(`/api/v1/workflow-steps`) || PathPrefix(`/api/v1/inbox`)"
+      - "traefik.http.routers.workflow.rule=PathPrefix(`/api/v1/workflow-definitions`) || PathPrefix(`/api/v1/workflow-steps`) || PathPrefix(`/api/v1/document-types`) || PathPrefix(`/api/v1/inbox`)"
       - "traefik.http.routers.workflow.entrypoints=web"
       - "traefik.http.routers.workflow.middlewares=workflow-ratelimit,jwt-auth@file,api-v1-strip"
       # docs - public
@@ -308,6 +308,8 @@ services:
       OPERATIONS_GRPC_PORT: 50054
       WORKFLOW_GRPC_HOST: workflow-service
       WORKFLOW_GRPC_PORT: 50056
+      ESIGN_GRPC_HOST: esign-service
+      ESIGN_GRPC_PORT: 50057
     depends_on:
       postgres:
         condition: service_healthy

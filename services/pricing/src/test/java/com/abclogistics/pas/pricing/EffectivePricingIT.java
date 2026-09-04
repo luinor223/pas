@@ -1,9 +1,9 @@
 package com.abclogistics.pas.pricing;
 
+import com.abclogistics.pas.pricing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.pricing.domain.PriceList;
 import com.abclogistics.pas.pricing.domain.PriceListVersion;
 import com.abclogistics.pas.pricing.domain.PriceListVersionStatus;
-import com.abclogistics.pas.pricing.domain.StatusHistory;
 import com.abclogistics.pas.pricing.domain.TriggerKind;
 import com.abclogistics.pas.pricing.listener.WorkflowEventListener;
 import com.abclogistics.pas.pricing.repository.PriceListVersionRepository;
@@ -14,7 +14,6 @@ import com.abclogistics.pas.pricing.service.EffectivePriceService.ResolvedPriceL
 import com.abclogistics.pas.pricing.service.PriceListService;
 import com.abclogistics.pas.pricing.service.PriceListService.LineInput;
 import com.abclogistics.pas.pricing.service.PriceListVersionService;
-import com.abclogistics.pas.pricing.service.WorkflowGrpcClient;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import org.junit.jupiter.api.Tag;

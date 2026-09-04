@@ -1,6 +1,5 @@
 package com.abclogistics.pas.esign;
 
-import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.domain.SigningSession.SessionStatus;

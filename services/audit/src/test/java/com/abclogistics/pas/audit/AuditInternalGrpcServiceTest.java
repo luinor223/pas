@@ -1,6 +1,6 @@
 package com.abclogistics.pas.audit;
 
-import com.abclogistics.pas.audit.grpc.AuditInternalGrpcService;
+import com.abclogistics.pas.audit.controller.grpc.AuditInternalGrpcService;
 import com.abclogistics.pas.audit.grpc.ListRecordsRequest;
 import com.abclogistics.pas.audit.grpc.ListRecordsResponse;
 import com.abclogistics.pas.audit.service.AuditQueryService;

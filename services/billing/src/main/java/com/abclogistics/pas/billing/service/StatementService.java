@@ -2,8 +2,8 @@ package com.abclogistics.pas.billing.service;
 
 import com.abclogistics.pas.billing.domain.*;
 import com.abclogistics.pas.billing.dto.*;
-import com.abclogistics.pas.billing.error.UnprocessableEntityException;
-import com.abclogistics.pas.billing.grpc.*;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
+import com.abclogistics.pas.billing.client.*;
 import com.abclogistics.pas.billing.repository.*;
 import com.abclogistics.pas.common.audit.AuditRecorder;
 import com.abclogistics.pas.common.error.ConflictException;
@@ -17,8 +17,6 @@ import com.abclogistics.pas.operations.grpc.ListVolumesResponse;
 import com.abclogistics.pas.operations.grpc.VolumeRecord;
 import com.abclogistics.pas.pricing.grpc.GetEffectivePriceListResponse;
 import com.abclogistics.pas.pricing.grpc.PriceLine;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -34,7 +32,6 @@ import java.util.stream.Collectors;
 @Service
 public class StatementService {
 
-    private static final Logger log = LoggerFactory.getLogger(StatementService.class);
 
     private final PaymentStatementRepository statementRepo;
     private final StatementLineRepository lineRepo;
@@ -44,7 +41,6 @@ public class StatementService {
     private final PricingGrpcClient pricingClient;
     private final OperationsGrpcClient operationsClient;
     private final WorkflowGrpcClient workflowClient;
-    private final EsignGrpcClient esignClient;
     private final AuditRecorder auditRecorder;
     private final StatusTransitionService transitions;
     private final tools.jackson.databind.ObjectMapper objectMapper;
@@ -57,7 +53,6 @@ public class StatementService {
                             PricingGrpcClient pricingClient,
                             OperationsGrpcClient operationsClient,
                             WorkflowGrpcClient workflowClient,
-                            EsignGrpcClient esignClient,
                             AuditRecorder auditRecorder,
                             StatusTransitionService transitions,
                             tools.jackson.databind.ObjectMapper objectMapper) {
@@ -69,7 +64,6 @@ public class StatementService {
         this.pricingClient = pricingClient;
         this.operationsClient = operationsClient;
         this.workflowClient = workflowClient;
-        this.esignClient = esignClient;
         this.auditRecorder = auditRecorder;
         this.transitions = transitions;
         this.objectMapper = objectMapper;
@@ -86,6 +80,22 @@ public class StatementService {
         PaymentStatement stmt = statementRepo.findByStatementNo(statementNo)
             .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
         return toResponse(stmt);
+    }
+
+    public record SigningPayload(String documentNo, String signerName, String signerEmail) { }
+
+    public SigningPayload signingPayload(UUID statementId) {
+        PaymentStatement statement = statementRepo.findById(statementId)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementId));
+        PaymentStatement.StatementStatus status = statement.getStatus();
+        if (status != PaymentStatement.StatementStatus.APPROVED
+            && status != PaymentStatement.StatementStatus.SIGNING) {
+            throw new FailedPreconditionException("Statement must be APPROVED or SIGNING for signing payload");
+        }
+        return new SigningPayload(
+            statement.getStatementNo(),
+            statement.getCustomerName() != null ? statement.getCustomerName() : "",
+            "");
     }
 
     @Transactional

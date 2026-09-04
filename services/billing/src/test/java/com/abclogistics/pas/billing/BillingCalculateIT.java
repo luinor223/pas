@@ -4,12 +4,11 @@ import com.abclogistics.pas.billing.dto.AdjustmentRequest;
 import com.abclogistics.pas.billing.dto.CalculateStatementRequest;
 import com.abclogistics.pas.billing.dto.EditLineRequest;
 import com.abclogistics.pas.billing.dto.StatementResponse;
-import com.abclogistics.pas.billing.error.UnprocessableEntityException;
-import com.abclogistics.pas.billing.grpc.ContractGrpcClient;
-import com.abclogistics.pas.billing.grpc.OperationsGrpcClient;
-import com.abclogistics.pas.billing.grpc.PricingGrpcClient;
-import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
-import com.abclogistics.pas.billing.listener.BillingEventListener;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
+import com.abclogistics.pas.billing.client.ContractGrpcClient;
+import com.abclogistics.pas.billing.client.OperationsGrpcClient;
+import com.abclogistics.pas.billing.client.PricingGrpcClient;
+import com.abclogistics.pas.billing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.ProcessedEventRepository;
 import com.abclogistics.pas.billing.service.StatementService;
@@ -292,6 +291,22 @@ class BillingCalculateIT {
                 "{\"document_id\":\"" + stmtId + "\",\"outcome\":\"APPROVED\",\"instance_id\":\"" + instanceId + "\"}",
                 "workflow.completed", "PAYMENT_STATEMENT", UUID.randomUUID().toString(), stmtId.toString());
         assertThat(statements.findByStatementNo(statementNo).orElseThrow().getStatus().name()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void listReturnsLinesAndVolumeLinks() {
+        String a = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-07")).statementNo();
+        String b = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-08")).statementNo();
+
+        List<StatementResponse> mine = service.list(0, 50).getContent().stream()
+                .filter(s -> s.statementNo().equals(a) || s.statementNo().equals(b))
+                .toList();
+
+        assertThat(mine).hasSize(2);
+        assertThat(mine).allSatisfy(s -> {
+            assertThat(s.lines()).hasSize(1);
+            assertThat(s.lines().get(0).volumeLinks()).hasSize(2);
+        });
     }
 
     private static ListVolumesResponse lockedVolumes(String periodCode) {

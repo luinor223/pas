@@ -5,7 +5,7 @@ import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.common.error.ForbiddenException;
 import com.abclogistics.pas.common.error.GlobalExceptionHandler;
 import com.abclogistics.pas.common.error.NotFoundException;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.params.ParameterizedTest;

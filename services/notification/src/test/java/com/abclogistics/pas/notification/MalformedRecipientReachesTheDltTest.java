@@ -1,9 +1,9 @@
 package com.abclogistics.pas.notification;
 
 import com.abclogistics.pas.common.events.MalformedEventException;
+import com.abclogistics.pas.notification.client.IdentityGrpcClient;
 import com.abclogistics.pas.notification.repository.NotificationRepository;
 import com.abclogistics.pas.notification.repository.ProcessedEventRepository;
-import com.abclogistics.pas.notification.service.IdentityGrpcClient;
 import com.abclogistics.pas.notification.service.NotificationService;
 import com.abclogistics.pas.notification.service.RecipientResolver;
 import org.apache.kafka.clients.consumer.ConsumerRecord;

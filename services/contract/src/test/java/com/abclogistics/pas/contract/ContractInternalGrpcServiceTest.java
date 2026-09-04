@@ -7,7 +7,7 @@ import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
-import com.abclogistics.pas.contract.grpc.ContractInternalGrpcService;
+import com.abclogistics.pas.contract.controller.grpc.ContractInternalGrpcService;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import com.abclogistics.pas.contract.grpc.GetSigningPayloadRequest;
@@ -16,7 +16,7 @@ import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
 import com.abclogistics.pas.contract.service.CustomerService;
-import com.abclogistics.pas.contract.service.WorkflowGrpcClient;
+import com.abclogistics.pas.contract.client.WorkflowGrpcClient;
 
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;

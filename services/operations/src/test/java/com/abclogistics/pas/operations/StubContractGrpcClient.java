@@ -1,7 +1,7 @@
 package com.abclogistics.pas.operations;
 
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
-import com.abclogistics.pas.operations.grpc.ContractClient;
+import com.abclogistics.pas.operations.client.ContractClient;
 
 import java.util.Map;
 import java.util.UUID;

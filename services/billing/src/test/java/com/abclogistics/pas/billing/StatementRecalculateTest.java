@@ -3,12 +3,11 @@ package com.abclogistics.pas.billing;
 import com.abclogistics.pas.billing.domain.PaymentStatement;
 import com.abclogistics.pas.billing.domain.StatementLine;
 import com.abclogistics.pas.billing.domain.StatementLineVolume;
-import com.abclogistics.pas.billing.error.UnprocessableEntityException;
-import com.abclogistics.pas.billing.grpc.ContractGrpcClient;
-import com.abclogistics.pas.billing.grpc.EsignGrpcClient;
-import com.abclogistics.pas.billing.grpc.OperationsGrpcClient;
-import com.abclogistics.pas.billing.grpc.PricingGrpcClient;
-import com.abclogistics.pas.billing.grpc.WorkflowGrpcClient;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
+import com.abclogistics.pas.billing.client.ContractGrpcClient;
+import com.abclogistics.pas.billing.client.OperationsGrpcClient;
+import com.abclogistics.pas.billing.client.PricingGrpcClient;
+import com.abclogistics.pas.billing.client.WorkflowGrpcClient;
 import com.abclogistics.pas.billing.repository.PaymentStatementRepository;
 import com.abclogistics.pas.billing.repository.StatementLineRepository;
 import com.abclogistics.pas.billing.repository.StatementLineVolumeRepository;
@@ -63,7 +62,7 @@ class StatementRecalculateTest {
         service = new StatementService(statements, mock(StatementLineRepository.class),
                 mock(StatementLineVolumeRepository.class), mock(OutboxRepository.class),
                 contractClient, pricingClient, operationsClient, workflowClient,
-                mock(EsignGrpcClient.class), mock(AuditRecorder.class),
+                mock(AuditRecorder.class),
                 new com.abclogistics.pas.billing.service.StatusTransitionService(mock(com.abclogistics.pas.billing.repository.StatusHistoryRepository.class)),
                 mock(tools.jackson.databind.ObjectMapper.class, org.mockito.Mockito.RETURNS_DEEP_STUBS));
         when(statements.save(any())).thenAnswer(inv -> inv.getArgument(0));

@@ -10,7 +10,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.repository.ContractRepository;
 import com.abclogistics.pas.contract.service.AttachmentCleanupSweep;

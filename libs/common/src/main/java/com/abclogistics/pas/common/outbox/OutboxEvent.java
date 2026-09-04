@@ -1,5 +1,6 @@
 package com.abclogistics.pas.common.outbox;
 
+import com.abclogistics.pas.common.correlation.CorrelationSupport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -45,6 +46,10 @@ public class OutboxEvent {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** Correlation id of the request that produced this event, carried through to the Kafka header. */
+    @Column(name = "correlation_id", updatable = false)
+    private String correlationId;
+
     /** null = never claimed by the relay; the cancel path depends on this. */
     @Column(name = "claimed_at")
     private Instant claimedAt;
@@ -67,6 +72,7 @@ public class OutboxEvent {
         this.aggregateId = aggregateId;
         this.payload = payload;
         this.createdAt = Instant.now();
+        this.correlationId = CorrelationSupport.current();
         this.retryCount = 0;
     }
 
@@ -114,6 +120,7 @@ public class OutboxEvent {
     public UUID getAggregateId() { return aggregateId; }
     public String getPayload() { return payload; }
     public Instant getCreatedAt() { return createdAt; }
+    public String getCorrelationId() { return correlationId; }
     public Instant getClaimedAt() { return claimedAt; }
     public Instant getPublishedAt() { return publishedAt; }
     public Instant getCancelledAt() { return cancelledAt; }

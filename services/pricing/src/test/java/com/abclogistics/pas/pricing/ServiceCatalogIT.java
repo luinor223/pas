@@ -1,7 +1,7 @@
 package com.abclogistics.pas.pricing;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.pricing.controller.ServiceItemController;
+import com.abclogistics.pas.pricing.controller.http.ServiceItemController;
 import com.abclogistics.pas.pricing.domain.ServiceItem;
 import com.abclogistics.pas.pricing.repository.ServiceItemRepository;
 import com.abclogistics.pas.pricing.service.ServiceCatalogService;

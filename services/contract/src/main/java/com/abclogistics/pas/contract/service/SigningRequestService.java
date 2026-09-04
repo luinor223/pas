@@ -10,7 +10,7 @@ import com.abclogistics.pas.contract.domain.Customer;
 import com.abclogistics.pas.contract.domain.CustomerContact;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.SigningRequestGuard;
-import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.common.error.UnprocessableEntityException;
 import com.abclogistics.pas.contract.event.EsignSessionRequested;
 import com.abclogistics.pas.contract.repository.SigningRequestGuardRepository;
 import org.springframework.stereotype.Service;

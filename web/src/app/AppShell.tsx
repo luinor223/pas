@@ -15,7 +15,7 @@ import { unreadCountQuery } from "@/features/notification/hooks/notificationQuer
 import { departmentLabel } from "@/shared/lib/labels";
 import { approvalInboxQuery } from "@/features/approval/hooks/approvalQueries";
 
-type Item = { to: string; label: string; icon: React.ReactNode; permission?: string };
+type Item = { to: string; label: string; icon: React.ReactNode; permission?: string; anyOf?: string[] };
 type Group = { heading: string; items: Item[] };
 
 const NAV: Group[] = [
@@ -37,7 +37,7 @@ const NAV: Group[] = [
   ]},
   { heading: "System", items: [
     { to: "/audit-log", label: "Audit Log", icon: <ScrollText size={17} />, permission: "audit:view_all" },
-    { to: "/admin/users", label: "Administration", icon: <Settings size={17} />, permission: "user:manage" },
+    { to: "/admin/users", label: "Administration", icon: <Settings size={17} />, anyOf: ["user:manage", "workflow:configure", "doctype:configure"] },
   ]},
 ];
 
@@ -137,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
               <div className="space-y-0.5">
                 {group.items
-                  .filter((i) => !i.permission || perms.includes(i.permission))
+                  .filter((i) => (!i.permission || perms.includes(i.permission)) && (!i.anyOf || i.anyOf.some((p) => perms.includes(p))))
                   .map((i) => {
                     const active = isActive(i.to);
                     return (
@@ -243,6 +243,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function matchCrumb(pathname: string): { group: string; label: string } {
+  if (pathname.startsWith("/admin")) return { group: "System", label: "Administration" };
   const hit = Object.entries(CRUMB).find(([to]) => to !== "/" && pathname.startsWith(to));
   return hit ? hit[1] : { group: "Overview", label: "Dashboard" };
 }

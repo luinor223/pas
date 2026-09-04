@@ -28,9 +28,6 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
-redis:
-  perm-prefix: "perm:role:"
-
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
     producer:
@@ -49,6 +46,9 @@ redis:
   grpc:
     server:
       port: 50057
+
+redis:
+  perm-prefix: "perm:role:"
 
 contract:
   grpc:
@@ -81,3 +81,7 @@ management:
 springdoc:
   api-docs:
     version: openapi_3_1
+
+logging:
+  pattern:
+    correlation: "[%X{correlationId:-}] "
