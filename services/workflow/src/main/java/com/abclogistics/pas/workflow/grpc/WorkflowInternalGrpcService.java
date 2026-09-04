@@ -1,9 +1,7 @@
 package com.abclogistics.pas.workflow.grpc;
 
-import com.abclogistics.pas.common.error.ConflictException;
-import com.abclogistics.pas.common.error.NotFoundException;
+import com.abclogistics.pas.common.error.GrpcStatusMapper;
 import com.abclogistics.pas.workflow.error.AbortedException;
-import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.workflow.domain.StepAssignee;
 import com.abclogistics.pas.workflow.domain.WorkflowAction;
 import com.abclogistics.pas.workflow.domain.WorkflowInstance;
@@ -149,13 +147,8 @@ public class WorkflowInternalGrpcService extends WorkflowInternalGrpc.WorkflowIn
     }
 
     private Status mapToStatus(Exception e) {
-        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
-        if (e instanceof NotFoundException) return Status.NOT_FOUND;
-        if (e instanceof FailedPreconditionException) return Status.FAILED_PRECONDITION;
         if (e instanceof AbortedException) return Status.ABORTED;
-        if (e instanceof ConflictException) return Status.FAILED_PRECONDITION;
-        if (e instanceof org.springframework.security.access.AccessDeniedException) return Status.PERMISSION_DENIED;
-        return Status.INTERNAL;
+        return GrpcStatusMapper.toStatus(e);
     }
 
     private StepInstance toProtoStep(WorkflowStepInstance s, Instant now) {
