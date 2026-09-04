@@ -2,6 +2,7 @@ package com.abclogistics.pas.workflow;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
 import com.abclogistics.pas.workflow.controller.DocumentTypeController;
+import com.abclogistics.pas.workflow.controller.WorkflowDefinitionController;
 import com.abclogistics.pas.workflow.dto.UpdateDocumentTypeRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -57,6 +58,7 @@ class DocumentTypeAuthorizationIT {
     }
 
     @Autowired DocumentTypeController controller;
+    @Autowired WorkflowDefinitionController definitionController;
 
     @AfterEach
     void clearAuth() {
@@ -83,6 +85,13 @@ class DocumentTypeAuthorizationIT {
     void listIsAllowedForAnyAuthenticatedCaller() {
         authWith("user:manage");
         assertThat(controller.list()).isNotEmpty();
+    }
+
+    @Test
+    void definitionDeleteRequiresWorkflowConfigure() {
+        authWith("doctype:configure");   // related but not enough
+        assertThatThrownBy(() -> definitionController.delete(UUID.randomUUID()))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     private static void authWith(String... permissions) {

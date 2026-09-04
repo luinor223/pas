@@ -16,6 +16,14 @@ public interface WorkflowInstanceRepository extends JpaRepository<WorkflowInstan
 
     Optional<WorkflowInstance> findByIdempotencyKey(UUID idempotencyKey);
 
+    /**
+     * Delete guard for definitions: single indexed EXISTS on
+     * {@code idx_workflow_instance_definition} — no entity load, no scan.
+     */
+    boolean existsByDefinition_Id(UUID definitionId);
+
+    Optional<WorkflowInstance> findByDocumentTypeCodeAndDocumentIdAndStatus(String documentTypeCode, UUID documentId, String status);
+
     @Query("select wi from WorkflowInstance wi where wi.documentTypeCode = :docType and wi.documentId = :docId and wi.status = 'IN_PROGRESS'")
     Optional<WorkflowInstance> findInProgressByDocument(@Param("docType") String docType, @Param("docId") UUID docId);
 
