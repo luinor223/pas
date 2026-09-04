@@ -2,6 +2,7 @@ export type PageMeta = { page: number; size: number; totalElements: number; tota
 
 export const DEFAULT_PAGE_SIZE = 15;
 
+/** Normalized Spring Page returned through the global { data, meta } envelope. */
 export type PageResponse<T> = {
   content: T[];
   totalElements: number;
@@ -10,7 +11,8 @@ export type PageResponse<T> = {
   number: number;
 };
 
-export type PagedResult<T> = {
+/** Page whose owning endpoint intentionally returns pagination fields in its response body. */
+export type BodyPageResponse<T> = {
   items: T[];
   page: number;
   size: number;

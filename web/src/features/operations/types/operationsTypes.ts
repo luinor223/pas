@@ -19,6 +19,7 @@ export type VolumeResponse = {
   recordNo: string;
   periodCode: string;
   contractId: string;
+  contractNo: string | null;
   customerName: string;
   serviceCode: string;
   serviceName: string;
@@ -52,6 +53,6 @@ export type VolumeFilters = {
   size?: number;
 };
 
-import type { PagedResult } from "@/shared/api/paging";
+import type { BodyPageResponse } from "@/shared/api/paging";
 
-export type VolumePageResponse = PagedResult<VolumeResponse>;
+export type VolumePageResponse = BodyPageResponse<VolumeResponse>;

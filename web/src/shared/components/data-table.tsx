@@ -36,9 +36,10 @@ export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No 
       sorting,
       ...(serverPagination ? { pagination: { pageIndex: serverPagination.page, pageSize } } : {}),
     },
-    onSortingChange: setSorting,
+    onSortingChange: serverPagination ? undefined : setSorting,
+    enableSorting: !serverPagination,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    getSortedRowModel: serverPagination ? undefined : getSortedRowModel(),
     getPaginationRowModel: serverPagination ? undefined : getPaginationRowModel(),
     manualPagination: Boolean(serverPagination),
     pageCount: serverPagination?.totalPages,
@@ -93,7 +94,7 @@ export function DataTable<T>({ columns, data, pageSize = 10, emptyMessage = "No 
         </TableBody>
       </Table>
 
-      {serverPagination && data.length > 0 ? (
+      {serverPagination && serverPagination.totalPages > 0 ? (
         <PaginationControls
           page={serverPagination.page}
           totalPages={Math.max(1, serverPagination.totalPages)}

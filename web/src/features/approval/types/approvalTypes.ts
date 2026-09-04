@@ -19,6 +19,6 @@ export type ApprovalInboxItem = {
   requestedByName: string | null;
 };
 
-import type { PagedResult } from "@/shared/api/paging";
+import type { BodyPageResponse } from "@/shared/api/paging";
 
-export type ApprovalInboxResponse = PagedResult<ApprovalInboxItem>;
+export type ApprovalInboxResponse = BodyPageResponse<ApprovalInboxItem>;
