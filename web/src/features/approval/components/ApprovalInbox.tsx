@@ -19,6 +19,7 @@ import { useHasPermission } from "@/features/auth/hooks/usePermissions";
 import { cn } from "@/shared/lib/cn";
 import { formatDateTime, formatRelative } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
+import { documentTypeLabel } from "@/shared/lib/labels";
 import { useDebouncedSearch } from "@/shared/lib/use-debounced-search";
 import { downloadCsv } from "@/shared/lib/csv";
 import { documentTarget } from "@/shared/lib/document-links";
@@ -34,12 +35,7 @@ const TABS: { value: ApprovalTab; label: string }[] = [
   { value: "COMPLETED", label: "Completed" },
 ];
 
-const DOCUMENT_LABELS: Record<string, string> = {
-  CONTRACT: "Contract",
-  ADDENDUM: "Addendum",
-  PRICE_LIST: "Price list",
-  PAYMENT_STATEMENT: "Payment statement",
-};
+const DOCUMENT_TYPES = ["CONTRACT", "ADDENDUM", "PRICE_LIST", "PAYMENT_STATEMENT"];
 
 type ActionDialogState = { item: ApprovalInboxItem; action: ApprovalAction } | null;
 
@@ -151,7 +147,7 @@ export function ApprovalInbox() {
           onChange={(event) => navigate({ search: (previous) => ({ ...previous, documentType: event.target.value || undefined, page: undefined }), replace: true })}
         >
           <option value="">Document type: All</option>
-          {Object.entries(DOCUMENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {DOCUMENT_TYPES.map((value) => <option key={value} value={value}>{documentTypeLabel(value)}</option>)}
         </Select>
         <Select
           className="w-full sm:w-40"
@@ -301,10 +297,6 @@ function PriorityBadge({ priority }: { priority: string }) {
 function documentLink(item: ApprovalInboxItem) {
   const target = documentTarget(item.documentTypeCode, item.documentId);
   return target ? <Link to={target.to} search={target.search as never} className="text-primary hover:underline">{item.documentNo}</Link> : item.documentNo;
-}
-
-function documentTypeLabel(code: string) {
-  return DOCUMENT_LABELS[code] ?? humanize(code);
 }
 
 function elapsed(value: string | null) {
