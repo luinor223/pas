@@ -10,15 +10,18 @@ export function TabBar<T extends string>({
   value,
   onChange,
   className,
+  id,
   panelId,
 }: {
   tabs: readonly TabItem<T>[];
   value: T;
   onChange: (next: T) => void;
   className?: string;
+  id?: string;
   panelId?: string;
 }) {
   const generatedId = useId();
+  const tabListId = id ?? generatedId;
 
   function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     let next = index;
@@ -29,18 +32,18 @@ export function TabBar<T extends string>({
     else return;
     event.preventDefault();
     onChange(tabs[next].value);
-    document.getElementById(`${generatedId}-tab-${next}`)?.focus();
+    document.getElementById(`${tabListId}-tab-${tabs[next].value}`)?.focus();
   }
 
   return (
-    <div role="tablist" className={cn("flex gap-6 overflow-x-auto border-b border-border", className)}>
+    <div id={tabListId} role="tablist" className={cn("flex gap-6 overflow-x-auto border-b border-border", className)}>
       {tabs.map((tab, index) => {
         const active = tab.value === value;
         return (
           <button
             key={tab.value}
             type="button"
-            id={`${generatedId}-tab-${index}`}
+            id={`${tabListId}-tab-${tab.value}`}
             role="tab"
             aria-selected={active}
             aria-controls={panelId}

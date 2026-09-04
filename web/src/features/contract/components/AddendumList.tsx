@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useId, useState, useMemo } from "react";
 import { addendaQuery, contractQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { AddendumResponse } from "../types/contractTypes";
@@ -59,6 +59,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export function AddendumList({ search }: { search: AddendumRouteSearch }) {
+  const formId = useId();
   const qc = useQueryClient();
   const navigate = useNavigate({ from: "/addenda" });
   const canRead = useHasPermission("addendum:read");
@@ -191,20 +192,20 @@ export function AddendumList({ search }: { search: AddendumRouteSearch }) {
               />
               {errors.contractId && <p className="text-xs text-destructive">{errors.contractId.message}</p>}
             </div>
-            <div><Label>Change type *</Label><Select {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
-            <div><Label>Description</Label><Textarea {...register("description")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Effective from *</Label><Input type="date" {...register("effectiveFrom")} />{errors.effectiveFrom && <p className="text-xs text-destructive">{errors.effectiveFrom.message}</p>}</div>{watchedType==="TERM_EXTENSION" && <div><Label>New valid to *</Label><Input type="date" {...register("newValidTo")} />{errors.newValidTo && <p className="text-xs text-destructive">{String(errors.newValidTo.message)}</p>}</div>}{watchedType==="PAYMENT_TERMS" && <div><Label>Payment term override *</Label><Input {...register("paymentTermOverride")} /></div>}</div>
+            <div><Label htmlFor={`${formId}-change-type`}>Change type *</Label><Select id={`${formId}-change-type`} {...register("changeType")}>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}</Select></div>
+            <div><Label htmlFor={`${formId}-description`}>Description</Label><Textarea id={`${formId}-description`} {...register("description")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-effective-from`}>Effective from *</Label><Input id={`${formId}-effective-from`} type="date" {...register("effectiveFrom")} />{errors.effectiveFrom && <p className="text-xs text-destructive">{errors.effectiveFrom.message}</p>}</div>{watchedType==="TERM_EXTENSION" && <div><Label htmlFor={`${formId}-new-valid-to`}>New valid to *</Label><Input id={`${formId}-new-valid-to`} type="date" {...register("newValidTo")} />{errors.newValidTo && <p className="text-xs text-destructive">{String(errors.newValidTo.message)}</p>}</div>}{watchedType==="PAYMENT_TERMS" && <div><Label htmlFor={`${formId}-payment-term-override`}>Payment term override *</Label><Input id={`${formId}-payment-term-override`} {...register("paymentTermOverride")} /></div>}</div>
             {watchedType==="ADDED_SERVICE" && (
               <div>
-                <Label>Services</Label>
+                <div className="text-sm font-medium">Services</div>
                 <div className="space-y-1 border rounded p-2">
                   {fields.map((f,i) => (
-                    <div key={f.id} className="grid grid-cols-12 gap-1 items-end">
-                      <div className="col-span-3"><Input {...register(`services.${i}.serviceCode` as const)} placeholder="Code" /></div>
-                      <div className="col-span-4"><Input {...register(`services.${i}.serviceName` as const)} placeholder="Name" /></div>
-                      <div className="col-span-2"><Input {...register(`services.${i}.unit` as const)} placeholder="Unit" /></div>
-                      <div className="col-span-2"><Input {...register(`services.${i}.scopeNote` as const)} placeholder="Scope" /></div>
-                      <Button type="button" variant="ghost" size="sm" className="col-span-1" onClick={() => remove(i)}>×</Button>
+                    <div key={f.id} className="grid grid-cols-1 items-end gap-1 sm:grid-cols-12">
+                      <div className="sm:col-span-3"><Label className="sr-only" htmlFor={`${formId}-service-${i}-code`}>Service {i + 1} code</Label><Input id={`${formId}-service-${i}-code`} {...register(`services.${i}.serviceCode` as const)} placeholder="Code" /></div>
+                      <div className="sm:col-span-4"><Label className="sr-only" htmlFor={`${formId}-service-${i}-name`}>Service {i + 1} name</Label><Input id={`${formId}-service-${i}-name`} {...register(`services.${i}.serviceName` as const)} placeholder="Name" /></div>
+                      <div className="sm:col-span-2"><Label className="sr-only" htmlFor={`${formId}-service-${i}-unit`}>Service {i + 1} unit</Label><Input id={`${formId}-service-${i}-unit`} {...register(`services.${i}.unit` as const)} placeholder="Unit" /></div>
+                      <div className="sm:col-span-2"><Label className="sr-only" htmlFor={`${formId}-service-${i}-scope`}>Service {i + 1} scope</Label><Input id={`${formId}-service-${i}-scope`} {...register(`services.${i}.scopeNote` as const)} placeholder="Scope" /></div>
+                      <Button type="button" variant="ghost" size="sm" className="sm:col-span-1" aria-label={`Remove service ${i + 1}`} onClick={() => remove(i)}>×</Button>
                     </div>
                   ))}
                   <Button type="button" size="sm" variant="outline" onClick={() => append({ serviceCode:"", serviceName:"", unit:"", scopeNote:""})}>+ Service</Button>

@@ -117,7 +117,7 @@ export function CustomerDetail({ id, onEdit, tab: requestedTab, contractsPage = 
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-sm font-bold text-blue-700">{initials}</div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold">{c.name}</h2>
+              <h1 className="text-xl font-bold">{c.name}</h1>
               <StatusBadge status={c.status} />
             </div>
             <div className="text-xs text-muted-foreground">{c.code} · Tax ID {c.taxCode ?? "—"} · Customer since {new Date(c.createdAt).getFullYear()}</div>
@@ -129,8 +129,10 @@ export function CustomerDetail({ id, onEdit, tab: requestedTab, contractsPage = 
         </div>
       </div>
 
-      <TabBar tabs={tabs} value={tab} onChange={setTab} />
+      <TabBar id="customer-detail-tabs" panelId="customer-detail-panel" tabs={tabs} value={tab} onChange={setTab} />
 
+      <div id="customer-detail-panel" role="tabpanel" aria-labelledby={`customer-detail-tabs-tab-${tab}`} tabIndex={0}>
+      <h2 className="sr-only">{tabs.find((item) => item.value === tab)?.label}</h2>
       {tab === "overview" && (
         <>
           {canReadContracts && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -159,14 +161,14 @@ export function CustomerDetail({ id, onEdit, tab: requestedTab, contractsPage = 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
               <CardHeader><CardTitle className="text-base">Company information</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-3 gap-3 text-sm">
+              <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                 <div><div className="text-xs text-muted-foreground">LEGAL NAME</div><div>{c.name}</div></div>
                 <div><div className="text-xs text-muted-foreground">SHORT NAME</div><div>{c.shortName ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">TAX ID</div><div>{c.taxCode ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">REPRESENTATIVE</div><div>{c.representativeName ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">POSITION</div><div>{c.representativePosition ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">SEGMENT</div><div>{c.segment ?? "—"}</div></div>
-                <div className="col-span-3"><div className="text-xs text-muted-foreground">REGISTERED ADDRESS</div><div>{c.address ?? "—"}</div></div>
+                <div className="sm:col-span-3"><div className="text-xs text-muted-foreground">REGISTERED ADDRESS</div><div>{c.address ?? "—"}</div></div>
               </CardContent>
             </Card>
             <Card>
@@ -228,6 +230,7 @@ export function CustomerDetail({ id, onEdit, tab: requestedTab, contractsPage = 
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
   );
 }

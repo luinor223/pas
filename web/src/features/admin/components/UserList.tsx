@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { CreateUserRequest, UpdateUserRequest, UserResponse } from "../types/adminTypes";
 import { adminApi } from "../services/adminApi";
 import { usersQuery, rolesQuery, departmentsQuery } from "../hooks/adminQueries";
-import { useState, useMemo, useEffect } from "react";
+import { useId, useState, useMemo, useEffect } from "react";
 import { Button } from "@/shared/components/button";
 import { Input } from "@/shared/components/input";
 import { Label } from "@/shared/components/label";
@@ -45,6 +45,7 @@ type FormCreate = z.infer<typeof createSchema>;
 type FormEdit = z.infer<typeof editSchema>;
 
 export function UserTable() {
+  const formId = useId();
   const qc = useQueryClient();
   const currentUser = useCurrentUser().data;
   const navigate = useNavigate();
@@ -254,14 +255,14 @@ export function UserTable() {
           <DialogHeader className="shrink-0 px-6 pt-6"><DialogTitle>Create user</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 space-y-3 overflow-y-auto px-6 pb-4">
-            <div><Label>Username</Label><Input {...register("username")} />{errors.username && <p className="text-xs text-destructive">{errors.username.message}</p>}</div>
-            <div><Label>Email</Label><Input {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
-            <div><Label>Password (min 8)</Label><Input type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
-            <div><Label>Full name</Label><Input {...register("fullName")} />{errors.fullName && <p className="text-xs text-destructive">{errors.fullName.message}</p>}</div>
-            <div><Label>Department</Label><Select {...register("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}</Select></div>
+            <div><Label htmlFor={`${formId}-username`}>Username</Label><Input id={`${formId}-username`} {...register("username")} />{errors.username && <p className="text-xs text-destructive">{errors.username.message}</p>}</div>
+            <div><Label htmlFor={`${formId}-email`}>Email</Label><Input id={`${formId}-email`} {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
+            <div><Label htmlFor={`${formId}-password`}>Password (min 8)</Label><Input id={`${formId}-password`} type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
+            <div><Label htmlFor={`${formId}-full-name`}>Full name</Label><Input id={`${formId}-full-name`} {...register("fullName")} />{errors.fullName && <p className="text-xs text-destructive">{errors.fullName.message}</p>}</div>
+            <div><Label htmlFor={`${formId}-department`}>Department</Label><Select id={`${formId}-department`} {...register("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}</Select></div>
             <div>
-              <Label>Roles</Label>
-              <div className="grid grid-cols-2 gap-2 border rounded p-3 max-h-48 overflow-auto">
+              <div className="text-sm font-medium">Roles</div>
+              <div className="grid grid-cols-1 gap-2 border rounded p-3 max-h-48 overflow-auto sm:grid-cols-2">
                 {roles.map((r) => (
                   <label key={r.code} className="flex items-start gap-2 text-sm cursor-pointer">
                     <input
@@ -294,9 +295,9 @@ export function UserTable() {
         <DialogContent>
           <DialogHeader><DialogTitle>Edit user - {profileUser?.username}</DialogTitle></DialogHeader>
           <form onSubmit={submitEdit((d) => editUserId && updateMut.mutate({ id: editUserId, data: d }))} className="space-y-3">
-            <div><Label>Full name</Label><Input {...regEdit("fullName")} />{editErrors.fullName && <p className="text-xs text-destructive">{editErrors.fullName.message}</p>}</div>
-            <div><Label>Email</Label><Input {...regEdit("email")} />{editErrors.email && <p className="text-xs text-destructive">{editErrors.email.message}</p>}</div>
-            <div><Label>Department</Label><Select {...regEdit("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}</Select></div>
+            <div><Label htmlFor={`${formId}-edit-full-name`}>Full name</Label><Input id={`${formId}-edit-full-name`} {...regEdit("fullName")} />{editErrors.fullName && <p className="text-xs text-destructive">{editErrors.fullName.message}</p>}</div>
+            <div><Label htmlFor={`${formId}-edit-email`}>Email</Label><Input id={`${formId}-edit-email`} {...regEdit("email")} />{editErrors.email && <p className="text-xs text-destructive">{editErrors.email.message}</p>}</div>
+            <div><Label htmlFor={`${formId}-edit-department`}>Department</Label><Select id={`${formId}-edit-department`} {...regEdit("departmentCode")}>{deptsQ.isLoading ? <option disabled>Loading...</option> : departments.map((d) => <option key={d.code} value={d.code}>{departmentLabel(d.code)}</option>)}</Select></div>
             {updateMut.isError && <div className="text-sm text-destructive">{getApiErrorMessage(updateMut.error, "Update failed")}</div>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditUserId(null)}>Cancel</Button>
@@ -311,7 +312,7 @@ export function UserTable() {
         <DialogContent>
           <DialogHeader><DialogTitle>Manage roles for {editUser?.fullName}</DialogTitle></DialogHeader>
           <div className="space-y-2">
-            <Label>Select roles</Label>
+            <div className="text-sm font-medium">Select roles</div>
             <div className="grid grid-cols-1 gap-2 border rounded p-3 max-h-64 overflow-auto">
               {roles.map((r) => (
                 <label key={r.code} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted px-2 py-1 rounded">

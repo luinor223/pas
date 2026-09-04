@@ -131,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {sidebarCollapsed ? (
                 <div className="mx-2 mb-1 border-t border-white/10" />
               ) : (
-                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/60">
                   {group.heading}
                 </div>
               )}

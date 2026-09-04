@@ -147,7 +147,7 @@ export function AddendumDetail({ id }: { id: string }) {
           <DetailBackButton to="/addenda" label="Back to addenda" />
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold">{addendum.addendumNo}</h2>
+              <h1 className="text-xl font-bold">{addendum.addendumNo}</h1>
               <StatusBadge status={addendum.status} />
             </div>
             <div className="text-sm text-muted-foreground">

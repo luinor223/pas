@@ -128,13 +128,14 @@ export function ApprovalInbox() {
   return (
     <div className="space-y-4">
       <TabBar
+        id="approval-inbox-tabs"
         tabs={TABS.map((item) => ({ ...item, count: item.value === "ASSIGNED" ? assignedCountQuery.data?.totalItems : item.value === tab ? activeQuery.data?.totalItems : undefined }))}
         value={tab}
         onChange={changeTab}
         panelId="approval-inbox-panel"
       />
 
-      <div id="approval-inbox-panel" role="tabpanel" className="space-y-4">
+      <div id="approval-inbox-panel" role="tabpanel" aria-labelledby={`approval-inbox-tabs-tab-${tab}`} tabIndex={0} className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
           className="w-full sm:w-60"

@@ -99,7 +99,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
           <DetailBackButton to="/contracts" label="Back to contracts" />
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold">{c.contractNo}</h2>
+              <h1 className="text-xl font-bold">{c.contractNo}</h1>
               <StatusBadge status={c.status} />
             </div>
             <div className="text-sm text-muted-foreground">{c.serviceGroup.toLowerCase().replace(/_/g, " ")} services · {c.customerName}</div>
@@ -119,14 +119,16 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
         </div>
       </div>
 
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+      <TabBar id="contract-detail-tabs" panelId="contract-detail-panel" tabs={TABS} value={tab} onChange={setTab} />
 
+      <div id="contract-detail-panel" role="tabpanel" aria-labelledby={`contract-detail-tabs-tab-${tab}`} tabIndex={0}>
+      <h2 className="sr-only">{TABS.find((item) => item.value === tab)?.label}</h2>
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
             <Card>
               <CardHeader><CardTitle className="text-base">General information</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-3 gap-3 text-sm">
+              <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                 <div><div className="text-xs text-muted-foreground">CONTRACT NUMBER</div><div>{c.contractNo}</div></div>
                 <div><div className="text-xs text-muted-foreground">CUSTOMER</div><div><Link to="/customers" search={{ id: c.customerId } as never} className="text-blue-600 hover:underline">{c.customerName}</Link></div></div>
                 <div><div className="text-xs text-muted-foreground">TAX ID</div><div>{customer?.taxCode ?? (custQ.isLoading ? "…" : "—")}</div></div>
@@ -139,13 +141,13 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
             </Card>
             <Card>
               <CardHeader><CardTitle className="text-base">Commercial &amp; payment terms</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-2 gap-3 text-sm">
+              <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div><div className="text-xs text-muted-foreground">PAYMENT TERM</div><div>{c.paymentTerm ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">BILLING CYCLE</div><div className="capitalize">{c.billingCycle.toLowerCase()}</div></div>
                 <div><div className="text-xs text-muted-foreground">VAT RATE</div><div>{c.vatRate != null ? `${c.vatRate}%` : "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">PENALTY</div><div>{c.penaltyTerms ?? "—"}</div></div>
-                <div className="col-span-2"><div className="text-xs text-muted-foreground">SERVICE CLAUSE</div><div>{c.serviceClause ?? "—"}</div></div>
-                {c.description && <div className="col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{c.description}</div></div>}
+                <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">SERVICE CLAUSE</div><div>{c.serviceClause ?? "—"}</div></div>
+                {c.description && <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{c.description}</div></div>}
               </CardContent>
             </Card>
             <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} />
@@ -156,7 +158,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
             <DocumentSigningPanel key={`CONTRACT:${c.id}`} documentType="CONTRACT" documentId={c.id} documentStatus={c.status} />
             <Card>
               <CardHeader><CardTitle className="text-base">Record metadata</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-2 gap-2 text-sm">
+              <CardContent className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                 <div><div className="text-xs text-muted-foreground">CREATED BY</div><div>{c.createdByName ?? "—"}</div></div>
                 <div><div className="text-xs text-muted-foreground">CREATED AT</div><div className="text-xs">{formatDateTime(c.createdAt)}</div></div>
                 <div><div className="text-xs text-muted-foreground">LAST MODIFIED</div><div className="text-xs">{formatDateTime(c.updatedAt)}</div></div>
@@ -177,6 +179,7 @@ export function ContractDetail({ id, tab: requestedTab, relatedPage = 0, related
       )}
       {tab === "approval-history" && <Card><CardHeader><CardTitle className="text-base">Approval History</CardTitle></CardHeader><CardContent><HistoryTimeline history={histQ.data} isLoading={histQ.isLoading} /></CardContent></Card>}
       {tab === "attachments" && <AttachmentPanel ownerType="CONTRACT" ownerId={c.id} />}
+      </div>
     </div>
   );
 }

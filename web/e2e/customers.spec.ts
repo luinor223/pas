@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { currentUser, envelope, installApiMocks } from "./support/api";
 
 const CUSTOMER_ID = "40000000-0000-4000-8000-000000000001";
@@ -243,4 +244,90 @@ test("does not expose contract count or navigation in the customer list without 
   await expect(page.getByRole("menuitem", { name: "View details" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "View contracts" })).toHaveCount(0);
   expect(contractDataRequests).toBe(0);
+});
+
+test("connects customer tabs to their panel and supports arrow-key navigation", async ({ page }) => {
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/customers/${CUSTOMER_ID}`) return { body: envelope(customer) };
+    if (url.pathname === `/api/v1/customers/${CUSTOMER_ID}/metrics`) {
+      return { body: envelope({ activeContracts: 0, approvedContractValues: [] }) };
+    }
+    if (url.pathname === "/api/v1/contracts") {
+      return { body: envelope([], { page: 0, size: Number(url.searchParams.get("size")), totalElements: 0, totalPages: 0 }) };
+    }
+  });
+
+  await page.goto(`/customers?id=${CUSTOMER_ID}`);
+  const overview = page.getByRole("tab", { name: "Overview" });
+  const contracts = page.getByRole("tab", { name: "Contracts" });
+  const panel = page.getByRole("tabpanel");
+  await expect(overview).toHaveAttribute("aria-controls", "customer-detail-panel");
+  await expect(panel).toHaveAttribute("aria-labelledby", "customer-detail-tabs-tab-overview");
+
+  await overview.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(contracts).toBeFocused();
+  await expect(contracts).toHaveAttribute("aria-selected", "true");
+  await expect(panel).toHaveAttribute("aria-labelledby", "customer-detail-tabs-tab-contracts");
+
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+});
+
+test("names and removes repeated customer contacts with the keyboard", async ({ page }) => {
+  await installApiMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/customers") {
+      return { body: envelope([customer], { page: 0, size: 15, totalElements: 1, totalPages: 1 }) };
+    }
+    if (url.pathname === `/api/v1/customers/${CUSTOMER_ID}`) {
+      return { body: envelope({
+        ...customer,
+        contacts: [
+          { id: "41000000-0000-4000-8000-000000000001", fullName: "First Contact", title: null, email: "first@example.com", phone: null, primary: true },
+          { id: "41000000-0000-4000-8000-000000000002", fullName: "Second Contact", title: null, email: "second@example.com", phone: null, primary: false },
+        ],
+      }) };
+    }
+  }, { permissions: [...currentUser.permissions, "customer:write"] });
+
+  await page.goto("/customers");
+  await page.getByRole("button", { name: "+ New Customer" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create customer" });
+  const addContact = dialog.getByRole("button", { name: "+ Add contact" });
+  await addContact.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(dialog.getByRole("group", { name: "Contact 1" })).toBeVisible();
+  await expect(dialog.getByRole("group", { name: "Contact 2" })).toBeVisible();
+  await expect(dialog.getByLabel("Contact 1 full name")).toBeVisible();
+  await expect(dialog.getByLabel("Contact 2 full name")).toBeVisible();
+  await expect(dialog.getByLabel("Contact 1 email")).toBeVisible();
+  await expect(dialog.getByLabel("Contact 2 email")).toBeVisible();
+  await dialog.getByLabel("Contact 2 email").fill("survivor@example.com");
+  const removeFirst = dialog.getByRole("button", { name: "Remove contact 1" });
+  await removeFirst.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(dialog.getByRole("group", { name: "Contact 2" })).toHaveCount(0);
+  await expect(dialog.getByLabel("Contact 1 email")).toHaveValue("survivor@example.com");
+  await expect(dialog.getByRole("button", { name: "Remove contact 1" })).toBeVisible();
+  const accessibility = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(accessibility.violations).toEqual([]);
+
+  await dialog.getByRole("button", { name: "Cancel" }).focus();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.getByRole("button", { name: "Row actions" }).click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit customer" });
+  await expect(editDialog.getByRole("group", { name: "Contact 2" })).toBeVisible();
+  await expect(editDialog.getByLabel("Contact 1 email")).toHaveValue("first@example.com");
+  await expect(editDialog.getByLabel("Contact 2 email")).toHaveValue("second@example.com");
+  await editDialog.getByRole("button", { name: "Remove contact 1" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(editDialog.getByRole("group", { name: "Contact 2" })).toHaveCount(0);
+  await expect(editDialog.getByLabel("Contact 1 email")).toHaveValue("second@example.com");
+  await expect(editDialog.getByRole("button", { name: "Remove contact 1" })).toBeVisible();
+  const editAccessibility = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(editAccessibility.violations).toEqual([]);
 });

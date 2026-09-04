@@ -149,6 +149,7 @@ export function NotificationList() {
 
       <CardContent className="space-y-3">
         <TabBar
+          id="notification-tabs"
           tabs={TABS.map((item) => ({
             value: item.key,
             label: item.label,
@@ -171,7 +172,7 @@ export function NotificationList() {
           </div>
         )}
 
-        <div id="notification-panel" role="tabpanel">
+        <div id="notification-panel" role="tabpanel" aria-labelledby={`notification-tabs-tab-${tab.key}`} tabIndex={0}>
         {listQ.isLoading ? (
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : listQ.isError ? (

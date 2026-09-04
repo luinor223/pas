@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { currentUser, envelope, installApiMocks, type ApiHandler } from "./support/api";
 
 const ADDENDUM_ID = "10000000-0000-4000-8000-000000000001";
@@ -291,6 +292,50 @@ test("searches eligible contracts instead of limiting creation to the first 100"
   await expect(picker).toHaveValue("CTR-150 · Customer 150");
   expect(listRequests.filter(({ q }) => q === "CTR-150").map(({ status, size }) => [status, size]).sort())
     .toEqual([["ACTIVE", "10"], ["APPROVED", "10"]]);
+});
+
+test("supports keyboard addendum creation with named service controls and restores focus", async ({ page }) => {
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === "/api/v1/addenda") {
+      return { body: envelope([], { page: 0, size: 15, totalElements: 0, totalPages: 0 }) };
+    }
+    if (url.pathname === "/api/v1/contracts") {
+      return { body: envelope([], { page: 0, size: 10, totalElements: 0, totalPages: 0 }) };
+    }
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/addenda");
+  const opener = page.getByRole("button", { name: "+ New Addendum" });
+  await opener.focus();
+  await page.keyboard.press("Enter");
+
+  const dialog = page.getByRole("dialog", { name: "Create addendum" });
+  await dialog.getByLabel("Change type *").selectOption("ADDED_SERVICE");
+  const addService = dialog.getByRole("button", { name: "+ Service" });
+  await addService.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(dialog.getByLabel("Service 1 code")).toBeVisible();
+  await expect(dialog.getByLabel("Service 1 name")).toBeVisible();
+  await expect(dialog.getByLabel("Service 1 unit")).toBeVisible();
+  await expect(dialog.getByLabel("Service 1 scope")).toBeVisible();
+  const removeService = dialog.getByRole("button", { name: "Remove service 1" });
+  await removeService.focus();
+  await page.keyboard.press("Enter");
+  await expect(dialog.getByLabel("Service 1 code")).toHaveCount(0);
+  await addService.focus();
+  await page.keyboard.press("Enter");
+  const serviceGrid = dialog.getByLabel("Service 1 code").locator("xpath=../..");
+  await expect.poll(() => serviceGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+
+  const accessibility = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(accessibility.violations).toEqual([]);
+
+  await dialog.getByLabel("Service 1 code").focus();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
 });
 
 test("blocks draft submission until an attachment exists", async ({ page }) => {
@@ -677,6 +722,30 @@ test("edits a revision-requested addendum and preserves optimistic-lock data", a
     version: 7,
   });
   await expect.poll(() => historyRequests).toBeGreaterThan(1);
+});
+
+test("gives repeated edit-service actions distinct accessible names", async ({ page }) => {
+  const serviceAddendum = {
+    ...addendum,
+    status: "REVISION_REQUESTED",
+    changeType: "ADDED_SERVICE",
+    services: [
+      { id: "61000000-0000-4000-8000-000000000001", serviceCode: "SEA", serviceName: "Sea freight", unit: "trip", scopeNote: null },
+      { id: "61000000-0000-4000-8000-000000000002", serviceCode: "AIR", serviceName: "Air freight", unit: "kg", scopeNote: null },
+    ],
+  };
+  await installAddendumMocks(page, (_request, url) => {
+    if (url.pathname === `/api/v1/addenda/${ADDENDUM_ID}`) return { body: envelope(serviceAddendum) };
+    if (url.pathname === "/api/v1/attachments") return { body: envelope([]) };
+  }, { permissions: [...currentUser.permissions, "addendum:read", "addendum:write"] });
+
+  await page.goto(`/addenda?id=${ADDENDUM_ID}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: `Edit ${addendum.addendumNo}` });
+  await expect(dialog.getByRole("button", { name: "Remove service 1" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Remove service 2" })).toBeVisible();
+  const accessibility = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(accessibility.violations).toEqual([]);
 });
 
 test("cancels a pre-submission addendum without showing submit guidance", async ({ page }) => {

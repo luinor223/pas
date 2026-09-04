@@ -94,14 +94,14 @@ export function AddendumEditDialog({ addendum, onClose, onSaved }: { addendum: A
           </div>
           {changeType === "ADDED_SERVICE" && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between"><Label>Services</Label><Button type="button" size="sm" variant="outline" onClick={() => services.append({ serviceItemId: null, serviceCode: "", serviceName: "", unit: "", scopeNote: "" })}>+ Service</Button></div>
+              <div className="flex items-center justify-between"><div className="text-sm font-medium">Services</div><Button type="button" size="sm" variant="outline" onClick={() => services.append({ serviceItemId: null, serviceCode: "", serviceName: "", unit: "", scopeNote: "" })}>+ Service</Button></div>
               {services.fields.map((field, index) => (
                 <div key={field.id} className="grid grid-cols-1 items-end gap-2 rounded border p-2 sm:grid-cols-5">
                   <Input aria-label={`Service ${index + 1} code`} {...form.register(`services.${index}.serviceCode`)} placeholder="Code" />
                   <Input aria-label={`Service ${index + 1} name`} {...form.register(`services.${index}.serviceName`)} placeholder="Name" />
                   <Input aria-label={`Service ${index + 1} unit`} {...form.register(`services.${index}.unit`)} placeholder="Unit" />
                   <Input aria-label={`Service ${index + 1} scope`} {...form.register(`services.${index}.scopeNote`)} placeholder="Scope" />
-                  <Button type="button" size="sm" variant="ghost" onClick={() => services.remove(index)}>Remove</Button>
+                  <Button type="button" size="sm" variant="ghost" aria-label={`Remove service ${index + 1}`} onClick={() => services.remove(index)}>Remove</Button>
                 </div>
               ))}
               {form.formState.errors.services?.root?.message && <p className="text-xs text-destructive">{form.formState.errors.services.root.message}</p>}

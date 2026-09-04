@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useId, useState, useMemo } from "react";
 import { customersQuery, customerQuery } from "../hooks/contractQueries";
 import { contractApi } from "../services/contractApi";
 import type { CustomerResponse } from "../types/contractTypes";
@@ -54,6 +54,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export function CustomerList({ search }: { search: CustomerRouteSearch }) {
+  const formId = useId();
   const qc = useQueryClient();
   const navigate = useNavigate({ from: "/customers" });
   const canRead = useHasPermission("customer:read");
@@ -260,32 +261,33 @@ export function CustomerList({ search }: { search: CustomerRouteSearch }) {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Create customer</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMut.mutate(d))} className="space-y-3">
-            <div><Label>Name *</Label><Input {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Short name</Label><Input {...register("shortName")} /></div><div><Label>Tax code</Label><Input {...register("taxCode")} /></div></div>
-            <div><Label>Address</Label><Textarea {...register("address")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Representative</Label><Input {...register("representativeName")} /></div><div><Label>Position</Label><Input {...register("representativePosition")} /></div></div>
-            <div><Label>Segment</Label><Input {...register("segment")} placeholder="e.g. RETAIL" /></div>
+            <div><Label htmlFor={`${formId}-name`}>Name *</Label><Input id={`${formId}-name`} {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-short-name`}>Short name</Label><Input id={`${formId}-short-name`} {...register("shortName")} /></div><div><Label htmlFor={`${formId}-tax-code`}>Tax code</Label><Input id={`${formId}-tax-code`} {...register("taxCode")} /></div></div>
+            <div><Label htmlFor={`${formId}-address`}>Address</Label><Textarea id={`${formId}-address`} {...register("address")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-representative`}>Representative</Label><Input id={`${formId}-representative`} {...register("representativeName")} /></div><div><Label htmlFor={`${formId}-position`}>Position</Label><Input id={`${formId}-position`} {...register("representativePosition")} /></div></div>
+            <div><Label htmlFor={`${formId}-segment`}>Segment</Label><Input id={`${formId}-segment`} {...register("segment")} placeholder="e.g. RETAIL" /></div>
             <div>
-              <Label>Contacts</Label>
+              <div className="text-sm font-medium">Contacts</div>
               <div className="space-y-2 border rounded p-2">
                 {fields.map((f, i) => {
                   const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
                   return (
-                  <div key={f.id} className="rounded border p-2 space-y-2">
+                  <fieldset key={f.id} className="rounded border p-2 space-y-2">
+                    <legend className="px-1 text-xs font-semibold">Contact {i + 1}</legend>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label className="text-xs">Full name *</Label><Input placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
-                      <div><Label className="text-xs">Title</Label><Input placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
-                      <div><Label className="text-xs">Email</Label><Input placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
-                      <div><Label className="text-xs">Phone</Label><Input placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-name`} className="text-xs">Full name *</Label><Input id={`${formId}-contact-${i}-name`} aria-label={`Contact ${i + 1} full name`} placeholder="Full name" {...register(`contacts.${i}.fullName` as const)} />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-title`} className="text-xs">Title</Label><Input id={`${formId}-contact-${i}-title`} aria-label={`Contact ${i + 1} title`} placeholder="Title" {...register(`contacts.${i}.title` as const)} /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-email`} className="text-xs">Email</Label><Input id={`${formId}-contact-${i}-email`} aria-label={`Contact ${i + 1} email`} placeholder="Email" {...register(`contacts.${i}.email` as const)} />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-phone`} className="text-xs">Phone</Label><Input id={`${formId}-contact-${i}-phone`} aria-label={`Contact ${i + 1} phone`} placeholder="Phone" {...register(`contacts.${i}.phone` as const)} /></div>
                     </div>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                        <input type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
-                        primary
+                        <input id={`${formId}-contact-${i}-primary`} aria-label={`Contact ${i + 1} primary contact`} type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
+                        Primary contact
                       </label>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Remove contact ${i + 1}`} onClick={() => remove(i)}>Remove</Button>
                     </div>
-                  </div>
+                  </fieldset>
                   );
                 })}
                 <Button type="button" variant="outline" size="sm" onClick={() => append({ fullName: "", title: "", email: "", phone: "", primary: false })}>+ Add contact</Button>
@@ -302,32 +304,33 @@ export function CustomerList({ search }: { search: CustomerRouteSearch }) {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
           <DialogHeader><DialogTitle>Edit customer</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => updateMut.mutate(d))} className="space-y-3">
-            <div><Label>Name *</Label><Input {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Short name</Label><Input {...register("shortName")} /></div><div><Label>Tax code</Label><Input {...register("taxCode")} /></div></div>
-            <div><Label>Address</Label><Textarea {...register("address")} /></div>
-            <div className="grid grid-cols-2 gap-2"><div><Label>Representative</Label><Input {...register("representativeName")} /></div><div><Label>Position</Label><Input {...register("representativePosition")} /></div></div>
-            <div><Label>Segment</Label><Input {...register("segment")} /></div>
+            <div><Label htmlFor={`${formId}-name`}>Name *</Label><Input id={`${formId}-name`} {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-short-name`}>Short name</Label><Input id={`${formId}-short-name`} {...register("shortName")} /></div><div><Label htmlFor={`${formId}-tax-code`}>Tax code</Label><Input id={`${formId}-tax-code`} {...register("taxCode")} /></div></div>
+            <div><Label htmlFor={`${formId}-address`}>Address</Label><Textarea id={`${formId}-address`} {...register("address")} /></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><div><Label htmlFor={`${formId}-representative`}>Representative</Label><Input id={`${formId}-representative`} {...register("representativeName")} /></div><div><Label htmlFor={`${formId}-position`}>Position</Label><Input id={`${formId}-position`} {...register("representativePosition")} /></div></div>
+            <div><Label htmlFor={`${formId}-segment`}>Segment</Label><Input id={`${formId}-segment`} {...register("segment")} /></div>
             <div>
-              <Label>Contacts</Label>
+              <div className="text-sm font-medium">Contacts</div>
               <div className="space-y-2 border rounded p-2">
                 {editLoading ? <div className="text-sm text-muted-foreground">Loading contacts...</div> : fields.map((f, i) => {
                   const ce = (errors.contacts?.[i] ?? {}) as { fullName?: { message?: string }; email?: { message?: string } };
                   return (
-                  <div key={f.id} className="rounded border p-2 space-y-2">
+                  <fieldset key={f.id} className="rounded border p-2 space-y-2">
+                    <legend className="px-1 text-xs font-semibold">Contact {i + 1}</legend>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><Label className="text-xs">Full name *</Label><Input {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
-                      <div><Label className="text-xs">Title</Label><Input {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
-                      <div><Label className="text-xs">Email</Label><Input {...register(`contacts.${i}.email` as const)} placeholder="Email" />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
-                      <div><Label className="text-xs">Phone</Label><Input {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-name`} className="text-xs">Full name *</Label><Input id={`${formId}-contact-${i}-name`} aria-label={`Contact ${i + 1} full name`} {...register(`contacts.${i}.fullName` as const)} placeholder="Full name" />{ce.fullName && <p className="text-xs text-destructive">{ce.fullName.message}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-title`} className="text-xs">Title</Label><Input id={`${formId}-contact-${i}-title`} aria-label={`Contact ${i + 1} title`} {...register(`contacts.${i}.title` as const)} placeholder="Title" /></div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-email`} className="text-xs">Email</Label><Input id={`${formId}-contact-${i}-email`} aria-label={`Contact ${i + 1} email`} {...register(`contacts.${i}.email` as const)} placeholder="Email" />{ce.email && <p className="text-xs text-destructive">{ce.email.message ?? "Invalid email"}</p>}</div>
+                      <div><Label htmlFor={`${formId}-contact-${i}-phone`} className="text-xs">Phone</Label><Input id={`${formId}-contact-${i}-phone`} aria-label={`Contact ${i + 1} phone`} {...register(`contacts.${i}.phone` as const)} placeholder="Phone" /></div>
                     </div>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                        <input type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
-                        primary
+                        <input id={`${formId}-contact-${i}-primary`} aria-label={`Contact ${i + 1} primary contact`} type="checkbox" className="h-4 w-4 accent-primary" {...register(`contacts.${i}.primary` as const)} />
+                        Primary contact
                       </label>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} title="Remove contact">Remove</Button>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Remove contact ${i + 1}`} onClick={() => remove(i)}>Remove</Button>
                     </div>
-                  </div>
+                  </fieldset>
                   );
                 })}
                 {editError && <div className="text-sm text-destructive">{editError}</div>}
