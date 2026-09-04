@@ -10,8 +10,8 @@ import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.domain.SigningSession.SessionStatus;
 import com.abclogistics.pas.esign.repository.SigningCallbackLogRepository;
 import com.abclogistics.pas.esign.repository.SigningSessionRepository;
-import com.abclogistics.pas.esign.repository.StatusHistoryRepository;
 import com.abclogistics.pas.esign.service.SigningSessionService;
+import com.abclogistics.pas.esign.service.StatusTransitionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -39,7 +39,6 @@ class SigningSessionServiceTest {
 
     private SigningSessionRepository sessions;
     private SigningCallbackLogRepository callbackLog;
-    private StatusHistoryRepository history;
     private OutboxRepository outbox;
     private AuditRecorder audit;
     private SigningSessionService service;
@@ -48,11 +47,11 @@ class SigningSessionServiceTest {
     void setUp() {
         sessions = mock(SigningSessionRepository.class);
         callbackLog = mock(SigningCallbackLogRepository.class);
-        history = mock(StatusHistoryRepository.class);
         outbox = mock(OutboxRepository.class);
         audit = mock(AuditRecorder.class);
-        service = new SigningSessionService(sessions, callbackLog, history, outbox, audit,
-                new ObjectMapper());
+        // a real transition service: these tests want the edge validation exercised, not stubbed away
+        service = new SigningSessionService(sessions, callbackLog, outbox, audit,
+                new ObjectMapper(), new StatusTransitionService());
         when(sessions.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(sessions.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
     }

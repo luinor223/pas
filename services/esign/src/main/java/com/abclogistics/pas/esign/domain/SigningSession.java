@@ -3,7 +3,9 @@ package com.abclogistics.pas.esign.domain;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -11,7 +13,24 @@ import java.util.UUID;
 public class SigningSession {
 
     public enum SessionStatus {
-        PENDING_SEND, SIGNING, SIGNED, FAILED, CANCELLED
+        PENDING_SEND, SIGNING, SIGNED, FAILED, CANCELLED;
+
+        private record Edge(SessionStatus from, SessionStatus to, Set<StatusHistory.TriggerKind> triggers) { }
+
+        // The legal signing-session edges (registry §9). Terminal statuses have no outgoing edge; the
+        // callback (E) is admitted from PENDING_SEND as well as SIGNING, since it can overtake our send.
+        private static final List<Edge> TABLE = List.of(
+                new Edge(PENDING_SEND, SIGNING,   EnumSet.of(StatusHistory.TriggerKind.S)),
+                new Edge(PENDING_SEND, FAILED,     EnumSet.of(StatusHistory.TriggerKind.S, StatusHistory.TriggerKind.E)),
+                new Edge(PENDING_SEND, SIGNED,     EnumSet.of(StatusHistory.TriggerKind.E)),
+                new Edge(PENDING_SEND, CANCELLED,  EnumSet.of(StatusHistory.TriggerKind.U)),
+                new Edge(SIGNING,      SIGNED,     EnumSet.of(StatusHistory.TriggerKind.E)),
+                new Edge(SIGNING,      FAILED,     EnumSet.of(StatusHistory.TriggerKind.E)),
+                new Edge(SIGNING,      CANCELLED,  EnumSet.of(StatusHistory.TriggerKind.U)));
+
+        public boolean canTransitionTo(SessionStatus to, StatusHistory.TriggerKind trigger) {
+            return TABLE.stream().anyMatch(e -> e.from == this && e.to == to && e.triggers.contains(trigger));
+        }
     }
 
     @Id

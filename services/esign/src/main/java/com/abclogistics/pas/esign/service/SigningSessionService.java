@@ -12,7 +12,6 @@ import com.abclogistics.pas.esign.domain.StatusHistory;
 import com.abclogistics.pas.esign.dto.SigningSessionResponse;
 import com.abclogistics.pas.esign.repository.SigningCallbackLogRepository;
 import com.abclogistics.pas.esign.repository.SigningSessionRepository;
-import com.abclogistics.pas.esign.repository.StatusHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -35,23 +34,23 @@ public class SigningSessionService {
 
     private final SigningSessionRepository sessionRepo;
     private final SigningCallbackLogRepository callbackLogRepo;
-    private final StatusHistoryRepository statusHistoryRepo;
     private final OutboxRepository outboxRepo;
     private final AuditRecorder auditRecorder;
     private final ObjectMapper objectMapper;
+    private final StatusTransitionService transitions;
 
     public SigningSessionService(SigningSessionRepository sessionRepo,
                                   SigningCallbackLogRepository callbackLogRepo,
-                                  StatusHistoryRepository statusHistoryRepo,
                                   OutboxRepository outboxRepo,
                                   AuditRecorder auditRecorder,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  StatusTransitionService transitions) {
         this.sessionRepo = sessionRepo;
         this.callbackLogRepo = callbackLogRepo;
-        this.statusHistoryRepo = statusHistoryRepo;
         this.outboxRepo = outboxRepo;
         this.auditRecorder = auditRecorder;
         this.objectMapper = objectMapper;
+        this.transitions = transitions;
     }
 
     /** The relay dispatches this outbox row to the provider (HTTP), so the send commits with the
@@ -101,9 +100,7 @@ public class SigningSessionService {
                     "An active signing session already exists for " + documentTypeCode + " " + documentId));
         }
 
-        // Status history (D17)
-        addHistory(session, null, "PENDING_SEND", StatusHistory.TriggerKind.U,
-            requestedBy, requestedByName, "Session created");
+        transitions.open(session, requestedBy, requestedByName, "Session created");
         sessionRepo.save(session);
 
         // D16: the send to the external provider is dispatched from the outbox (atomic with the row,
@@ -125,10 +122,9 @@ public class SigningSessionService {
         }
         session.setProviderRef(providerRef);
         session.setAttempts(attempts);
-        session.setStatus(SigningSession.SessionStatus.SIGNING);
         session.setSentAt(Instant.now());
-        addHistory(session, "PENDING_SEND", "SIGNING", StatusHistory.TriggerKind.S,
-            null, "System", "Sent to provider");
+        transitions.transition(session, SigningSession.SessionStatus.SIGNING,
+            StatusHistory.TriggerKind.S, null, "System", "Sent to provider");
         sessionRepo.save(session);
     }
 
@@ -142,10 +138,9 @@ public class SigningSessionService {
         }
         session.setAttempts(attempts);
         session.setLastError(error);
-        session.setStatus(SigningSession.SessionStatus.FAILED);
         session.setCompletedAt(Instant.now());
-        addHistory(session, "PENDING_SEND", "FAILED", StatusHistory.TriggerKind.S,
-            null, "System", error);
+        transitions.transition(session, SigningSession.SessionStatus.FAILED,
+            StatusHistory.TriggerKind.S, null, "System", error);
         sessionRepo.save(session);
         emitSessionCompleted(session, SigningSession.SessionStatus.FAILED, error);
     }
@@ -197,10 +192,8 @@ public class SigningSessionService {
 
         if (newStatus == null) return;
 
-        session.setStatus(newStatus);
         session.setCompletedAt(Instant.now());
-
-        addHistory(session, fromStatus, newStatus.name(), StatusHistory.TriggerKind.E,
+        transitions.transition(session, newStatus, StatusHistory.TriggerKind.E,
             session.getRequestedBy(), session.getRequestedByName(),
             error != null ? error : "Provider callback: " + result);
         sessionRepo.save(session);
@@ -225,11 +218,9 @@ public class SigningSessionService {
         }
 
         String fromStatus = session.getStatus().name();
-        session.setStatus(SigningSession.SessionStatus.CANCELLED);
         session.setCompletedAt(Instant.now());
-
-        addHistory(session, fromStatus, "CANCELLED", StatusHistory.TriggerKind.U,
-            actorId, actorName, reason);
+        transitions.transition(session, SigningSession.SessionStatus.CANCELLED,
+            StatusHistory.TriggerKind.U, actorId, actorName, reason);
         sessionRepo.save(session);
 
         // Emit esign.session_completed event via outbox
@@ -273,14 +264,6 @@ public class SigningSessionService {
         return sessionRepo.findAllByDocument(documentType, documentId).stream()
             .map(this::toResponse)
             .toList();
-    }
-
-    /** Append the single status_history row for a transition (D17), so the column and the timeline
-     *  never part company. trigger_ref is unused on this aggregate. */
-    private void addHistory(SigningSession session, String fromStatus, String toStatus,
-                            StatusHistory.TriggerKind kind, UUID actorId, String actorName, String note) {
-        session.addStatusHistory(StatusHistory.create(session, fromStatus, toStatus, kind, null,
-            actorId, actorName, note));
     }
 
     private void emitSessionCompleted(SigningSession session, SigningSession.SessionStatus result, String error) {
