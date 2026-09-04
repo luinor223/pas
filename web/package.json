@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsr generate && tsc -b && vite build",
+    "api:generate": "node scripts/contract-api.mjs",
+    "api:check": "node scripts/contract-api.mjs --check",
     "lint": "oxlint",
     "preview": "vite preview",
     "test:e2e:server": "bun run build && bun run preview -- --host 127.0.0.1 --port 4173",
@@ -42,6 +44,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "autoprefixer": "^10.5.4",
+    "openapi-typescript": "7.13.0",
     "oxlint": "^1.79.0",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",

@@ -40,6 +40,13 @@ dependencies {
 tasks.test {
     jvmArgs("-Duser.timezone=UTC")
     systemProperty("PAGINATION_CURSOR_SECRET", "contract-test-pagination-cursor-secret-32chars")
+    val contractOpenApiSnapshot = layout.projectDirectory.file("src/main/resources/openapi.yaml")
+    inputs.file(contractOpenApiSnapshot).withPropertyName("contractOpenApiSnapshot")
+    systemProperty("contract.openapi.snapshot", contractOpenApiSnapshot.asFile.absolutePath)
+    systemProperty("contract.openapi.update", project.hasProperty("updateContractOpenApi"))
+    if (project.hasProperty("updateContractOpenApi")) {
+        outputs.upToDateWhen { false }
+    }
     useJUnitPlatform {
         val include = project.findProperty("includeIntegration") != null
                 || System.getProperty("includeIntegration") != null

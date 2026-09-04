@@ -53,6 +53,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -511,6 +513,24 @@ class CustomerCrudTest {
                 .isEqualTo("#/components/schemas/ApiErrorFieldViolation");
         assertThat(root.at("/paths/~1customers/get/responses/default/$ref").asString())
                 .isEqualTo("#/components/responses/ApiErrorResponse");
+    }
+
+    @Test
+    void generatedOpenApiMatchesTheVersionedContract() throws Exception {
+        String generated = mvc.perform(get("/v3/api-docs.yaml"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()
+                .replace("\r\n", "\n");
+        Path snapshot = Path.of(System.getProperty("contract.openapi.snapshot"));
+        if (Boolean.getBoolean("contract.openapi.update")) {
+            Files.writeString(snapshot, generated);
+        }
+
+        assertThat(Files.readString(snapshot).replace("\r\n", "\n"))
+                .as("Run ./gradlew :services:contract-service:test "
+                        + "--tests com.abclogistics.pas.contract.CustomerCrudTest "
+                        + "-PincludeIntegration -PupdateContractOpenApi after an intentional API change")
+                .isEqualTo(generated);
     }
 
     // ---- update --------------------------------------------------------------------------

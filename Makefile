@@ -109,7 +109,7 @@ nuke: down-v  ## Alias for down-v
 # ---------------------------------------------------------------------------
 # tests - unit tests only (integration Testcontainers excluded by default)
 # ---------------------------------------------------------------------------
-.PHONY: test test-unit test-integration test-win
+.PHONY: test test-unit test-integration test-win api-contract-generate api-contract-check
 
 test: ## Run all unit tests (excludes integration tag) - cross-platform via sh
 	$(GRADLE) test --continue
@@ -121,6 +121,14 @@ test-integration: ## Run integration tests (needs Docker, runs Testcontainers)
 
 test-win: ## Windows cmd fallback (no bash) - uses gradlew.bat directly
 	gradlew.bat test --continue
+
+api-contract-generate: ## Refresh versioned contract OpenAPI and generated TypeScript
+	$(GRADLE) :services:contract-service:test --tests com.abclogistics.pas.contract.CustomerCrudTest -PincludeIntegration -PupdateContractOpenApi
+	cd web && bun run api:generate
+
+api-contract-check: ## Fail when runtime OpenAPI or generated TypeScript has drifted
+	$(GRADLE) :services:contract-service:test --tests com.abclogistics.pas.contract.CustomerCrudTest -PincludeIntegration
+	cd web && bun run api:check && bun run build
 
 # ---------------------------------------------------------------------------
 # dev helpers
