@@ -2,7 +2,7 @@ package com.abclogistics.pas.workflow;
 
 import com.abclogistics.pas.workflow.grpc.StartInstanceRequest;
 import com.abclogistics.pas.workflow.grpc.StartInstanceResponse;
-import com.abclogistics.pas.workflow.grpc.WorkflowInternalGrpcService;
+import com.abclogistics.pas.workflow.controller.grpc.WorkflowInternalGrpcService;
 import com.abclogistics.pas.workflow.repository.StepAssigneeRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowActionRepository;
 import com.abclogistics.pas.workflow.repository.WorkflowStepInstanceRepository;

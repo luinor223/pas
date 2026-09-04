@@ -13,7 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import com.abclogistics.pas.common.error.ConflictException;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.contract.controller.ContractController;
+import com.abclogistics.pas.contract.controller.http.ContractController;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerContactRequest;

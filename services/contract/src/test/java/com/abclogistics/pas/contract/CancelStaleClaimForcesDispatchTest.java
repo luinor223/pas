@@ -5,7 +5,7 @@ import com.abclogistics.pas.common.error.ForbiddenException;
 import com.abclogistics.pas.common.outbox.OutboxEvent;
 import com.abclogistics.pas.common.outbox.OutboxRepository;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.contract.controller.ContractController;
+import com.abclogistics.pas.contract.controller.http.ContractController;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.domain.StatusHistory;

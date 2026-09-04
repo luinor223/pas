@@ -11,7 +11,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
-import com.abclogistics.pas.contract.controller.ContractController;
+import com.abclogistics.pas.contract.controller.http.ContractController;
 import com.abclogistics.pas.contract.dto.SubmitResponse;
 import com.abclogistics.pas.contract.repository.StatusHistoryRepository;
 import com.abclogistics.pas.workflow.grpc.GetInstanceByDocumentResponse;

@@ -1,7 +1,7 @@
 package com.abclogistics.pas.workflow;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.workflow.controller.InboxController;
+import com.abclogistics.pas.workflow.controller.http.InboxController;
 import com.abclogistics.pas.workflow.service.InboxService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

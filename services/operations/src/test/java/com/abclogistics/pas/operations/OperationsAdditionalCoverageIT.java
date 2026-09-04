@@ -1,7 +1,7 @@
 package com.abclogistics.pas.operations;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.operations.grpc.OperationsInternalGrpcService;
+import com.abclogistics.pas.operations.controller.grpc.OperationsInternalGrpcService;
 import com.abclogistics.pas.operations.grpc.ListVolumesRequest;
 import com.abclogistics.pas.operations.grpc.ListVolumesResponse;
 import com.abclogistics.pas.operations.service.PeriodService;
@@ -144,7 +144,7 @@ class OperationsAdditionalCoverageIT {
         assertThat(periodLockedSends).isEqualTo(1);
     }
 
-    @Autowired com.abclogistics.pas.operations.controller.PeriodController periodController;
+    @Autowired com.abclogistics.pas.operations.controller.http.PeriodController periodController;
 
     @Test
     void lockViaRestRequiresVolumeLockPeriodOr403() {

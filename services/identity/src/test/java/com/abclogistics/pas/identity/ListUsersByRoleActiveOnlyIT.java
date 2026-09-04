@@ -6,7 +6,7 @@ import com.abclogistics.pas.identity.dto.CreateUserRequest;
 import com.abclogistics.pas.identity.dto.LoginRequest;
 import com.abclogistics.pas.identity.dto.LoginResponse;
 import com.abclogistics.pas.identity.dto.UserResponse;
-import com.abclogistics.pas.identity.grpc.IdentityInternalGrpcService;
+import com.abclogistics.pas.identity.controller.grpc.IdentityInternalGrpcService;
 import com.abclogistics.pas.identity.grpc.ListUsersByRoleRequest;
 import com.abclogistics.pas.identity.grpc.ListUsersByRoleResponse;
 import com.abclogistics.pas.identity.repository.AppUserRepository;

@@ -1,6 +1,6 @@
 package com.abclogistics.pas.audit;
 
-import com.abclogistics.pas.audit.controller.AuditRecordController;
+import com.abclogistics.pas.audit.controller.http.AuditRecordController;
 import com.abclogistics.pas.audit.service.AuditQueryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

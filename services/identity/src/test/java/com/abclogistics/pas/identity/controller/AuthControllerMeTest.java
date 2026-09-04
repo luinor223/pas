@@ -2,6 +2,7 @@ package com.abclogistics.pas.identity.controller;
 
 import com.abclogistics.pas.common.error.UnauthorizedException;
 import com.abclogistics.pas.common.security.AuthenticatedUser;
+import com.abclogistics.pas.identity.controller.http.AuthController;
 import com.abclogistics.pas.identity.dto.UserSummary;
 import com.abclogistics.pas.identity.service.UserService;
 import org.junit.jupiter.api.AfterEach;

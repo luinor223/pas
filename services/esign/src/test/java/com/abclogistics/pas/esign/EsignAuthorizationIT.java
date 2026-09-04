@@ -1,7 +1,7 @@
 package com.abclogistics.pas.esign;
 
 import com.abclogistics.pas.common.security.AuthenticatedUser;
-import com.abclogistics.pas.esign.controller.SigningSessionController;
+import com.abclogistics.pas.esign.controller.http.SigningSessionController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
 package com.abclogistics.pas.notification;
 
-import com.abclogistics.pas.notification.controller.NotificationController;
+import com.abclogistics.pas.notification.controller.http.NotificationController;
 import com.abclogistics.pas.notification.dto.InboxResponse;
 import com.abclogistics.pas.notification.service.NotificationService;
 import org.junit.jupiter.api.Test;

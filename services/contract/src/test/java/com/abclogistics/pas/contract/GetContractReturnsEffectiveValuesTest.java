@@ -25,7 +25,7 @@ import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.dto.AddendumRequest;
 import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
-import com.abclogistics.pas.contract.grpc.ContractInternalGrpcService;
+import com.abclogistics.pas.contract.controller.grpc.ContractInternalGrpcService;
 import com.abclogistics.pas.contract.grpc.GetContractRequest;
 import com.abclogistics.pas.contract.grpc.GetContractResponse;
 import com.abclogistics.pas.contract.service.AddendumService;
