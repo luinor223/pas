@@ -120,7 +120,6 @@ export function AddendumList() {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setEditId(null); },
   });
-  const submitMut = useMutation({ mutationFn: (id: string) => contractApi.submitAddendum(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["addenda"] }) });
   const cancelMut = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) => contractApi.cancelAddendum(id, reason),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["addenda"] }); setConfirmCancel(null); },
@@ -155,7 +154,6 @@ export function AddendumList() {
         return (
           <div className="flex gap-1 flex-wrap">
             {canWrite && (a.status === "DRAFT" || a.status === "REVISION_REQUESTED") && <Button size="sm" variant="outline" onClick={() => onEdit(a)}>Edit</Button>}
-            {canWrite && a.status === "DRAFT" && <Button size="sm" onClick={() => submitMut.mutate(a.id)}>Submit</Button>}
             {canWrite && a.status === "REJECTED" && <Button size="sm" onClick={() => reviseMut.mutate(a.id)}>Revise</Button>}
             {canWrite && cancellable && <Button size="sm" variant="destructive" onClick={() => setConfirmCancel(a)}>Cancel</Button>}
           </div>

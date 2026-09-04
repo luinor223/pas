@@ -292,11 +292,22 @@ public class ContractService {
         return contract;
     }
 
+    private Contract requireDraftForUpdate(UUID id) {
+        Contract contract = contracts.findByIdForUpdate(id)
+                .orElseThrow(() -> new NotFoundException("Contract %s not found".formatted(id)));
+        if (contract.getStatus() != DocumentStatus.DRAFT) {
+            throw new ConflictException(
+                    "Contract %s is %s; only a DRAFT can be submitted"
+                            .formatted(contract.getContractNo(), contract.getStatus()));
+        }
+        return contract;
+    }
+
     // D4: re-read and re-checked, since nothing held a lock across the remote call. Status,
     // history and dispatch intent commit together; StartInstance first would orphan a live
     // instance on a still-DRAFT document.
     private void commitSubmission(UUID id) {
-        Contract contract = requireDraft(id);
+        Contract contract = requireDraftForUpdate(id);
         requireSubmittable(contract);
 
         transitions.transition(contract, DocumentStatus.SUBMITTED, TriggerKind.U, null,

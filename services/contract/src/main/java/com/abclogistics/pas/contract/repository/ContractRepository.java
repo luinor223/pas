@@ -3,10 +3,12 @@ package com.abclogistics.pas.contract.repository;
 import com.abclogistics.pas.contract.domain.Contract;
 import com.abclogistics.pas.contract.domain.DocumentStatus;
 import com.abclogistics.pas.contract.domain.ServiceGroup;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -21,6 +23,11 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
     @Override
     @EntityGraph(attributePaths = "customer")
     Optional<Contract> findById(UUID id);
+
+    /** Serializes submission with attachment membership changes for this document. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Contract c where c.id = :id")
+    Optional<Contract> findByIdForUpdate(@Param("id") UUID id);
 
     @EntityGraph(attributePaths = "customer")
     Optional<Contract> findByContractNo(String contractNo);

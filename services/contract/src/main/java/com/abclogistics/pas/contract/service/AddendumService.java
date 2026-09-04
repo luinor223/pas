@@ -182,8 +182,19 @@ public class AddendumService {
         return addendum;
     }
 
+    private Addendum requireDraftForUpdate(UUID id) {
+        Addendum addendum = addenda.findByIdForUpdate(id)
+                .orElseThrow(() -> new NotFoundException("Addendum %s not found".formatted(id)));
+        if (addendum.getStatus() != DocumentStatus.DRAFT) {
+            throw new ConflictException(
+                    "Addendum %s is %s; only a DRAFT can be submitted"
+                            .formatted(addendum.getAddendumNo(), addendum.getStatus()));
+        }
+        return addendum;
+    }
+
     private void commitSubmission(UUID id) {
-        Addendum addendum = requireDraft(id);
+        Addendum addendum = requireDraftForUpdate(id);
         requireSubmittable(addendum);
 
         transitions.transition(addendum, DocumentStatus.SUBMITTED, TriggerKind.U, null,

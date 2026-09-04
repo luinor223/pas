@@ -22,6 +22,7 @@ import com.abclogistics.pas.contract.dto.ContractRequest;
 import com.abclogistics.pas.contract.dto.CustomerRequest;
 import com.abclogistics.pas.contract.domain.EntityType;
 import com.abclogistics.pas.contract.error.UnprocessableEntityException;
+import com.abclogistics.pas.contract.repository.AttachmentRepository;
 import com.abclogistics.pas.contract.service.AddendumService;
 import com.abclogistics.pas.contract.service.AttachmentService;
 import com.abclogistics.pas.contract.service.ContractService;
@@ -44,6 +45,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -109,6 +116,7 @@ class AddendumActiveAppliesToParentTxTest {
     @Autowired ContractService contracts;
     @Autowired CustomerService customers;
     @Autowired AttachmentService attachments;
+    @Autowired AttachmentRepository attachmentRepository;
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate tx;
 
@@ -297,6 +305,66 @@ class AddendumActiveAppliesToParentTxTest {
 
         assertThat(insideTransaction).isFalse();
         assertThat(statusOf(id)).isEqualTo(DocumentStatus.SUBMITTED);
+    }
+
+    @Test
+    void concurrentSubmitAndFinalAttachmentDeleteCannotBothCommit() throws Exception {
+        UUID contractId = activeContract();
+        UUID id = tx.execute(s -> addenda.create(
+                termExtension(contractId, LocalDate.of(2027, 6, 30))).getId());
+        UUID attachmentId = attach(id);
+        CountDownLatch deleteHasCheckedDraft = new CountDownLatch(1);
+        CountDownLatch allowDeleteCommit = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Throwable> deletion = pool.submit(() -> {
+                authenticate();
+                try {
+                    tx.executeWithoutResult(s -> {
+                        attachments.delete(attachmentId);
+                        deleteHasCheckedDraft.countDown();
+                        await(allowDeleteCommit);
+                    });
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            assertThat(deleteHasCheckedDraft.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> submission = pool.submit(() -> {
+                authenticate();
+                try {
+                    addenda.submit(id);
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+
+            // Delete owns the addendum-row lock until its outer transaction commits. Submit's
+            // final transaction must wait for that same lock instead of validating a stale pair
+            // of DRAFT status + still-visible attachment.
+            assertThatThrownBy(() -> submission.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            allowDeleteCommit.countDown();
+            assertThat(deletion.get(10, TimeUnit.SECONDS)).isNull();
+            assertThat(submission.get(10, TimeUnit.SECONDS))
+                    .isInstanceOf(UnprocessableEntityException.class);
+
+            assertThat(statusOf(id)).isEqualTo(DocumentStatus.DRAFT);
+            assertThat(attachmentRepository.existsByOwnerTypeAndOwnerId(EntityType.ADDENDUM, id))
+                    .isFalse();
+        } finally {
+            allowDeleteCommit.countDown();
+            pool.shutdownNow();
+        }
     }
 
     // --- the parent moves under the addendum's feet ------------------------------------------
@@ -520,10 +588,21 @@ class AddendumActiveAppliesToParentTxTest {
         return id;
     }
 
-    private void attach(UUID addendumId) {
-        tx.execute(s -> attachments.upload(EntityType.ADDENDUM, addendumId,
+    private UUID attach(UUID addendumId) {
+        return tx.execute(s -> attachments.upload(EntityType.ADDENDUM, addendumId,
                 new MockMultipartFile("file", "annex.pdf", "application/pdf",
-                        "annex".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                        "annex".getBytes(java.nio.charset.StandardCharsets.UTF_8))).getId());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting for concurrent test release");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
     }
 
     private UUID activeContract() {

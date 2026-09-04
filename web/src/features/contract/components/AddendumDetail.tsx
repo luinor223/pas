@@ -1,11 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { addendumQuery } from "../hooks/contractQueries";
+import { addendumQuery, attachmentsQuery } from "../hooks/contractQueries";
+import { contractApi } from "../services/contractApi";
+import { AttachmentPanel } from "./AttachmentPanel";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/card";
 import { Badge } from "@/shared/components/badge";
+import { Button } from "@/shared/components/button";
 import { StatusBadge } from "@/shared/components/status-badge";
 import { DetailBackButton } from "@/shared/components/detail-back-link";
+import { getApiErrorMessage } from "@/shared/api/errors";
 import { formatDate } from "@/shared/lib/format";
 import { humanize } from "@/shared/lib/text";
 
@@ -14,6 +18,7 @@ function responseStatus(error: unknown): number | undefined {
 }
 
 export function AddendumDetail({ id }: { id: string }) {
+  const queryClient = useQueryClient();
   const userQ = useCurrentUser();
   const permissions = userQ.data?.permissions ?? [];
   const canRead = permissions.includes("addendum:read");
@@ -23,6 +28,23 @@ export function AddendumDetail({ id }: { id: string }) {
     enabled: userQ.isSuccess && canRead,
     retry: (failureCount, error) => responseStatus(error) !== 404 && failureCount < 1,
   });
+  const attachmentsQ = useQuery({
+    ...attachmentsQuery("ADDENDUM", id),
+    enabled: userQ.isSuccess && canRead,
+  });
+  const attachmentMutations = useIsMutating({ mutationKey: ["attachment-mutation", "ADDENDUM", id] });
+  const submitMut = useMutation({
+    mutationFn: () => contractApi.submitAddendum(id),
+    onSuccess: async (response) => {
+      queryClient.setQueryData(["addendum", id], (current: typeof q.data) =>
+        current ? { ...current, status: response.status } : current,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["addendum", id] }),
+        queryClient.invalidateQueries({ queryKey: ["addenda"] }),
+      ]);
+    },
+  });
 
   if (userQ.isLoading || (canRead && q.isLoading)) {
     return <div className="text-sm text-muted-foreground">Loading addendum...</div>;
@@ -30,7 +52,7 @@ export function AddendumDetail({ id }: { id: string }) {
   if (!canRead) {
     return <Card><CardContent className="p-6 text-sm">You do not have access to addenda.</CardContent></Card>;
   }
-  if (q.isError) {
+  if (q.isError && !q.data) {
     return responseStatus(q.error) === 404
       ? <Card><CardContent className="p-6 text-sm">Addendum not found.</CardContent></Card>
       : <Card><CardContent className="p-6 text-sm text-destructive">Failed to load addendum.</CardContent></Card>;
@@ -38,9 +60,17 @@ export function AddendumDetail({ id }: { id: string }) {
 
   const addendum = q.data;
   if (!addendum) return null;
+  const editable = addendum.status === "DRAFT" || addendum.status === "REVISION_REQUESTED";
+  const canSubmit = canWrite && addendum.status === "DRAFT";
+  const hasAttachments = (attachmentsQ.data?.length ?? 0) > 0;
 
   return (
     <div className="space-y-4">
+      {q.isError && (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          The addendum was updated, but its latest refresh failed. The confirmed update is still shown.
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <DetailBackButton to="/addenda" label="Back to addenda" />
@@ -54,8 +84,30 @@ export function AddendumDetail({ id }: { id: string }) {
             </div>
           </div>
         </div>
-        {!canWrite && <Badge variant="secondary">Read-only access</Badge>}
+        <div className="flex items-center gap-2">
+          {canSubmit && (
+            <Button
+              size="sm"
+              disabled={attachmentsQ.isLoading || attachmentMutations > 0 || !hasAttachments || submitMut.isPending}
+              onClick={() => submitMut.mutate()}
+            >
+              {submitMut.isPending ? "Submitting..." : "Submit for approval"}
+            </Button>
+          )}
+          {!canWrite && <Badge variant="secondary">Read-only access</Badge>}
+        </div>
       </div>
+
+      {canSubmit && !attachmentsQ.isLoading && !hasAttachments && !attachmentsQ.isError && (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Upload at least one attachment before submitting this addendum for approval.
+        </div>
+      )}
+      {submitMut.isError && (
+        <div role="alert" className="text-sm text-destructive">
+          {getApiErrorMessage(submitMut.error, "Failed to submit addendum")}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -76,6 +128,13 @@ export function AddendumDetail({ id }: { id: string }) {
               <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">DESCRIPTION</div><div>{addendum.description ?? "—"}</div></div>
             </CardContent>
           </Card>
+
+          <AttachmentPanel
+            ownerType="ADDENDUM"
+            ownerId={addendum.id}
+            editable={editable}
+            mutationsDisabled={submitMut.isPending}
+          />
 
           {addendum.services.length > 0 && (
             <Card>

@@ -254,11 +254,13 @@ class AttachmentLifecycleTest {
         UUID contractId = draftContract();
         forceStatus(contractId, DocumentStatus.ACTIVE);
         MockMultipartFile file = multipart("late.pdf", "application/pdf", "too late");
+        List<Path> storedBefore = filesUnderStorage();
 
         assertThatThrownBy(() -> tx.execute(s ->
                 attachments.upload(EntityType.CONTRACT, contractId, file)))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("CTR-01");
+        assertThat(filesUnderStorage()).containsExactlyInAnyOrderElementsOf(storedBefore);
     }
 
     @Test
@@ -279,10 +281,12 @@ class AttachmentLifecycleTest {
     void uploadingToAnUnknownOwnerIsNotFound() {
         MockMultipartFile file = multipart("orphan.pdf", "application/pdf", "no owner");
         UUID missing = UUID.randomUUID();
+        List<Path> storedBefore = filesUnderStorage();
 
         assertThatThrownBy(() -> tx.execute(s ->
                 attachments.upload(EntityType.CONTRACT, missing, file)))
                 .isInstanceOf(NotFoundException.class);
+        assertThat(filesUnderStorage()).containsExactlyInAnyOrderElementsOf(storedBefore);
     }
 
     // ---- bytes/row reconciliation -------------------------------------------------------------
