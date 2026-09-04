@@ -19,7 +19,7 @@ public interface PaymentStatementRepository extends JpaRepository<PaymentStateme
 
     boolean existsByStatementNo(String statementNo);
 
-    @EntityGraph(attributePaths = {"lines", "lines.volumeLinks", "statusHistory"})
+    @EntityGraph(attributePaths = {"lines"})
     @Query("SELECT ps FROM PaymentStatement ps ORDER BY ps.createdAt DESC")
     Page<PaymentStatement> findAllSorted(Pageable pageable);
 

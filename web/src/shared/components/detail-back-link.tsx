@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 
 type DetailBackButtonProps = {
-  to: "/customers" | "/contracts" | "/price-lists";
+  to: "/customers" | "/contracts" | "/price-lists" | "/payment-statements" | "/e-signatures";
   /** Names the destination for assistive tech, since the chevron carries no text. */
   label: string;
 };
@@ -14,11 +14,9 @@ export function DetailBackButton({ to, label }: DetailBackButtonProps) {
       to={to}
       search={to === "/price-lists"
         ? ((previous) => ({ ...previous, id: undefined, versionId: undefined }))
-        : to === "/customers"
-        ? { id: undefined }
         : to === "/contracts"
-          ? { id: undefined, tab: undefined, customerId: undefined }
-          : { id: undefined, versionId: undefined }}
+        ? { id: undefined, tab: undefined, customerId: undefined }
+        : { id: undefined }}
       aria-label={label}
       title={label}
       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
