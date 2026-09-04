@@ -25,20 +25,13 @@ public interface StepAssigneeRepository extends JpaRepository<StepAssignee, UUID
             select sa from StepAssignee sa
             join fetch sa.stepInstance si join fetch si.instance wi
             where sa.userId = :userId and si.status = 'ACTIVE'
-              and (:q is null or lower(wi.documentNo) like :q or lower(coalesce(wi.customerName, '')) like :q
-                   or lower(coalesce(si.name, '')) like :q or lower(coalesce(wi.requestedByName, '')) like :q)
-              and (:documentType is null or wi.documentTypeCode = :documentType)
-              and (:priority is null or wi.priority = :priority)
+            """ + InboxQueryFilters.COMMON + """
             order by si.activatedAt asc
             """, countQuery = """
             select count(sa) from StepAssignee sa
             join sa.stepInstance si join si.instance wi
             where sa.userId = :userId and si.status = 'ACTIVE'
-              and (:q is null or lower(wi.documentNo) like :q or lower(coalesce(wi.customerName, '')) like :q
-                   or lower(coalesce(si.name, '')) like :q or lower(coalesce(wi.requestedByName, '')) like :q)
-              and (:documentType is null or wi.documentTypeCode = :documentType)
-              and (:priority is null or wi.priority = :priority)
-            """)
+            """ + InboxQueryFilters.COMMON)
     Page<StepAssignee> findInboxPage(@Param("userId") UUID userId, @Param("q") String q,
                                      @Param("documentType") String documentType,
                                      @Param("priority") String priority, Pageable pageable);

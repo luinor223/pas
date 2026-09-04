@@ -24,20 +24,13 @@ public interface WorkflowActionRepository extends JpaRepository<WorkflowAction, 
             select a from WorkflowAction a
             join fetch a.stepInstance si join fetch si.instance wi
             where a.actorId = :userId
-              and (:q is null or lower(wi.documentNo) like :q or lower(coalesce(wi.customerName, '')) like :q
-                   or lower(coalesce(si.name, '')) like :q or lower(coalesce(wi.requestedByName, '')) like :q)
-              and (:documentType is null or wi.documentTypeCode = :documentType)
-              and (:priority is null or wi.priority = :priority)
+            """ + InboxQueryFilters.COMMON + """
             order by a.createdAt desc
             """, countQuery = """
             select count(a) from WorkflowAction a
             join a.stepInstance si join si.instance wi
             where a.actorId = :userId
-              and (:q is null or lower(wi.documentNo) like :q or lower(coalesce(wi.customerName, '')) like :q
-                   or lower(coalesce(si.name, '')) like :q or lower(coalesce(wi.requestedByName, '')) like :q)
-              and (:documentType is null or wi.documentTypeCode = :documentType)
-              and (:priority is null or wi.priority = :priority)
-            """)
+            """ + InboxQueryFilters.COMMON)
     Page<WorkflowAction> findCompletedInboxPage(
             @Param("userId") UUID userId, @Param("q") String q,
             @Param("documentType") String documentType, @Param("priority") String priority,

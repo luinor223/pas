@@ -33,7 +33,7 @@ public class InboxService {
 
     @Transactional(readOnly = true)
     public InboxResponse assignedToMe(UUID userId, int page, int size, String q, String documentType, String priority) {
-        var assignees = assigneeRepo.findInboxPage(userId, searchTerm(q), filter(documentType), filter(priority), PageRequest.of(page, size));
+        var assignees = assigneeRepo.findInboxPage(userId, searchTerm(q), enumFilter(documentType), enumFilter(priority), PageRequest.of(page, size));
         List<InboxResponse.InboxItem> items = new ArrayList<>();
         for (var sa : assignees.getContent()) {
             WorkflowStepInstance step = sa.getStepInstance();
@@ -46,7 +46,7 @@ public class InboxService {
     @Transactional(readOnly = true)
     public InboxResponse submittedByMe(UUID userId, int page, int size, String q, String documentType, String priority) {
         var rows = instanceRepo.findSubmittedInboxPage(
-                userId, searchTerm(q), filter(documentType), filter(priority), PageRequest.of(page, size));
+                userId, searchTerm(q), enumFilter(documentType), enumFilter(priority), PageRequest.of(page, size));
         List<InboxResponse.InboxItem> items = rows.getContent().stream()
                 .map(row -> toItem(row.getInstance(), row.getStep()))
                 .toList();
@@ -56,7 +56,7 @@ public class InboxService {
     @Transactional(readOnly = true)
     public InboxResponse completed(UUID userId, int page, int size, String q, String documentType, String priority) {
         var actions = actionRepo.findCompletedInboxPage(
-                userId, searchTerm(q), filter(documentType), filter(priority), PageRequest.of(page, size));
+                userId, searchTerm(q), enumFilter(documentType), enumFilter(priority), PageRequest.of(page, size));
         List<InboxResponse.InboxItem> items = new ArrayList<>();
         for (var action : actions.getContent()) {
             WorkflowStepInstance step = action.getStepInstance();
@@ -77,6 +77,11 @@ public class InboxService {
 
     private String filter(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String enumFilter(String value) {
+        String normalized = filter(value);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
     }
 
     private InboxResponse.InboxItem toItem(WorkflowInstance inst, WorkflowStepInstance step) {
