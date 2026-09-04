@@ -18,6 +18,7 @@ spring:
     properties:
       hibernate:
         default_schema: billing
+        default_batch_fetch_size: 100
 
   flyway:
     enabled: true

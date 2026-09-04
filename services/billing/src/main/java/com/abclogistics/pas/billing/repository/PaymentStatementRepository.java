@@ -3,7 +3,6 @@ package com.abclogistics.pas.billing.repository;
 import com.abclogistics.pas.billing.domain.PaymentStatement;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,7 +18,6 @@ public interface PaymentStatementRepository extends JpaRepository<PaymentStateme
 
     boolean existsByStatementNo(String statementNo);
 
-    @EntityGraph(attributePaths = {"lines"})
     @Query("SELECT ps FROM PaymentStatement ps ORDER BY ps.createdAt DESC")
     Page<PaymentStatement> findAllSorted(Pageable pageable);
 
