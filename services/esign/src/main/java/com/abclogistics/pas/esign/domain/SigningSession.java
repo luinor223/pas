@@ -58,7 +58,7 @@ public class SigningSession {
     @Column(name = "last_error")
     private String lastError;
 
-    @Column(name = "requested_by", nullable = false, updatable = false)
+    @Column(name = "requested_by", updatable = false)
     private UUID requestedBy;
 
     @Column(name = "requested_by_name", updatable = false)

@@ -1,5 +1,6 @@
 package com.abclogistics.pas.esign.grpc;
 
+import com.abclogistics.pas.common.error.FailedPreconditionException;
 import com.abclogistics.pas.esign.domain.SigningSession;
 import com.abclogistics.pas.esign.service.SigningSessionService;
 import io.grpc.Status;
@@ -7,7 +8,6 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -23,24 +23,19 @@ public class EsignInternalGrpcService extends EsignInternalGrpc.EsignInternalImp
     }
 
     @Override
-    @Transactional
     public void createSigningSession(CreateSigningSessionRequest request,
                                       StreamObserver<CreateSigningSessionResponse> responseObserver) {
         try {
-            UUID idempotencyKey = UUID.fromString(request.getIdempotencyKey());
-            UUID documentId = UUID.fromString(request.getDocumentId());
-
             SigningSession session = sessionService.createSession(
                 request.getDocumentType(),
-                documentId,
-                request.getDocumentNo().isEmpty() ? null : request.getDocumentNo(),
-                null,
-                request.getSignerName().isEmpty() ? "" : request.getSignerName(),
-                request.getSignerEmail().isEmpty() ? "" : request.getSignerEmail(),
-                idempotencyKey,
-                UUID.randomUUID(),
-                null
-            );
+                UUID.fromString(request.getDocumentId()),
+                blankToNull(request.getDocumentNo()),
+                blankToNull(request.getCustomerName()),
+                request.getSignerName(),
+                request.getSignerEmail(),
+                UUID.fromString(request.getIdempotencyKey()),
+                uuidOrNull(request.getRequestedBy()),
+                blankToNull(request.getRequestedByName()));
 
             responseObserver.onNext(CreateSigningSessionResponse.newBuilder()
                 .setSessionId(session.getId().toString())
@@ -49,15 +44,21 @@ public class EsignInternalGrpcService extends EsignInternalGrpc.EsignInternalImp
             responseObserver.onCompleted();
         } catch (Exception e) {
             log.error("CreateSigningSession failed: {}", e.getMessage(), e);
-            Status status = Status.INTERNAL;
-            if (e.getMessage() != null && e.getMessage().contains("already exists")) {
-                status = Status.ALREADY_EXISTS;
-            } else if (e.getMessage() != null && e.getMessage().contains("already an active")) {
-                status = Status.FAILED_PRECONDITION;
-            }
-            responseObserver.onError(status
-                .withDescription(e.getMessage())
-                .asRuntimeException());
+            responseObserver.onError(mapToStatus(e).withDescription(e.getMessage()).asRuntimeException());
         }
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s;
+    }
+
+    private static UUID uuidOrNull(String s) {
+        return s == null || s.isBlank() ? null : UUID.fromString(s);
+    }
+
+    private static Status mapToStatus(Exception e) {
+        if (e instanceof IllegalArgumentException) return Status.INVALID_ARGUMENT;
+        if (e instanceof FailedPreconditionException) return Status.FAILED_PRECONDITION;
+        return Status.INTERNAL;
     }
 }
