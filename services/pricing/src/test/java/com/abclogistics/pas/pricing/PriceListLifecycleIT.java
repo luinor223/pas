@@ -105,6 +105,16 @@ class PriceListLifecycleIT {
     }
 
     @Test
+    void linesCanBeResavedForSameService() {
+        PriceListVersion v = draftVersion(); // seeds LIFT_ON_OFF
+        // Re-save the same service with a new price: delete-then-reinsert must not collide on uq_price_line.
+        lists.replaceLines(v.getId(), List.of(new LineInput("LIFT_ON_OFF", new BigDecimal("15.00"))));
+        assertThat(lists.lineViews(v.getId()))
+                .singleElement()
+                .satisfies(line -> assertThat(line.unitPrice()).isEqualByComparingTo("15.00"));
+    }
+
+    @Test
     void datesEditableWhileDraft() {
         PriceListVersion v = draftVersion();
         lists.updateVersionDates(v.getId(), LocalDate.of(2026, 2, 1), LocalDate.of(2026, 11, 30));
