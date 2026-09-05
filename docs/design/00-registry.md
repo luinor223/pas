@@ -1,6 +1,6 @@
 # PAS Design Registry
 
-> The living contract between design artifacts. Every artifact uses these names **verbatim**. Changes here require a change note listing affected finished artifacts. Governed by [design-plan.md](../design-plan.md); decisions cited as D1–D17 live there.
+> The living contract between design artifacts. Every artifact uses these names **verbatim**. Changes here require a change note listing affected finished artifacts.
 
 ## 1. Services
 

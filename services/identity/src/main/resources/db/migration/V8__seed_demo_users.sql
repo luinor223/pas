@@ -1,7 +1,7 @@
 -- Demo users for runbook (password = username, BCrypt strength 10).
 -- Seeded via migration so `make down-v && make up` is ready to demo without manual user creation.
 -- All demo passwords are the username itself (e.g. sales_officer / sales_officer) for easy copy-paste.
--- See docs/demo-runbook.md "Tài khoản demo" for the role mapping.
+-- See the "Demo accounts" table in README.md for the role mapping.
 
 -- Privileged demo role for the special permissions (volume:edit_locked, statement:cancel_approved)
 -- that are in no default bundle (registry §7). Assigned in addition to OPS_OFFICER.
