@@ -196,6 +196,15 @@ services:
       - "traefik.http.routers.operations.entrypoints=web"
       - "traefik.http.routers.operations.middlewares=operations-ratelimit,jwt-auth@file,api-v1-strip"
 
+  # The distroless contract image runs as uid 65532; a fresh named volume is
+  # root-owned, so chown it first or attachment writes fail with AccessDenied.
+  attachments-init:
+    image: busybox:1.37
+    command: ["chown", "-R", "65532:65532", "/var/pas/attachments"]
+    volumes:
+      - attachments:/var/pas/attachments
+    restart: "no"
+
   contract-service:
     image: ghcr.io/luinor223/pas-contract:latest
     mem_limit: 640m
@@ -228,6 +237,8 @@ services:
         condition: service_completed_successfully
       identity-service:
         condition: service_started
+      attachments-init:
+        condition: service_completed_successfully
       # not service_healthy: D4 commits the submission first and dispatches after, so a
       # contract-service that starts ahead of workflow-service is a retry, not a failure
       workflow-service:
