@@ -128,11 +128,29 @@ Each demo user's password is its username (e.g. `sales_officer` / `sales_officer
 ```
 docker-compose.yml   # full local stack (infra + all services + web)
 Makefile             # keys / up / build / test / down targets
+settings.gradle.kts  # Gradle module list (libs, proto, services/*)
 proto/               # shared gRPC contracts
-libs/                # shared Java libraries (e.g. outbox relay)
+└─ src/main/proto/{identity,contract,pricing,operations,billing,workflow,esign,audit}/
+libs/
+└─ common/           # shared Java lib: outbox relay, audit, security, gRPC helpers
 services/            # the 10 backend services (+ esign mock provider)
+├─ identity/ contract/ pricing/ operations/ billing/
+├─ workflow/ esign/ esign-mock-provider/ notification/ audit/
+└─ each service: src/ (app + Flyway migrations), helm/ (per-service chart), build.gradle.kts
 web/                 # React + TypeScript + Vite frontend
-infra/               # docker (traefik, postgres init), k8s (helm library), keys
-docs/                # requirement.md, design docs (design/, diagrams/, figma/)
-scripts/             # draw.io generation helpers
+├─ src/{app,features,routes,shared,generated}/  # TanStack Router app (routeTree.gen.ts)
+├─ e2e/ e2e-journey/ e2e-real/  # Playwright suites: mocked, journey, live-gateway
+├─ helm/             # frontend chart (nginx)
+└─ scripts/          # OpenAPI → TypeScript contract codegen (contract-api.mjs)
+infra/
+├─ docker/traefik/   # edge gateway config + jwt/csrf plugins
+├─ docker/postgres/  # per-service DB/role init SQL
+├─ helm/pas-common/  # shared library chart (Deployment, Service, IngressRoute, …)
+└─ keys/             # local JWT keypair from `make keys` (gitignored)
+docs/
+├─ requirement.md (.pdf)  # business requirements (source of truth)
+├─ design/           # registry, architecture, mechanics, db/*, sequences/*
+├─ diagrams/         # architecture + use-case draw.io
+└─ figma/            # UI screen designs (PNG)
+scripts/             # draw.io generation helpers (gen_er_drawio, gen_seq_drawio)
 ```
