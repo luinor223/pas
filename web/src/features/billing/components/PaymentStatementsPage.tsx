@@ -71,7 +71,7 @@ export function PaymentStatementsPage() {
       qc.invalidateQueries({ queryKey: ["payment-statements"] });
       setOpenCreate(false);
       reset();
-      navigate({ to: "/payment-statements", search: { id: created.statementNo } });
+      navigate({ to: "/payment-statements", search: { id: created.id } });
     },
   });
   const invalidateList = () => qc.invalidateQueries({ queryKey: ["payment-statements"] });
@@ -87,7 +87,7 @@ export function PaymentStatementsPage() {
   const columns = useMemo<ColumnDef<StatementResponse>[]>(() => [
     {
       accessorKey: "statementNo", header: "STATEMENT NO.",
-      cell: ({ row }) => <Link to="/payment-statements" search={{ id: row.original.statementNo }} className="font-medium text-blue-600 hover:underline">{row.original.statementNo}</Link>,
+      cell: ({ row }) => <Link to="/payment-statements" search={{ id: row.original.id }} className="font-medium text-blue-600 hover:underline">{row.original.statementNo}</Link>,
     },
     { accessorKey: "customerName", header: "CUSTOMER", cell: ({ row }) => <span className="font-medium">{row.original.customerName ?? "—"}</span> },
     { accessorKey: "contractNo", header: "CONTRACT", cell: ({ row }) => <span className="text-sm">{row.original.contractNo}</span> },
@@ -101,10 +101,10 @@ export function PaymentStatementsPage() {
         const s = row.original;
         const perms: Record<"statement:write" | "esign:send", boolean> = { "statement:write": canWrite, "esign:send": canEsign };
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
-          { label: "View details", onClick: () => navigate({ to: "/payment-statements", search: { id: s.statementNo } }) },
+          { label: "View details", onClick: () => navigate({ to: "/payment-statements", search: { id: s.id } }) },
         ];
         LIFECYCLE_ACTIONS.filter((a) => perms[a.perm] && a.statuses.includes(s.status)).forEach((a) =>
-          items.push({ label: a.label, onClick: () => actionMut.mutate({ key: a.key, no: s.statementNo }) }));
+          items.push({ label: a.label, onClick: () => actionMut.mutate({ key: a.key, no: s.id }) }));
         if (canCancel && (s.status === "APPROVED" || s.status === "SIGNED")) items.push({ label: "Cancel", onClick: () => setConfirmCancel(s), danger: true });
         return <div className="text-right"><RowMenu items={items} /></div>;
       },
@@ -147,7 +147,7 @@ export function PaymentStatementsPage() {
         pending={cancelMut.isPending}
         error={cancelMut.isError ? cancelMut.error : undefined}
         reason={{ label: "Reason", placeholder: "Why is this statement being cancelled?" }}
-        onConfirm={(reason) => confirmCancel && cancelMut.mutate({ no: confirmCancel.statementNo, reason })}
+        onConfirm={(reason) => confirmCancel && cancelMut.mutate({ no: confirmCancel.id, reason })}
         onCancel={() => setConfirmCancel(null)}
       />
 

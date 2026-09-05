@@ -64,7 +64,7 @@ export type StatementResponse = {
 export type StatementPageResponse = PageResponse<StatementResponse>;
 
 export type WorkflowProgressResponse = {
-  statementNo: string;
+  id: string;
   workflowInstance: unknown;
 };
 

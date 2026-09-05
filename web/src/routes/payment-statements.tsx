@@ -10,6 +10,6 @@ export const Route = createFileRoute("/payment-statements")({
 
 function PaymentStatementsRoute() {
   const { id } = Route.useSearch();
-  if (id) return <PaymentStatementDetail key={id} statementNo={id} />;
+  if (id) return <PaymentStatementDetail key={id} id={id} />;
   return <PaymentStatementsPage />;
 }
