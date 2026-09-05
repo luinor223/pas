@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/payment-statements")
@@ -29,10 +30,10 @@ public class StatementController {
         return statementService.list(page, size);
     }
 
-    @GetMapping("/{statementNo}")
+    @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('statement:read')")
-    public StatementResponse getStatement(@PathVariable String statementNo) {
-        return statementService.getByStatementNo(statementNo);
+    public StatementResponse getStatement(@PathVariable UUID id) {
+        return statementService.getById(id);
     }
 
     @PostMapping("/calculate")
@@ -42,85 +43,85 @@ public class StatementController {
         return statementService.calculate(request);
     }
 
-    @PostMapping("/{statementNo}/recalculate")
+    @PostMapping("/{id}/recalculate")
     @PreAuthorize("hasAuthority('statement:write')")
-    public StatementResponse recalculate(@PathVariable String statementNo) {
-        return statementService.recalculate(statementNo);
+    public StatementResponse recalculate(@PathVariable UUID id) {
+        return statementService.recalculate(id);
     }
 
-    @PostMapping("/{statementNo}/revise")
+    @PostMapping("/{id}/revise")
     @PreAuthorize("hasAuthority('statement:write')")
-    public StatementResponse revise(@PathVariable String statementNo) {
-        return statementService.revise(statementNo);
+    public StatementResponse revise(@PathVariable UUID id) {
+        return statementService.revise(id);
     }
 
-    @PostMapping("/{statementNo}/send-sign")
+    @PostMapping("/{id}/send-sign")
     @PreAuthorize("hasAuthority('statement:write') and hasAuthority('esign:send')")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public StatementResponse sendForSigning(@PathVariable String statementNo) {
-        return statementService.sendForSigning(statementNo);
+    public StatementResponse sendForSigning(@PathVariable UUID id) {
+        return statementService.sendForSigning(id);
     }
 
-    @PostMapping("/{statementNo}/publish")
+    @PostMapping("/{id}/publish")
     @PreAuthorize("hasAuthority('statement:write')")
-    public StatementResponse publish(@PathVariable String statementNo) {
-        return statementService.publish(statementNo);
+    public StatementResponse publish(@PathVariable UUID id) {
+        return statementService.publish(id);
     }
 
-    @PostMapping("/{statementNo}/lines")
+    @PostMapping("/{id}/lines")
     @PreAuthorize("hasAuthority('statement:write')")
     @ResponseStatus(HttpStatus.CREATED)
     public StatementResponse addLine(
-        @PathVariable String statementNo,
+        @PathVariable UUID id,
         @Valid @RequestBody AddLineRequest request
     ) {
-        return statementService.addLine(statementNo, request);
+        return statementService.addLine(id, request);
     }
 
-    @PostMapping("/{statementNo}/reconcile")
+    @PostMapping("/{id}/reconcile")
     @PreAuthorize("hasAuthority('statement:write')")
-    public StatementResponse reconcileStatement(@PathVariable String statementNo) {
-        return statementService.reconcile(statementNo);
+    public StatementResponse reconcileStatement(@PathVariable UUID id) {
+        return statementService.reconcile(id);
     }
 
-    @PostMapping("/{statementNo}/submit")
+    @PostMapping("/{id}/submit")
     @PreAuthorize("hasAuthority('statement:write')")
-    public StatementResponse submitStatement(@PathVariable String statementNo) {
-        return statementService.submit(statementNo);
+    public StatementResponse submitStatement(@PathVariable UUID id) {
+        return statementService.submit(id);
     }
 
-    @PatchMapping("/{statementNo}/lines")
+    @PatchMapping("/{id}/lines")
     @PreAuthorize("hasAuthority('statement:write')")
     public StatementResponse editLine(
-        @PathVariable String statementNo,
+        @PathVariable UUID id,
         @Valid @RequestBody EditLineRequest request
     ) {
-        return statementService.editLine(statementNo, request);
+        return statementService.editLine(id, request);
     }
 
-    @PostMapping("/{statementNo}/adjustments")
+    @PostMapping("/{id}/adjustments")
     @PreAuthorize("hasAuthority('statement:write')")
     @ResponseStatus(HttpStatus.CREATED)
     public StatementResponse createAdjustment(
-        @PathVariable String statementNo,
+        @PathVariable UUID id,
         @Valid @RequestBody AdjustmentRequest request
     ) {
-        return statementService.createAdjustment(statementNo, request);
+        return statementService.createAdjustment(id, request);
     }
 
-    @PostMapping("/{statementNo}/cancel")
+    @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('statement:cancel_approved')")
     public StatementResponse cancelStatement(
-        @PathVariable String statementNo,
+        @PathVariable UUID id,
         @RequestBody(required = false) Map<String, String> body
     ) {
         String reason = body != null ? body.getOrDefault("reason", "") : "";
-        return statementService.cancelStatement(statementNo, reason);
+        return statementService.cancelStatement(id, reason);
     }
 
-    @GetMapping("/{statementNo}/workflow-progress")
+    @GetMapping("/{id}/workflow-progress")
     @PreAuthorize("hasAuthority('statement:read')")
-    public WorkflowProgressResponse getWorkflowProgress(@PathVariable String statementNo) {
-        return statementService.getWorkflowProgress(statementNo);
+    public WorkflowProgressResponse getWorkflowProgress(@PathVariable UUID id) {
+        return statementService.getWorkflowProgress(id);
     }
 }

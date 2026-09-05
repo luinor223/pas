@@ -65,9 +65,10 @@ class StatementLifecycleTest {
         for (PaymentStatement.StatementStatus from : List.of(
                 PaymentStatement.StatementStatus.REJECTED, PaymentStatement.StatementStatus.REVISION)) {
             PaymentStatement stmt = bare(from);
-            when(statements.findByStatementNo("PMT-2026-0007")).thenReturn(Optional.of(stmt));
+            UUID id = stmt.getId();
+            when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-            var response = service.revise("PMT-2026-0007");
+            var response = service.revise(id);
 
             assertThat(response.status()).isEqualTo("DRAFT");
             assertThat(stmt.getStatusHistory()).hasSize(1);
@@ -77,9 +78,10 @@ class StatementLifecycleTest {
     @Test
     void reviseIsRejectedFromSubmitted() {
         PaymentStatement stmt = bare(PaymentStatement.StatementStatus.SUBMITTED);
-        when(statements.findByStatementNo("PMT-2026-0007")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        assertThatThrownBy(() -> service.revise("PMT-2026-0007"))
+        assertThatThrownBy(() -> service.revise(id))
                 .isInstanceOf(FailedPreconditionException.class)
                 .hasMessageContaining("cannot move");
     }
@@ -87,9 +89,10 @@ class StatementLifecycleTest {
     @Test
     void sendForSigningWritesEsignOutboxInSameCall() {
         PaymentStatement stmt = bare(PaymentStatement.StatementStatus.APPROVED);
-        when(statements.findByStatementNo("PMT-2026-0009")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        var response = service.sendForSigning("PMT-2026-0009");
+        var response = service.sendForSigning(id);
 
         assertThat(response.status()).isEqualTo("SIGNING");
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
@@ -105,9 +108,10 @@ class StatementLifecycleTest {
     @Test
     void sendForSigningRequiresApprovedPay06() {
         PaymentStatement stmt = bare(PaymentStatement.StatementStatus.RECONCILED);
-        when(statements.findByStatementNo("PMT-2026-0009")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        assertThatThrownBy(() -> service.sendForSigning("PMT-2026-0009"))
+        assertThatThrownBy(() -> service.sendForSigning(id))
                 .isInstanceOf(FailedPreconditionException.class)
                 .hasMessageContaining("cannot move");
     }
@@ -117,9 +121,10 @@ class StatementLifecycleTest {
         PaymentStatement stmt = bare(PaymentStatement.StatementStatus.SIGNED);
         stmt.setPaymentTerm("NET 30");
         stmt.setPeriodEnd(LocalDate.of(2026, 6, 30));
-        when(statements.findByStatementNo("PMT-2026-0011")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        var response = service.publish("PMT-2026-0011");
+        var response = service.publish(id);
 
         assertThat(response.status()).isEqualTo("ISSUED");
         assertThat(response.dueDate()).isEqualTo(LocalDate.of(2026, 7, 30));
@@ -128,9 +133,10 @@ class StatementLifecycleTest {
     @Test
     void publishIsRejectedUnlessSigned() {
         PaymentStatement stmt = bare(PaymentStatement.StatementStatus.APPROVED);
-        when(statements.findByStatementNo("PMT-2026-0011")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        assertThatThrownBy(() -> service.publish("PMT-2026-0011"))
+        assertThatThrownBy(() -> service.publish(id))
                 .isInstanceOf(FailedPreconditionException.class)
                 .hasMessageContaining("cannot move");
     }
@@ -143,9 +149,10 @@ class StatementLifecycleTest {
                 PaymentStatement.StatementStatus.ISSUED)) {
             PaymentStatement original = bare(from);
             original.setVatRate(new BigDecimal("8.00"));
-            when(statements.findByStatementNo("PMT-2026-0013")).thenReturn(Optional.of(original));
+            UUID id = original.getId();
+            when(statements.findById(id)).thenReturn(Optional.of(original));
 
-            var response = service.createAdjustment("PMT-2026-0013", adjustment());
+            var response = service.createAdjustment(id, adjustment());
 
             assertThat(response.status()).isEqualTo("DRAFT");
             assertThat(response.adjustsStatementId()).isEqualTo(original.getId());
@@ -156,9 +163,10 @@ class StatementLifecycleTest {
     @Test
     void adjustmentIsRejectedBeforeApproval() {
         PaymentStatement original = bare(PaymentStatement.StatementStatus.RECONCILED);
-        when(statements.findByStatementNo("PMT-2026-0013")).thenReturn(Optional.of(original));
+        UUID id = original.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(original));
 
-        assertThatThrownBy(() -> service.createAdjustment("PMT-2026-0013", adjustment()))
+        assertThatThrownBy(() -> service.createAdjustment(id, adjustment()))
                 .isInstanceOf(FailedPreconditionException.class)
                 .hasMessageContaining("PAY-05");
     }
@@ -167,9 +175,10 @@ class StatementLifecycleTest {
     void adjustmentRequiresAtLeastOneLinePay04() {
         PaymentStatement original = bare(PaymentStatement.StatementStatus.ISSUED);
         original.setVatRate(new BigDecimal("8.00"));
-        when(statements.findByStatementNo("PMT-2026-0013")).thenReturn(Optional.of(original));
+        UUID id = original.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(original));
 
-        assertThatThrownBy(() -> service.createAdjustment("PMT-2026-0013",
+        assertThatThrownBy(() -> service.createAdjustment(id,
                 new AdjustmentRequest("oops", List.of())))
                 .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
                     assertThat(ex.getPublicCode()).isEqualTo("ADJUSTMENT_LINES_REQUIRED");
@@ -182,12 +191,13 @@ class StatementLifecycleTest {
     void adjustmentRejectsANegativeTotalWithoutPublishingInternalNames() {
         PaymentStatement original = bare(PaymentStatement.StatementStatus.ISSUED);
         original.setVatRate(new BigDecimal("8.00"));
-        when(statements.findByStatementNo("PMT-2026-0013")).thenReturn(Optional.of(original));
+        UUID id = original.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(original));
         AdjustmentRequest request = new AdjustmentRequest("negative", List.of(
                 new AdjustmentRequest.AdjustmentLineInput("CNT", "Container handling", "TEU",
                         new BigDecimal("-100.00"), new BigDecimal("2"), null)));
 
-        assertThatThrownBy(() -> service.createAdjustment("PMT-2026-0013", request))
+        assertThatThrownBy(() -> service.createAdjustment(id, request))
                 .isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
                     assertThat(ex.getPublicCode()).isEqualTo("ADJUSTMENT_TOTAL_INVALID");
                     assertThat(ex.getPublicMessage()).isEqualTo("The adjustment total cannot be negative.");
@@ -197,6 +207,7 @@ class StatementLifecycleTest {
 
     private static PaymentStatement bare(PaymentStatement.StatementStatus status) {
         PaymentStatement stmt = new PaymentStatement();
+        setId(stmt, UUID.randomUUID());
         stmt.setStatementNo("PMT-2026-x");
         stmt.setContractId(UUID.randomUUID());
         stmt.setContractNo("CTR-2026-0001");
@@ -217,6 +228,16 @@ class StatementLifecycleTest {
         line.setAmount(BigDecimal.ONE);
         stmt.getLines().add(line);
         return stmt;
+    }
+
+    private static void setId(PaymentStatement stmt, UUID id) {
+        try {
+            var field = PaymentStatement.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(stmt, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static AdjustmentRequest adjustment() {

@@ -76,9 +76,9 @@ public class StatementService {
     }
 
     @Transactional(readOnly = true)
-    public StatementResponse getByStatementNo(String statementNo) {
-        PaymentStatement stmt = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse getById(UUID id) {
+        PaymentStatement stmt = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
         return toResponse(stmt);
     }
 
@@ -247,9 +247,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse reconcile(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse reconcile(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         if (statement.getAdjustsStatementId() == null) {
             // seq-06 m24 reconciliation re-checks: period still LOCKED, contract still in force
@@ -308,9 +308,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse submit(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse submit(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         // PAY-04 checks
         if (statement.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
@@ -376,9 +376,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse editLine(String statementNo, EditLineRequest req) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse editLine(UUID id, EditLineRequest req) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         PaymentStatement.StatementStatus status = statement.getStatus();
         assertEditable(statement, req.version());
@@ -414,9 +414,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse addLine(String statementNo, AddLineRequest req) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse addLine(UUID id, AddLineRequest req) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         PaymentStatement.StatementStatus status = statement.getStatus();
         assertEditable(statement, req.version());
@@ -537,9 +537,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse recalculate(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse recalculate(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         if (statement.getAdjustsStatementId() != null) {
             // Adjustment statements are MANUAL-only deltas (PAY-05, seq-06 m39): there are no
@@ -558,9 +558,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse revise(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse revise(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         transitions.transition(statement, PaymentStatement.StatementStatus.DRAFT, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
@@ -569,9 +569,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse sendForSigning(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse sendForSigning(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
         transitions.transition(statement, PaymentStatement.StatementStatus.SIGNING, StatusHistory.TriggerKind.U, null);
         statementRepo.saveAndFlush(statement);
 
@@ -600,9 +600,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse publish(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse publish(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
         transitions.transition(statement, PaymentStatement.StatementStatus.ISSUED, StatusHistory.TriggerKind.U, null);
         statement.setIssuedAt(Instant.now());
         statement.setDueDate(computeDueDate(statement.getPaymentTerm(), statement.getPeriodEnd()));
@@ -613,9 +613,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse createAdjustment(String statementNo, AdjustmentRequest req) {
-        PaymentStatement original = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse createAdjustment(UUID id, AdjustmentRequest req) {
+        PaymentStatement original = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         PaymentStatement.StatementStatus originalStatus = original.getStatus();
         if (originalStatus != PaymentStatement.StatementStatus.APPROVED
@@ -689,9 +689,9 @@ public class StatementService {
     }
 
     @Transactional
-    public StatementResponse cancelStatement(String statementNo, String reason) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public StatementResponse cancelStatement(UUID id, String reason) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
 
         PaymentStatement.StatementStatus oldStatus = statement.getStatus();
         // seq-06 m42: abandoning the document always traces why
@@ -707,9 +707,9 @@ public class StatementService {
     }
 
     @Transactional(readOnly = true)
-    public WorkflowProgressResponse getWorkflowProgress(String statementNo) {
-        PaymentStatement statement = statementRepo.findByStatementNo(statementNo)
-            .orElseThrow(() -> new NotFoundException("Statement not found: " + statementNo));
+    public WorkflowProgressResponse getWorkflowProgress(UUID id) {
+        PaymentStatement statement = statementRepo.findById(id)
+            .orElseThrow(() -> new NotFoundException("Statement not found: " + id));
         try {
             com.abclogistics.pas.workflow.grpc.GetInstanceByDocumentResponse instance =
                 workflowClient.getInstanceByDocument("PAYMENT_STATEMENT", statement.getId().toString());
@@ -718,18 +718,18 @@ public class StatementService {
             if (instance == null
                 || (statement.getStatus() == PaymentStatement.StatementStatus.SUBMITTED
                     && !"IN_PROGRESS".equals(instance.getStatus()))) {
-                return new WorkflowProgressResponse(statementNo, Map.of("status", "INITIALIZATION_PENDING"));
+                return new WorkflowProgressResponse(statement.getId(), Map.of("status", "INITIALIZATION_PENDING"));
             }
-            return new WorkflowProgressResponse(statementNo, instance);
+            return new WorkflowProgressResponse(statement.getId(), instance);
         } catch (io.grpc.StatusRuntimeException e) {
             if (e.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND
                 && statement.getStatus() == PaymentStatement.StatementStatus.SUBMITTED) {
                 // D4 dispatch window: SUBMITTED with no instance yet — render, don't retry (§5.1).
                 // Any other state simply has no workflow to show; never fake "pending".
-                return new WorkflowProgressResponse(statementNo, Map.of("status", "INITIALIZATION_PENDING"));
+                return new WorkflowProgressResponse(statement.getId(), Map.of("status", "INITIALIZATION_PENDING"));
             }
             if (e.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
-                return new WorkflowProgressResponse(statementNo,
+                return new WorkflowProgressResponse(statement.getId(),
                     Map.of("status", statement.getStatus().name()));
             }
             throw e;

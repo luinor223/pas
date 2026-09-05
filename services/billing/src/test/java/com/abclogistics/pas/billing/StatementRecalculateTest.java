@@ -73,10 +73,11 @@ class StatementRecalculateTest {
         PaymentStatement stmt = draftStatement();
         stmt.getLines().add(calculatedLine(stmt, 1, "VOL-1", new BigDecimal("10")));
         stmt.getLines().add(manualLine(stmt, 2));
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         stubPulls("12");
 
-        var response = service.recalculate("PMT-x");
+        var response = service.recalculate(id);
 
         assertThat(response.status()).isEqualTo("CALCULATED");
         assertThat(stmt.getLines()).hasSize(2);
@@ -94,9 +95,10 @@ class StatementRecalculateTest {
         PaymentStatement adjustment = draftStatement();
         adjustment.setAdjustsStatementId(UUID.randomUUID());
         adjustment.getLines().add(manualLine(adjustment, 1));
-        when(statements.findByStatementNo("PMT-a")).thenReturn(Optional.of(adjustment));
+        UUID id = adjustment.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(adjustment));
 
-        var response = service.recalculate("PMT-a");
+        var response = service.recalculate(id);
 
         assertThat(response.status()).isEqualTo("CALCULATED");
         assertThat(adjustment.getLines()).hasSize(1);
@@ -107,10 +109,11 @@ class StatementRecalculateTest {
     @Test
     void reconcileRejectsQuantityDrift() {
         PaymentStatement stmt = calculatedStatement();
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         stubPulls("8"); // billed 10, now 8: a post-lock edit
 
-        assertThatThrownBy(() -> service.reconcile("PMT-x"))
+        assertThatThrownBy(() -> service.reconcile(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("VOL-1");
     }
@@ -118,12 +121,13 @@ class StatementRecalculateTest {
     @Test
     void reconcileRejectsPriceVersionDrift() {
         PaymentStatement stmt = calculatedStatement();
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         stubPulls("10");
         when(pricingClient.getEffectivePriceList(any(), any(), any(), any()))
                 .thenReturn(priceResponse(4)); // snapshot holds v3
 
-        assertThatThrownBy(() -> service.reconcile("PMT-x"))
+        assertThatThrownBy(() -> service.reconcile(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("drifted");
     }
@@ -140,21 +144,22 @@ class StatementRecalculateTest {
         stale.setQuantity(new BigDecimal("99"));
         manual.getVolumeLinks().add(stale);
         stmt.getLines().add(manual);
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         stubPulls("10");
 
-        assertThat(service.reconcile("PMT-x").status()).isEqualTo("RECONCILED");
+        assertThat(service.reconcile(id).status()).isEqualTo("RECONCILED");
     }
 
     @Test
     void progressOnNeverSubmittedRendersLocalStatus() {
         PaymentStatement stmt = draftStatement(); // DRAFT, never submitted
-        setId(stmt, UUID.randomUUID());
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         when(workflowClient.getInstanceByDocument(any(), any())).thenThrow(
                 new io.grpc.StatusRuntimeException(io.grpc.Status.NOT_FOUND));
 
-        var progress = service.getWorkflowProgress("PMT-x");
+        var progress = service.getWorkflowProgress(id);
 
         assertThat(progress.workflowInstance()).isEqualTo(Map.of("status", "DRAFT"));
     }
@@ -163,19 +168,21 @@ class StatementRecalculateTest {
     void reconcileSkipsUpstreamChecksForAdjustments() {
         PaymentStatement adjustment = calculatedStatement();
         adjustment.setAdjustsStatementId(UUID.randomUUID());
-        when(statements.findByStatementNo("PMT-a")).thenReturn(Optional.of(adjustment));
+        UUID id = adjustment.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(adjustment));
 
-        assertThat(service.reconcile("PMT-a").status()).isEqualTo("RECONCILED");
+        assertThat(service.reconcile(id).status()).isEqualTo("RECONCILED");
         verify(operationsClient, never()).listVolumes(any(), any());
     }
 
     @Test
     void submitRejectsUnmappedVolumes() {
         PaymentStatement stmt = reconStatement();
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         stubPulls("10"); // VOL-1 linked, VOL-2 not
 
-        assertThatThrownBy(() -> service.submit("PMT-x"))
+        assertThatThrownBy(() -> service.submit(id))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("VOL-2026-2");
     }
@@ -184,9 +191,10 @@ class StatementRecalculateTest {
     void submitSkipsMappingGateForAdjustments() {
         PaymentStatement adjustment = reconStatement();
         adjustment.setAdjustsStatementId(UUID.randomUUID());
-        when(statements.findByStatementNo("PMT-a")).thenReturn(Optional.of(adjustment));
+        UUID id = adjustment.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(adjustment));
 
-        assertThat(service.submit("PMT-a").status()).isEqualTo("SUBMITTED");
+        assertThat(service.submit(id).status()).isEqualTo("SUBMITTED");
         verify(operationsClient, never()).listVolumes(any(), any());
     }
 
@@ -194,12 +202,12 @@ class StatementRecalculateTest {
     void progressDiscardsStaleTerminalInstance() {
         PaymentStatement stmt = draftStatement();
         stmt.setStatus(PaymentStatement.StatementStatus.SUBMITTED);
-        setId(stmt, UUID.randomUUID());
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         when(workflowClient.getInstanceByDocument(any(), any())).thenReturn(
                 GetInstanceByDocumentResponse.newBuilder().setInstanceId("old").setStatus("REJECTED").build());
 
-        var progress = service.getWorkflowProgress("PMT-x");
+        var progress = service.getWorkflowProgress(id);
 
         assertThat(progress.workflowInstance()).isEqualTo(Map.of("status", "INITIALIZATION_PENDING"));
     }
@@ -208,24 +216,25 @@ class StatementRecalculateTest {
     void progressReturnsLiveInstance() {
         PaymentStatement stmt = draftStatement();
         stmt.setStatus(PaymentStatement.StatementStatus.SUBMITTED);
-        setId(stmt, UUID.randomUUID());
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         var live = GetInstanceByDocumentResponse.newBuilder().setInstanceId("new").setStatus("IN_PROGRESS").build();
         when(workflowClient.getInstanceByDocument(any(), any())).thenReturn(live);
 
-        assertThat(service.getWorkflowProgress("PMT-x").workflowInstance()).isEqualTo(live);
+        assertThat(service.getWorkflowProgress(id).workflowInstance()).isEqualTo(live);
     }
 
     @Test
     void cancelRequiresReason() {
         PaymentStatement stmt = draftStatement();
         stmt.setStatus(PaymentStatement.StatementStatus.APPROVED);
-        when(statements.findByStatementNo("PMT-x")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        assertThatThrownBy(() -> service.cancelStatement("PMT-x", "  "))
+        assertThatThrownBy(() -> service.cancelStatement(id, "  "))
                 .isInstanceOf(UnprocessableEntityException.class)
                 .hasMessageContaining("reason");
-        assertThat(service.cancelStatement("PMT-x", "duplicate issue").status()).isEqualTo("CANCELLED");
+        assertThat(service.cancelStatement(id, "duplicate issue").status()).isEqualTo("CANCELLED");
     }
 
     private static void setId(PaymentStatement stmt, UUID id) {
@@ -268,6 +277,7 @@ class StatementRecalculateTest {
 
     private static PaymentStatement draftStatement() {
         PaymentStatement stmt = new PaymentStatement();
+        setId(stmt, UUID.randomUUID());
         stmt.setStatementNo("PMT-x");
         stmt.setContractId(UUID.randomUUID());
         stmt.setContractNo("CTR-2026-0001");

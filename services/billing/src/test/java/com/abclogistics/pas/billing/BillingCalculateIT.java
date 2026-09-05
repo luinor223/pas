@@ -209,64 +209,64 @@ class BillingCalculateIT {
         StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-10"));
         // driving the total negative is refused by the CHECK constraint — and would have slipped
         // through silently before edits recomputed totals (stale positive total at submit)
-        assertThatThrownBy(() -> service.editLine(created.statementNo(),
+        assertThatThrownBy(() -> service.editLine(created.id(),
                 new EditLineRequest(1, new BigDecimal("-5.00"), new BigDecimal("10"), null, created.version())))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
 
         // the submit-time guard remains as defence in depth for the same rule
-        service.reconcile(created.statementNo());
-        var ok = service.submit(created.statementNo());
+        service.reconcile(created.id());
+        var ok = service.submit(created.id());
         assertThat(ok.status()).isEqualTo("SUBMITTED");
     }
 
     @Test
     void fullChainToIssuedThenAdjustmentPay05AndPay07() {
         StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-11"));
-        String no = created.statementNo();
-        service.reconcile(no);
-        service.submit(no);
+        UUID id = created.id();
+        service.reconcile(id);
+        service.submit(id);
         // submit wrote the D4 dispatch row carrying the idempotency key
         List<OutboxEvent> rows = outbox.findAll();
         assertThat(rows).anyMatch(e -> "workflow.start_requested".equals(e.getEventType())
                 && e.getPayload().contains("idempotency_key"));
 
-        approveViaWorkflow(no, "W-instance-1");
-        service.sendForSigning(no);
+        approveViaWorkflow(id, "W-instance-1");
+        service.sendForSigning(id);
         assertThat(outbox.findAll()).anyMatch(e -> "esign.session_requested".equals(e.getEventType()));
 
         // PAY-07 via the real listener against real rows
-        var stmtId = statements.findByStatementNo(no).orElseThrow().getId();
         UUID eventId = UUID.randomUUID();
         eventListener.onEvent(
-                "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
-                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
+                "{\"document_id\":\"" + id + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
+                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), id.toString());
 
-        assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("SIGNED");
+        assertThat(statements.findById(id).orElseThrow().getStatus().name()).isEqualTo("SIGNED");
         assertThat(processedEvents.existsById(eventId)).isTrue();
         // redelivery is a no-op (at-least-once)
         eventListener.onEvent(
-                "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
-                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
+                "{\"document_id\":\"" + id + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
+                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), id.toString());
 
-        var published = service.publish(no);
+        var published = service.publish(id);
         assertThat(published.status()).isEqualTo("ISSUED");
         assertThat(published.dueDate()).isEqualTo(LocalDate.of(2026, 11, 30).plusDays(30));
 
-        var adjustment = service.createAdjustment(no, new AdjustmentRequest("short-count", List.of(
+        var adjustment = service.createAdjustment(id, new AdjustmentRequest("short-count", List.of(
                 new AdjustmentRequest.AdjustmentLineInput("CNT", "Container handling", "TEU",
                         new BigDecimal("100.00"), new BigDecimal("1"), null))));
         assertThat(adjustment.status()).isEqualTo("DRAFT");
-        assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
+        assertThat(statements.findById(id).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
     }
 
     @Test
     @org.springframework.transaction.annotation.Transactional
     void recalculateRefreshesLinesWithoutOrphaningLinks() {
         StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-05"));
+        UUID id = created.id();
         // controlled edit drops to DRAFT, then recalculate rebuilds CALCULATED lines in place
-        service.editLine(created.statementNo(),
+        service.editLine(id,
                 new EditLineRequest(1, new BigDecimal("100.00"), new BigDecimal("20"), "confirmed", created.version()));
-        var recalculated = service.recalculate(created.statementNo());
+        var recalculated = service.recalculate(id);
 
         // the edited line flipped to MANUAL on edit, so recalculate preserves it (m20) and adds
         // one refreshed CALCULATED line; each keeps exactly its two volume links — no orphans
@@ -276,7 +276,7 @@ class BillingCalculateIT {
         assertThat(recalculated.lines().stream().filter(l -> "CALCULATED".equals(l.source()))).hasSize(1);
         assertThat(recalculated.lines().stream().mapToInt(l -> l.volumeLinks().size()).sum()).isEqualTo(4);
         assertThat(recalculated.totalAmount()).isEqualByComparingTo("4320.00");
-        var reloaded = statements.findByStatementNo(recalculated.statementNo()).orElseThrow();
+        var reloaded = statements.findById(id).orElseThrow();
         assertThat(reloaded.getLines()).hasSize(2);
         assertThat(reloaded.getLines().stream().mapToInt(l -> l.getVolumeLinks().size()).sum()).isEqualTo(4);
     }
@@ -285,39 +285,37 @@ class BillingCalculateIT {
     void adjustmentReentersBuildPathToSubmitted() {
         // build + issue the original first
         StatementResponse created = service.calculate(new CalculateStatementRequest(contractId.toString(), "2026-12"));
-        String no = created.statementNo();
-        service.reconcile(no);
-        service.submit(no);
-        approveViaWorkflow(no, "W-i");
-        service.sendForSigning(no);
-        var stmtId = statements.findByStatementNo(no).orElseThrow().getId();
+        UUID id = created.id();
+        service.reconcile(id);
+        service.submit(id);
+        approveViaWorkflow(id, "W-i");
+        service.sendForSigning(id);
         UUID eventId = UUID.randomUUID();
         eventListener.onEvent(
-                "{\"document_id\":\"" + stmtId + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
-                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), stmtId.toString());
-        service.publish(no);
+                "{\"document_id\":\"" + id + "\",\"result\":\"SIGNED\",\"session_id\":\"" + UUID.randomUUID() + "\"}",
+                "esign.session_completed", "PAYMENT_STATEMENT", eventId.toString(), id.toString());
+        service.publish(id);
 
         // the MANUAL-only adjustment walks DRAFT -> CALCULATED -> RECONCILED -> SUBMITTED
         // with no volume pulls and no mapping gate (PAY-05/m39)
-        var adjustment = service.createAdjustment(no, new AdjustmentRequest("short-count", List.of(
+        var adjustment = service.createAdjustment(id, new AdjustmentRequest("short-count", List.of(
                 new AdjustmentRequest.AdjustmentLineInput("CNT", "Container handling", "TEU",
                         new BigDecimal("100.00"), new BigDecimal("1"), null))));
-        var recalculated = service.recalculate(adjustment.statementNo());
+        var recalculated = service.recalculate(adjustment.id());
         assertThat(recalculated.status()).isEqualTo("CALCULATED");
         assertThat(recalculated.lines()).hasSize(1);
         assertThat(recalculated.lines().get(0).source()).isEqualTo("MANUAL");
-        var submitted = service.submit(service.reconcile(adjustment.statementNo()).statementNo());
+        var submitted = service.submit(service.reconcile(adjustment.id()).id());
         assertThat(submitted.status()).isEqualTo("SUBMITTED");
-        assertThat(statements.findByStatementNo(no).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
+        assertThat(statements.findById(id).orElseThrow().getStatus().name()).isEqualTo("ISSUED");
     }
 
     /** Drives SUBMITTED → APPROVED through the real consumer (M1: no gate-skipping shortcut). */
-    private void approveViaWorkflow(String statementNo, String instanceId) {
-        var stmtId = statements.findByStatementNo(statementNo).orElseThrow().getId();
+    private void approveViaWorkflow(UUID statementId, String instanceId) {
         eventListener.onEvent(
-                "{\"document_id\":\"" + stmtId + "\",\"outcome\":\"APPROVED\",\"instance_id\":\"" + instanceId + "\"}",
-                "workflow.completed", "PAYMENT_STATEMENT", UUID.randomUUID().toString(), stmtId.toString());
-        assertThat(statements.findByStatementNo(statementNo).orElseThrow().getStatus().name()).isEqualTo("APPROVED");
+                "{\"document_id\":\"" + statementId + "\",\"outcome\":\"APPROVED\",\"instance_id\":\"" + instanceId + "\"}",
+                "workflow.completed", "PAYMENT_STATEMENT", UUID.randomUUID().toString(), statementId.toString());
+        assertThat(statements.findById(statementId).orElseThrow().getStatus().name()).isEqualTo("APPROVED");
     }
 
     @Test

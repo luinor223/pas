@@ -23,34 +23,34 @@ import { formatDate, formatMoney } from "@/shared/lib/format";
 
 const EDITABLE = new Set(["DRAFT", "CALCULATED"]);
 
-export function PaymentStatementDetail({ statementNo }: { statementNo: string }) {
+export function PaymentStatementDetail({ id }: { id: string }) {
   const qc = useQueryClient();
   const canWrite = useHasPermission("statement:write");
   const canEsign = useHasPermission("esign:send");
   const canCancel = useHasPermission("statement:cancel_approved");
 
-  const detailQ = useQuery(statementQuery(statementNo));
+  const detailQ = useQuery(statementQuery(id));
   const statement = detailQ.data;
-  const workflowQ = useQuery({ ...statementWorkflowQuery(statementNo), enabled: statement?.status === "SUBMITTED" });
+  const workflowQ = useQuery({ ...statementWorkflowQuery(id), enabled: statement?.status === "SUBMITTED" });
 
   const [addOpen, setAddOpen] = useState(false);
   const [editLine, setEditLine] = useState<StatementLineResponse | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["payment-statement", statementNo] });
+    qc.invalidateQueries({ queryKey: ["payment-statement", id] });
     qc.invalidateQueries({ queryKey: ["payment-statements"] });
   };
 
-  const actionMut = useMutation({ mutationFn: (key: LifecycleKey) => billingApi[key](statementNo), onSuccess: invalidate });
+  const actionMut = useMutation({ mutationFn: (key: LifecycleKey) => billingApi[key](id), onSuccess: invalidate });
   const cancelMut = useMutation({
-    mutationFn: (reason?: string) => billingApi.cancel(statementNo, reason),
+    mutationFn: (reason?: string) => billingApi.cancel(id, reason),
     onSuccess: () => { invalidate(); setConfirmCancel(false); },
   });
 
   const [addForm, setAddForm] = useState({ serviceCode: "", serviceName: "", unit: "", unitPrice: "", quantity: "", note: "" });
   const addMut = useMutation({
-    mutationFn: () => billingApi.addLine(statementNo, {
+    mutationFn: () => billingApi.addLine(id, {
       serviceCode: addForm.serviceCode, serviceName: addForm.serviceName || null, unit: addForm.unit || null,
       unitPrice: Number(addForm.unitPrice), quantity: Number(addForm.quantity), note: addForm.note || null,
       version: statement?.version ?? 0,
@@ -60,7 +60,7 @@ export function PaymentStatementDetail({ statementNo }: { statementNo: string })
 
   const [editForm, setEditForm] = useState({ unitPrice: "", quantity: "", note: "" });
   const editMut = useMutation({
-    mutationFn: () => billingApi.editLine(statementNo, {
+    mutationFn: () => billingApi.editLine(id, {
       lineNo: editLine?.lineNo ?? 0, unitPrice: Number(editForm.unitPrice), quantity: Number(editForm.quantity),
       note: editForm.note || null, version: statement?.version ?? 0,
     }),
