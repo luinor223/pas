@@ -30,6 +30,8 @@ public final class PriceListDtos {
 
     public record CreateVersionRequest(@NotNull LocalDate validFrom, @NotNull LocalDate validTo, UUID addendumId) {}
 
+    public record UpdateVersionDatesRequest(@NotNull LocalDate validFrom, @NotNull LocalDate validTo) {}
+
     public record VersionResponse(UUID id, UUID priceListId, int versionNo, String status,
                                   LocalDate validFrom, LocalDate validTo, UUID addendumId) {
         public static VersionResponse of(PriceListVersion v) {

@@ -108,7 +108,9 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
   const detailQuery = useQuery(priceListVersionQuery(priceList.id, versionId));
   const itemsQuery = useQuery(serviceItemsQuery);
   const [editedPrices, setEditedPrices] = useState<Record<string, string> | null>(null);
+  const [editedDates, setEditedDates] = useState<{ from: string; to: string } | null>(null);
   const [validationError, setValidationError] = useState("");
+  const [dateError, setDateError] = useState("");
   const [confirmSubmit, setConfirmSubmit] = useState(false);
 
   const savedPrices = Object.fromEntries((detailQuery.data?.lines ?? []).map((line) => [line.serviceCode, String(line.unitPrice)]));
@@ -139,6 +141,16 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
       queryClient.invalidateQueries({ queryKey: ["price-list-version", priceList.id, versionId] });
     },
   });
+  const datesMutation = useMutation({
+    mutationFn: (dates: { from: string; to: string }) =>
+      pricingApi.updateVersionDates(priceList.id, versionId, dates.from, dates.to),
+    onSuccess: () => {
+      setEditedDates(null);
+      setDateError("");
+      queryClient.invalidateQueries({ queryKey: ["price-list-versions", priceList.id] });
+      queryClient.invalidateQueries({ queryKey: ["price-list-version", priceList.id, versionId] });
+    },
+  });
 
   if (detailQuery.isLoading || itemsQuery.isLoading) {
     return <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading prices...</CardContent></Card>;
@@ -150,6 +162,10 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
 
   const { version, lines } = detailQuery.data;
   const editable = canWrite && version.status === "DRAFT";
+  const fromValue = editedDates?.from ?? version.validFrom;
+  const toValue = editedDates?.to ?? version.validTo;
+  const datesDirty = fromValue !== version.validFrom || toValue !== version.validTo;
+  const invalidRange = Boolean(fromValue && toValue && fromValue > toValue);
   const activeItems = itemsQuery.data ?? [];
   const activeCodes = new Set(activeItems.map((item) => item.code));
   const editableItems = [
@@ -179,7 +195,15 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
     saveMutation.mutate(parsed);
   }
 
-  const actionError = saveMutation.error ?? submitMutation.error ?? reviseMutation.error;
+  function saveDates() {
+    if (invalidRange) {
+      setDateError("Valid to must be on or after Valid from.");
+      return;
+    }
+    datesMutation.mutate({ from: fromValue, to: toValue });
+  }
+
+  const actionError = saveMutation.error ?? submitMutation.error ?? reviseMutation.error ?? datesMutation.error;
 
   return (
     <Card>
@@ -189,9 +213,43 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
             <CardTitle>Version {version.versionNo} prices</CardTitle>
             <StatusBadge status={version.status} />
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Valid {formatDate(version.validFrom)}–{formatDate(version.validTo)}
-          </p>
+          {editable ? (
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div>
+                <Label htmlFor="edit-version-valid-from" className="text-xs">Valid from</Label>
+                <Input
+                  id="edit-version-valid-from"
+                  type="date"
+                  className="w-40"
+                  value={fromValue}
+                  onChange={(event) => { setEditedDates({ from: event.target.value, to: toValue }); setDateError(""); }}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-version-valid-to" className="text-xs">Valid to</Label>
+                <Input
+                  id="edit-version-valid-to"
+                  type="date"
+                  className="w-40"
+                  min={fromValue}
+                  value={toValue}
+                  onChange={(event) => { setEditedDates({ from: fromValue, to: event.target.value }); setDateError(""); }}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!datesDirty || invalidRange || datesMutation.isPending}
+                onClick={saveDates}
+              >
+                {datesMutation.isPending ? "Saving..." : "Save dates"}
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Valid {formatDate(version.validFrom)}–{formatDate(version.validTo)}
+            </p>
+          )}
         </div>
         {canWrite && version.status === "REJECTED" && (
           <Button variant="outline" disabled={reviseMutation.isPending} onClick={() => reviseMutation.mutate()}>
@@ -259,9 +317,9 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
           </Table>
         </div>
 
-        {(validationError || actionError) && (
+        {(validationError || dateError || actionError) && (
           <p role="alert" className="text-sm text-destructive">
-            {validationError || getApiErrorMessage(actionError, "Could not update this price-list version")}
+            {validationError || dateError || getApiErrorMessage(actionError, "Could not update this price-list version")}
           </p>
         )}
 
@@ -273,8 +331,8 @@ function VersionPrices({ priceList, versionId, canWrite }: { priceList: PriceLis
                 {saveMutation.isPending ? "Saving..." : "Save prices"}
               </Button>
               <Button
-                disabled={dirty || lines.length === 0 || saveMutation.isPending || submitMutation.isPending}
-                title={dirty ? "Save your price changes before submitting" : lines.length === 0 ? "Add and save at least one service price first" : undefined}
+                disabled={dirty || datesDirty || lines.length === 0 || saveMutation.isPending || submitMutation.isPending}
+                title={dirty ? "Save your price changes before submitting" : datesDirty ? "Save your date changes before submitting" : lines.length === 0 ? "Add and save at least one service price first" : undefined}
                 onClick={() => { submitMutation.reset(); setConfirmSubmit(true); }}
               >
                 <Send size={15} className="mr-1.5" /> Submit for approval

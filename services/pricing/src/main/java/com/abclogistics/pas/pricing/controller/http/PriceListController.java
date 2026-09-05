@@ -8,6 +8,7 @@ import com.abclogistics.pas.pricing.dto.PriceListDtos.LineDto;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.PriceListResponse;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.PriceListPageResponse;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.ReplaceLinesRequest;
+import com.abclogistics.pas.pricing.dto.PriceListDtos.UpdateVersionDatesRequest;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.VersionDetailResponse;
 import com.abclogistics.pas.pricing.dto.PriceListDtos.VersionResponse;
 import com.abclogistics.pas.pricing.service.PriceListService;
@@ -17,6 +18,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -94,6 +96,15 @@ public class PriceListController {
     @GetMapping("/{id}/versions/{versionId}")
     @PreAuthorize("hasAuthority('pricelist:read')")
     public VersionDetailResponse getVersion(@PathVariable UUID id, @PathVariable UUID versionId) {
+        return detail(id, versionId);
+    }
+
+    @PatchMapping("/{id}/versions/{versionId}")
+    @PreAuthorize("hasAuthority('pricelist:write')")
+    public VersionDetailResponse updateVersionDates(@PathVariable UUID id, @PathVariable UUID versionId,
+                                                    @Valid @RequestBody UpdateVersionDatesRequest req) {
+        lists.getVersion(id, versionId);
+        lists.updateVersionDates(versionId, req.validFrom(), req.validTo());
         return detail(id, versionId);
     }
 

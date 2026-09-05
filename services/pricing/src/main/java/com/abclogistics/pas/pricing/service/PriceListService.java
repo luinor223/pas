@@ -115,6 +115,27 @@ public class PriceListService {
         return version;
     }
 
+    /** Updates the validity window of a DRAFT version (PRC-05: no edits past DRAFT). The
+     *  overlap guard runs at submit/approve, so a draft window change is safe here. */
+    @Transactional
+    public PriceListVersion updateVersionDates(UUID versionId, LocalDate validFrom, LocalDate validTo) {
+        PriceListVersion version = versions.findByIdForUpdate(versionId)
+                .orElseThrow(() -> new NotFoundException("No price list version " + versionId));
+        if (version.getStatus() != PriceListVersionStatus.DRAFT) {
+            throw new ConflictException("A " + version.getStatus() + " version is read-only; create a new version (PRC-05)");
+        }
+        if (validFrom == null || validTo == null || validFrom.isAfter(validTo)) {
+            throw new IllegalArgumentException("valid_from must be on or before valid_to (PRC-02)");
+        }
+        version.setValidFrom(validFrom);
+        version.setValidTo(validTo);
+        PriceList list = get(version.getPriceListId());
+        audit.record("PRICE_LIST_VERSION", versionId, versionEntityNo(list, version.getVersionNo()),
+                "EDIT_DATES", null, null, null,
+                Map.<String, Object>of("validFrom", validFrom.toString(), "validTo", validTo.toString()));
+        return version;
+    }
+
     /** Replaces the lines of a DRAFT version (PRC-05: no edits past DRAFT). */
     @Transactional
     public void replaceLines(UUID versionId, List<LineInput> inputs) {

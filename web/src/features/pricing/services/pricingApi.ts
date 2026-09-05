@@ -38,6 +38,9 @@ export const pricingApi = {
   replaceLines: (priceListId: string, versionId: string, lines: PriceLineInput[]) =>
     api.put<PriceListVersionDetail>(`/price-lists/${priceListId}/versions/${versionId}/lines`, { lines })
       .then((response) => response.data),
+  updateVersionDates: (priceListId: string, versionId: string, validFrom: string, validTo: string) =>
+    api.patch<PriceListVersionDetail>(`/price-lists/${priceListId}/versions/${versionId}`, { validFrom, validTo })
+      .then((response) => response.data),
   submitVersion: (priceListId: string, versionId: string) =>
     api.post<PriceListVersionResponse>(`/price-lists/${priceListId}/versions/${versionId}/submit`)
       .then((response) => response.data),
