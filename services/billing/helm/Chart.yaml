@@ -1,0 +1,10 @@
+apiVersion: v2
+name: billing
+description: PAS billing service (payment statements).
+type: application
+version: 0.1.0
+appVersion: "main"
+dependencies:
+  - name: pas-common
+    version: 0.1.0
+    repository: "file://../../../infra/helm/pas-common"

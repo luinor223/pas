@@ -65,3 +65,7 @@ infra/docker/traefik/dynamic/jwt.yml
 # ===== Local dev inspection ports (see docker-compose.override.yml) =====
 docker-compose.override.yml
 .playwright-cli/
+
+# Helm vendored dependencies (rebuild with: helm dependency build)
+**/helm/charts/
+**/helm/Chart.lock

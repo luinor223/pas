@@ -1,0 +1,21 @@
+ingress:
+  entryPoint: web
+
+service:
+  name: web
+  fullnameOverride: web
+  httpPort: 80
+  replicas: 1
+  disableRedis: true
+  disableKafka: true
+  probe: tcp
+  image:
+    repository: ghcr.io/luinor223/pas-web
+    tag: main
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 128Mi
+    requests:
+      memory: 32Mi
+      cpu: 25m

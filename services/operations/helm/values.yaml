@@ -1,0 +1,51 @@
+# Shared infra endpoints. Override per-environment with -f values-<env>.yaml
+# (the same file across all service charts).
+postgres:
+  host: postgres
+  port: 5432
+redis:
+  host: redis
+  port: 6379
+kafka:
+  bootstrapServers: kafka:9092
+
+jwt:
+  issuer: pas-identity
+  # RS256 public key PEM, used by the Traefik jwt-auth middleware.
+  publicKey: ""
+  # Secret holding jwt-private.pem, mounted into services that sign (identity).
+  privateKeySecret: pas-jwt-private
+
+ingress:
+  entryPoint: web
+
+service:
+  name: operations
+  httpPort: 8004
+  grpcPort: 50054
+  replicas: 1
+  image:
+    repository: ghcr.io/luinor223/pas-operations
+    tag: main
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 640Mi
+    requests:
+      memory: 512Mi
+      cpu: 100m
+  database:
+    name: pas_operations
+    user: operations
+    # db-password comes from the external Secret (service.secretName)
+  env:
+    CONTRACT_GRPC_HOST: "contract-service"
+    CONTRACT_GRPC_PORT: "50052"
+    PRICING_GRPC_HOST: "pricing-service"
+    PRICING_GRPC_PORT: "50053"
+  routes:
+    - /api/v1/periods
+    - /api/v1/volume-records
+  rateLimit:
+    average: 100
+    burst: 50

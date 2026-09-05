@@ -1,0 +1,18 @@
+service:
+  name: esign-mock-provider
+  fullnameOverride: esign-mock-provider
+  httpPort: 9001
+  replicas: 1
+  disableRedis: true
+  disableKafka: true
+  probe: tcp
+  image:
+    repository: ghcr.io/luinor223/pas-esign-mock-provider
+    tag: main
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 384Mi
+    requests:
+      memory: 256Mi
+      cpu: 50m

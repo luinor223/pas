@@ -1,0 +1,10 @@
+apiVersion: v2
+name: web
+description: PAS web frontend (React SPA served by nginx).
+type: application
+version: 0.1.0
+appVersion: "main"
+dependencies:
+  - name: pas-common
+    version: 0.1.0
+    repository: "file://../../infra/helm/pas-common"

@@ -1,0 +1,48 @@
+# Shared infra endpoints. Override per-environment with -f values-<env>.yaml
+# (the same file across all service charts).
+postgres:
+  host: postgres
+  port: 5432
+redis:
+  host: redis
+  port: 6379
+kafka:
+  bootstrapServers: kafka:9092
+
+jwt:
+  issuer: pas-identity
+  # RS256 public key PEM, used by the Traefik jwt-auth middleware.
+  publicKey: ""
+  # Secret holding jwt-private.pem, mounted into services that sign (identity).
+  privateKeySecret: pas-jwt-private
+
+ingress:
+  entryPoint: web
+
+service:
+  name: notification
+  httpPort: 8008
+  replicas: 1
+  image:
+    repository: ghcr.io/luinor223/pas-notification
+    tag: main
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 640Mi
+    requests:
+      memory: 512Mi
+      cpu: 100m
+  database:
+    name: pas_notification
+    user: notification
+    # db-password comes from the external Secret (service.secretName)
+  env:
+    IDENTITY_GRPC_HOST: "identity-service"
+    IDENTITY_GRPC_PORT: "50051"
+  routes:
+    - /api/v1/notifications
+  docsPath: /docs/notification
+  rateLimit:
+    average: 100
+    burst: 50
