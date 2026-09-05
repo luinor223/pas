@@ -18,6 +18,10 @@ spec:
     metadata:
       labels: {{- include "pas-common.selectorLabels" . | nindent 8 }}
     spec:
+      # The distroless base runs as uid 65532; fsGroup makes mounted volumes
+      # (e.g. contract's attachments PVC) group-writable by the nonroot process.
+      securityContext:
+        {{- toYaml ($svc.podSecurityContext | default (dict "runAsNonRoot" true "runAsUser" 65532 "runAsGroup" 65532 "fsGroup" 65532)) | nindent 8 }}
       containers:
         - name: {{ $svc.name }}
           image: "{{ $svc.image.repository }}:{{ $svc.image.tag | default .Chart.AppVersion }}"
