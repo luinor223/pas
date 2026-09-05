@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,9 +54,10 @@ class StatementTotalsTest {
     @Test
     void editLineRecomputesSubtotalTaxAndTotal() {
         PaymentStatement stmt = calculatedStatement();
-        when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        service.editLine("PMT-2026-0001",
+        service.editLine(id,
                 new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), null, 0));
 
         // 10 x 200 = 2000 subtotal, 8% VAT = 160, total 2160
@@ -67,9 +69,10 @@ class StatementTotalsTest {
     @Test
     void editLineOnCalculatedFlipsToDraftAsManual() {
         PaymentStatement stmt = calculatedStatement();
-        when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        var response = service.editLine("PMT-2026-0001",
+        var response = service.editLine(id,
                 new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), "agreed adj", 0));
 
         assertThat(stmt.getStatus()).isEqualTo(PaymentStatement.StatementStatus.DRAFT);
@@ -80,10 +83,11 @@ class StatementTotalsTest {
     @Test
     void addLineAppendsManualLineAndRecomputes() {
         PaymentStatement stmt = calculatedStatement();
-        when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
         when(lines.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.addLine("PMT-2026-0001", new AddLineRequest("STORAGE", "Storage", "day",
+        service.addLine(id, new AddLineRequest("STORAGE", "Storage", "day",
                 new BigDecimal("50.00"), new BigDecimal("4"), null, 0));
 
         // 1000 + 200 = 1200 subtotal, 96 tax, 1296 total
@@ -97,9 +101,10 @@ class StatementTotalsTest {
     @Test
     void staleVersionLosesLoudly() {
         PaymentStatement stmt = calculatedStatement();
-        when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        assertThatThrownBy(() -> service.editLine("PMT-2026-0001",
+        assertThatThrownBy(() -> service.editLine(id,
                 new EditLineRequest(1, new BigDecimal("200.00"), new BigDecimal("10"), null, 7)))
                 .isInstanceOf(com.abclogistics.pas.common.error.UnprocessableEntityException.class)
                 .hasMessageContaining("Stale statement version");
@@ -109,9 +114,10 @@ class StatementTotalsTest {
     void editIsRejectedOutsideDraftAndCalculated() {
         PaymentStatement stmt = calculatedStatement();
         stmt.setStatus(PaymentStatement.StatementStatus.SIGNED);
-        when(statements.findByStatementNo("PMT-2026-0001")).thenReturn(Optional.of(stmt));
+        UUID id = stmt.getId();
+        when(statements.findById(id)).thenReturn(Optional.of(stmt));
 
-        assertThatThrownBy(() -> service.editLine("PMT-2026-0001",
+        assertThatThrownBy(() -> service.editLine(id,
                 new EditLineRequest(1, new BigDecimal("1.00"), new BigDecimal("1"), null, 0)))
                 .isInstanceOf(FailedPreconditionException.class)
                 .hasMessageContaining("DRAFT or CALCULATED");
@@ -119,6 +125,7 @@ class StatementTotalsTest {
 
     private static PaymentStatement calculatedStatement() {
         PaymentStatement stmt = new PaymentStatement();
+        setId(stmt, UUID.randomUUID());
         stmt.setStatementNo("PMT-2026-0001");
         stmt.setVatRate(new BigDecimal("8.00"));
         stmt.setSubtotal(new BigDecimal("1000.00"));
@@ -137,5 +144,15 @@ class StatementTotalsTest {
         line.setSource(StatementLine.LineSource.CALCULATED);
         stmt.getLines().add(line);
         return stmt;
+    }
+
+    private static void setId(PaymentStatement stmt, UUID id) {
+        try {
+            var field = PaymentStatement.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(stmt, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

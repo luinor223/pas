@@ -62,7 +62,7 @@ class StatementAuditRecorderTest {
         statement.setPriceListNo("PRC-2026-0001");
         statement.setPriceListVersionNo(3);
         statement.setStatus(PaymentStatement.StatementStatus.CALCULATED);
-        when(statements.findByStatementNo("PMT-2026-0042")).thenReturn(Optional.of(statement));
+        when(statements.findById(statementId)).thenReturn(Optional.of(statement));
         when(operations.listVolumes(contractId.toString(), "2026-08"))
                 .thenReturn(ListVolumesResponse.newBuilder()
                         .setPeriodState("LOCKED").setPeriodEnd("2026-08-31").build());
@@ -74,7 +74,7 @@ class StatementAuditRecorderTest {
                 .thenReturn(GetEffectivePriceListResponse.newBuilder()
                         .setPriceListNo("PRC-2026-0001").setVersionNo(3).build());
 
-        service.reconcile("PMT-2026-0042");
+        service.reconcile(statementId);
 
         verify(audit).record(
                 eq("PAYMENT_STATEMENT"), eq(statementId), eq("PMT-2026-0042"),
