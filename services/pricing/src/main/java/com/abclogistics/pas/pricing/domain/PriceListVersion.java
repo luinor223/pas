@@ -79,6 +79,7 @@ public class PriceListVersion extends BaseEntity {
     public java.time.Instant getExpiryWarnedAt() { return expiryWarnedAt; }
 
     public void setStatus(PriceListVersionStatus status) { this.status = status; }
+    public void setValidFrom(LocalDate validFrom) { this.validFrom = validFrom; }
     public void setValidTo(LocalDate validTo) { this.validTo = validTo; }
     public void setExpiryWarnedAt(java.time.Instant expiryWarnedAt) { this.expiryWarnedAt = expiryWarnedAt; }
 }

@@ -105,6 +105,42 @@ class PriceListLifecycleIT {
     }
 
     @Test
+    void linesCanBeResavedForSameService() {
+        PriceListVersion v = draftVersion(); // seeds LIFT_ON_OFF
+        // Re-save the same service with a new price: delete-then-reinsert must not collide on uq_price_line.
+        lists.replaceLines(v.getId(), List.of(new LineInput("LIFT_ON_OFF", new BigDecimal("15.00"))));
+        assertThat(lists.lineViews(v.getId()))
+                .singleElement()
+                .satisfies(line -> assertThat(line.unitPrice()).isEqualByComparingTo("15.00"));
+    }
+
+    @Test
+    void datesEditableWhileDraft() {
+        PriceListVersion v = draftVersion();
+        lists.updateVersionDates(v.getId(), LocalDate.of(2026, 2, 1), LocalDate.of(2026, 11, 30));
+        PriceListVersion reloaded = lists.getVersion(v.getId());
+        assertThat(reloaded.getValidFrom()).isEqualTo(LocalDate.of(2026, 2, 1));
+        assertThat(reloaded.getValidTo()).isEqualTo(LocalDate.of(2026, 11, 30));
+    }
+
+    @Test
+    void datesReadOnlyPastDraft_PRC05() {
+        PriceListVersion v = draftVersion();
+        versionService.submit(v.getId());
+        assertThatThrownBy(() -> lists.updateVersionDates(v.getId(),
+                LocalDate.of(2026, 2, 1), LocalDate.of(2026, 11, 30)))
+                .isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void datesRejectedWhenFromAfterTo_PRC02() {
+        PriceListVersion v = draftVersion();
+        assertThatThrownBy(() -> lists.updateVersionDates(v.getId(),
+                LocalDate.of(2026, 12, 31), LocalDate.of(2026, 1, 1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void addendumIdIsStoredWithGivenValidFrom_D8() {
         PriceList list = lists.create(null, null, "WAREHOUSING", null);
         UUID addendumId = UUID.randomUUID();
