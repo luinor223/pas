@@ -18,8 +18,10 @@ import java.util.List;
 
 /**
  * Owns the Redis {@code perm:role:{code}} map. identity is the only writer.
- * Rewrites all roles at startup and hourly, and one role immediately after its
- * permissions change. Failures are logged, not thrown — the next sweep self-heals.
+ * The entries are authoritative and never expire; identity rewrites all roles at
+ * startup, rewrites one role immediately after its permissions change, and runs a
+ * periodic reconcile that repairs a missed write or a Redis data loss. Failures are
+ * logged, not thrown — the next reconcile self-heals.
  */
 @Service
 public class PermissionCacheWriter {
@@ -39,12 +41,11 @@ public class PermissionCacheWriter {
         this.objectMapper = objectMapper;
     }
 
-    /** Best-effort write of one role's permission set. */
+    /** Best-effort write of one role's permission set. No expiry: identity owns the entry. */
     public void write(Role role) {
         List<String> codes = role.getPermissions().stream().map(Permission::getCode).sorted().toList();
         try {
-            redis.opsForValue().set(keys.permKey(role.getCode()), objectMapper.writeValueAsString(codes),
-                    keys.permCacheTtl());
+            redis.opsForValue().set(keys.permKey(role.getCode()), objectMapper.writeValueAsString(codes));
         } catch (Exception e) {
             log.warn("Failed to write permission cache for role {}: {}", role.getCode(), e.getMessage());
         }
@@ -62,10 +63,10 @@ public class PermissionCacheWriter {
         refreshAllInternal("warmup");
     }
 
-    @Scheduled(fixedRate = 3_600_000)
+    @Scheduled(fixedDelayString = "${redis.perm-reconcile-interval:PT5M}")
     @Transactional(readOnly = true)
-    public void scheduledRefresh() {
-        refreshAllInternal("scheduled");
+    public void reconcile() {
+        refreshAllInternal("reconcile");
     }
 
     // Kept for backward compat if called directly; delegates to internal.

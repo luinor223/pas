@@ -48,7 +48,6 @@ identity:
     port: ${IDENTITY_GRPC_PORT:50051}
 
 redis:
-  perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
 
 # notification-service is a pure sink: it consumes, it never produces (db-notification.md).

@@ -48,7 +48,6 @@ spring:
       port: 50059
 
 redis:
-  perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
 
 # audit-service audits nothing of its own and produces no events (db-audit.md).

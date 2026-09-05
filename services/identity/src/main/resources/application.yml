@@ -6,6 +6,11 @@ spring:
   application:
     name: identity-service
 
+  task:
+    scheduling:
+      pool:
+        size: 2
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/pas_identity}
     username: ${DB_USER:identity}
@@ -58,7 +63,9 @@ auth:
     secure: ${AUTH_COOKIE_SECURE:false}
 
 redis:
-  perm-cache-ttl: PT6H
+  # Permission cache entries are authoritative and never expire; this sweep
+  # repairs a missed on-change write or a Redis data loss.
+  perm-reconcile-interval: PT5M
   perm-prefix: "perm:role:"
 
 outbox:

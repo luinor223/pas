@@ -72,7 +72,6 @@ esign:
     port: ${ESIGN_GRPC_PORT:50057}
 
 redis:
-  perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
 
 outbox:

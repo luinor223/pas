@@ -23,7 +23,6 @@ import org.testcontainers.utility.DockerImageName;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPairGenerator;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -33,14 +32,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
- * Verifies mechanics.md M1 — permission cache writer (startup warm, immediate after commit, hourly sweep)
+ * Verifies mechanics.md M1 — permission cache writer (startup warm, immediate after commit, reconcile sweep)
  * and fail-closed semantics.
  * Identity is the sole writer of {@code perm:role:{code}}; services read it. This IT proves:
  * <ul>
  *   <li>All seed roles are warmed at startup (no cold-start gap)</li>
  *   <li>PUT /roles/{code}/permissions rewrites the key immediately after commit (best-effort)</li>
  *   <li>Subsequent permission checks reflect the new map (propagation)</li>
- *   <li>Hourly sweep would self-heal (tested via manual scheduledRefresh call)</li>
+ *   <li>The reconcile sweep repairs the cache (tested via manual reconcile call)</li>
  * </ul>
  */
 @Tag("integration")
@@ -111,9 +110,8 @@ class PermissionCachePropagationIT {
             await().atMost(5, TimeUnit.SECONDS).until(() -> redisTemplate.hasKey(key));
             String json = redisTemplate.opsForValue().get(key);
             assertThat(json).isNotNull().contains(":");
-            // TTL should be 6h = 21600s; allow small tolerance
             Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-            assertThat(ttl).isGreaterThan(Duration.ofHours(5).toSeconds());
+            assertThat(ttl).isEqualTo(-1L);
         }
     }
 
@@ -211,12 +209,12 @@ class PermissionCachePropagationIT {
     }
 
     @Test
-    void scheduledRefreshRewritesAllKeys() {
-        // Simulate hourly sweep by calling scheduledRefresh directly
-        cacheWriter.scheduledRefresh();
-        // Verify keys still present with TTL refreshed
+    void reconcileRewritesAllKeys() {
+        // Simulate the reconcile sweep directly
+        cacheWriter.reconcile();
+        // Keys still present and authoritative (no expiry)
         assertThat(redisTemplate.hasKey("perm:role:SYSTEM_ADMIN")).isTrue();
         Long ttl = redisTemplate.getExpire("perm:role:SYSTEM_ADMIN", TimeUnit.SECONDS);
-        assertThat(ttl).isGreaterThan(Duration.ofHours(5).toSeconds());
+        assertThat(ttl).isEqualTo(-1L);
     }
 }

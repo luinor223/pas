@@ -28,7 +28,7 @@ class PermissionCacheFailClosedTest {
         when(redis.opsForValue()).thenReturn(ops);
         when(ops.multiGet(anyList())).thenThrow(new RuntimeException("Redis down"));
 
-        RedisKeyProperties keys = new RedisKeyProperties("perm:role:", java.time.Duration.ofHours(6));
+        RedisKeyProperties keys = new RedisKeyProperties("perm:role:");
         PermissionCache cache = new PermissionCache(redis, keys, objectMapper);
 
         assertThatThrownBy(() -> cache.resolve(List.of("SALES_OFFICER")))
@@ -45,7 +45,7 @@ class PermissionCacheFailClosedTest {
         when(ops.multiGet(List.of("perm:role:SALES_OFFICER", "perm:role:DIRECTOR")))
                 .thenReturn(List.of("[\"customer:read\",\"customer:write\"]", "[\"customer:read\",\"approval:act\"]"));
 
-        RedisKeyProperties keys = new RedisKeyProperties("perm:role:", java.time.Duration.ofHours(6));
+        RedisKeyProperties keys = new RedisKeyProperties("perm:role:");
         PermissionCache cache = new PermissionCache(redis, keys, objectMapper);
 
         var perms = cache.resolve(List.of("SALES_OFFICER", "DIRECTOR"));
@@ -57,7 +57,7 @@ class PermissionCacheFailClosedTest {
     @Test
     void resolveEmptyRolesReturnsEmptyWithoutRedisCall() {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
-        RedisKeyProperties keys = new RedisKeyProperties("perm:role:", java.time.Duration.ofHours(6));
+        RedisKeyProperties keys = new RedisKeyProperties("perm:role:");
         PermissionCache cache = new PermissionCache(redis, keys, objectMapper);
 
         var perms = cache.resolve(List.of());
@@ -76,7 +76,7 @@ class PermissionCacheFailClosedTest {
         when(ops.multiGet(List.of("perm:role:UNKNOWN")))
                 .thenReturn(java.util.Collections.singletonList(null));
 
-        RedisKeyProperties keys = new RedisKeyProperties("perm:role:", java.time.Duration.ofHours(6));
+        RedisKeyProperties keys = new RedisKeyProperties("perm:role:");
         PermissionCache cache = new PermissionCache(redis, keys, objectMapper);
 
         var perms = cache.resolve(List.of("UNKNOWN"));

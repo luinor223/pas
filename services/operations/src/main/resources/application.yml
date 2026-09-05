@@ -51,7 +51,6 @@ pricing:
     port: ${PRICING_GRPC_PORT:50053}
 
 redis:
-  perm-cache-ttl: PT6H
   perm-prefix: "perm:role:"
 
 outbox:
